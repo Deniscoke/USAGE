@@ -1,69 +1,133 @@
-import Image from "next/image";
+import Link from "next/link";
+import { VERIFICATION_META } from "@/components/ui";
+import type { VerificationType } from "@/lib/domain/types";
+import { listIntegrations } from "@/lib/providers/registry";
 
-export default function Home() {
+const PIPELINE = [
+  { step: "Connect", detail: "Provider APIs, gateways, developer tools." },
+  { step: "Normalize", detail: "One record shape across every source." },
+  { step: "Verify", detail: "Verified, Routed or Reported. Weighted accordingly." },
+  { step: "Score", detail: "Proof of Usage, versioned and reproducible." },
+];
+
+export default function LandingPage() {
+  const integrations = listIntegrations();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="flex-1">
+      <div className="grid-backdrop">
+        <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+          <span className="tnum text-sm font-medium tracking-[0.3em]">USAGE</span>
+          <Link
+            href="/dashboard"
+            className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--verified)] hover:text-[var(--foreground)]"
+          >
+            Open demo
+          </Link>
+        </header>
+
+        <section className="mx-auto max-w-6xl px-6 pb-20 pt-12 sm:pt-20">
+          <p className="text-xs uppercase tracking-[0.24em] text-[var(--faint)]">
+            Proof of Work → Proof of Stake → Proof of Usage
           </p>
+          <h1 className="mt-6 text-4xl font-medium leading-[1.05] tracking-tight sm:text-6xl">
+            Proof of AI Usage.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-[var(--muted)] sm:text-lg">
+            See, verify and own your AI usage history. USAGE reads consumption from every provider
+            you use, normalizes it into one record, and turns verified compute into a measurable
+            score.
+          </p>
+
+          <div className="mt-9 flex flex-wrap items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="rounded-md bg-[var(--foreground)] px-5 py-2.5 text-sm font-medium text-[var(--background)] transition-opacity hover:opacity-90"
+            >
+              Start tracking
+            </Link>
+            <span className="text-xs text-[var(--faint)]">
+              Demo account. No provider credentials required.
+            </span>
+          </div>
+        </section>
+      </div>
+
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <div className="grid gap-px overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-4">
+          {PIPELINE.map((item, index) => (
+            <div key={item.step} className="bg-[var(--surface)] p-5">
+              <span className="tnum text-[10px] text-[var(--faint)]">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <h3 className="mt-2 text-sm font-medium">{item.step}</h3>
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted)]">{item.detail}</p>
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--muted)]">
+          Three levels of proof
+        </h2>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          {(Object.keys(VERIFICATION_META) as VerificationType[]).map((type) => {
+            const meta = VERIFICATION_META[type];
+            return (
+              <div
+                key={type}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5"
+                style={{ borderTopColor: meta.color, borderTopWidth: 2 }}
+              >
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-sm font-medium" style={{ color: meta.color }}>
+                    {meta.label}
+                  </h3>
+                  <span className="tnum text-xs text-[var(--faint)]">weight {meta.weight}</span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{meta.blurb}</p>
+              </div>
+            );
+          })}
         </div>
-      </main>
-    </div>
+        <p className="mt-4 max-w-2xl text-xs leading-relaxed text-[var(--faint)]">
+          Rewards come from a fixed pool per epoch, split by share of verified network usage. Burning
+          tokens to farm points does not work: extra spend only dilutes the pool. USAGE Points are
+          off-chain, non-transferable and carry no monetary value.
+        </p>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 pb-24">
+        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--muted)]">
+          Registered adapters
+        </h2>
+        <ul className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+          {integrations.map((integration) => (
+            <li key={integration.provider} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-sm">
+              <span className="tnum text-xs text-[var(--faint)]">{integration.provider}</span>
+              <span className="flex-1 text-[var(--foreground)]">{integration.label}</span>
+              <span
+                className="text-[10px] uppercase tracking-[0.12em]"
+                style={{ color: VERIFICATION_META[integration.verificationType].color }}
+              >
+                {VERIFICATION_META[integration.verificationType].label}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-[var(--faint)]">
+          Real provider integrations plug in behind the same adapter interface. Capabilities are
+          documented per provider before any integration ships.
+        </p>
+      </section>
+
+      <footer className="border-t border-[var(--border)] px-6 py-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs text-[var(--faint)]">
+          <span className="tnum tracking-[0.2em]">USAGE</span>
+          <span>Measures consumption metadata only. Never prompts or completions.</span>
+        </div>
+      </footer>
+    </main>
   );
 }

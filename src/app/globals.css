@@ -1,26 +1,64 @@
 @import "tailwindcss";
 
+/*
+ * USAGE visual system.
+ * Dark-first, data-dense, no gradients-for-their-own-sake. Colour is reserved
+ * for meaning: each verification level owns exactly one hue, everywhere.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #08090b;
+  --surface: #0e1013;
+  --surface-2: #14171b;
+  --border: #1f242a;
+  --border-strong: #2c333b;
+  --foreground: #e8eaed;
+  --muted: #8b939e;
+  --faint: #5c646e;
+
+  --verified: #4ade80;
+  --routed: #60a5fa;
+  --reported: #6b7280;
+  --warn: #f4b942;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-verified: var(--verified);
+  --color-routed: var(--routed);
+  --color-reported: var(--reported);
+  --color-warn: var(--warn);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers are data: always tabular, always mono. */
+.tnum {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-backdrop {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
 }
