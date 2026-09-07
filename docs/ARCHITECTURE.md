@@ -43,7 +43,8 @@ Ingestion writes; the dashboard only reads. The page never calls an adapter.
 src/lib/domain/       framework-free core: types, money, pricing, normalize,
                       scoring, epoch  (unit tested)
 src/lib/providers/    adapter interface, deterministic RNG, registry,
-                      demo/{provider-api,gateway,local-cli}
+                      demo/{provider-api,gateway,local-cli},
+                      vercel-gateway/{observation,adapter,fixtures,probe}
 src/lib/pipeline/     collect (fetch→normalize→dedupe), dashboard (view model)
 src/lib/db/           ingest (trusted write path), supabase-store, rows
                       (row↔domain mapping), usage-repository (reads), profile
@@ -54,6 +55,7 @@ src/proxy.ts          session refresh + route gating (Next 16 "proxy")
 src/app/              landing, /login, /sign-up, /dashboard, auth actions
 src/components/       ui primitives, SVG charts, auth form
 src/test/             PGlite harness + SQL IngestStore for integration tests
+scripts/              gateway-probe.ts (dev-only, the only code that can spend)
 supabase/             config.toml, migrations/, seed.sql
 ```
 
@@ -64,6 +66,31 @@ them and floats drift over millions of events. `usdStringToMicros` parses
 provider decimal strings without touching a float. DB columns are `BIGINT`.
 Every value crossing the DB boundary passes `toSafeInteger`, which throws rather
 than silently losing precision (PostgREST returns bigint as a JSON number).
+
+**Two ingestion modes.** `pull` adapters fetch history on a schedule; the
+gateway is `observation` mode — evidence is captured at request time by
+USAGE-controlled infrastructure and pushed in, because there is nothing to pull.
+`listPullIntegrations()` keeps the demo sync from trying to poll it.
+
+**Routed is not verified.** A request USAGE itself sent through the Vercel AI
+Gateway is *observed* (ROUTED, weight 1.0), not attested by the provider's
+billing system (VERIFIED). The distinction is preserved end to end; only an
+authoritative provider/billing API may ever produce VERIFIED.
+
+**Fixtures are REPORTED, by definition.** A captured payload was not observed by
+anyone, so `deriveVerification("fixture")` classifies it REPORTED /
+unverifiable — weight 0.0. That makes it structurally impossible for fixture
+data to earn rewards without adding a special case to the scorer, and fixture
+external references live in a `fixture:` namespace that cannot collide with or
+impersonate a real `live:<generationId>`.
+
+**Gateway cost is authoritative or unknown — never estimated.** When the gateway
+reports a cost it is parsed by `usdCostToMicros`, which rounds half-up at the
+micro boundary (providers quote more precision than micro-USD; truncating
+sub-micro costs to zero would under-report real spend) and records whether it
+rounded. When the gateway reports nothing, cost is `null` / 0 with
+`cost_basis: "unavailable"`. The local price table is for demo models only and
+is never applied to real gateway traffic.
 
 **Adapters are the only place a provider's wire format exists.** Each adapter
 declares its own raw row type; `toIntegration()` type-erases it at the registry
@@ -89,6 +116,20 @@ DELETE privilege on `usage_events`, `usage_daily_aggregates`, `score_records`,
 `proof_records` or `reward_allocations` (migration 0002). Verification type is
 assigned by the adapter during trusted ingestion, so a client cannot submit
 `{"verification": "verified"}` — it cannot submit usage at all.
+
+**Provenance for every event.** Ingestion writes a `proof_records` row for each
+event it creates: proof kind, proof source, external reference, observed and
+ingested timestamps, adapter version, and a whitelisted metadata object the
+adapter chose. Raw provider payloads are never stored, and re-ingesting an
+observation cannot accumulate duplicate provenance (unique on
+`usage_event_id, proof_kind`).
+
+**A failed request is not usage.** `classifyGatewayFailure` maps 401/403, 402,
+429, 5xx, timeouts and network errors to operational failures, and malformed
+metadata (no generation id, no token counts, negative counts, non-USD cost) is
+rejected by `assertObservation`. None of these create a usage event: without
+trustworthy evidence that billable usage occurred, guessing would fabricate
+economic value.
 
 **Profiles are created by a database trigger** (`on_auth_user_created`), not by
 signup code: it cannot be bypassed by a signup path we forget to update and it
@@ -143,6 +184,13 @@ assertion rather than a mock. No Docker required.
 `src/test/sql-ingest-store.ts` implements the same `IngestStore` port over SQL,
 which is how the ingestion pipeline itself is exercised end to end.
 
+Gateway evidence has two modes. **Fixture mode** (`fixtures.ts`, and
+`npm run usage:gateway:probe -- --fixtures`) replays schema-realistic payloads
+through the whole path with no network and no cost. **Real mode**
+(`-- --confirm`) makes exactly one small request and is the only code in the
+repository that can spend money; it refuses to run without the flag and without
+a server-side credential.
+
 ## Adding a real provider (checklist)
 
 1. Verify current **official** API docs. Record the capability table:
@@ -162,5 +210,34 @@ which is how the ingestion pipeline itself is exercised end to end.
 | demo-provider | Synthetic. Stands in for an authoritative usage/cost API (verified). |
 | demo-gateway | Synthetic. Stands in for USAGE-operated gateway traffic (routed). |
 | demo-cli | Synthetic. Stands in for local dev-tool telemetry (reported, cost estimated). |
+| vercel-ai-gateway | **Implemented.** See below. |
 
-No real provider has been verified or implemented yet.
+### Vercel AI Gateway (verified against official docs, April 2026)
+
+| | |
+| --- | --- |
+| Available API | AI SDK v6 (`generateText` with a `provider/model` string routes through the gateway). |
+| Required account | Vercel team with AI Gateway enabled. Free tier includes monthly credits. |
+| Auth | `AI_GATEWAY_API_KEY`, or `VERCEL_OIDC_TOKEN` from `vercel env pull`. Server-side only. |
+| Usage fields | `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`, `usage.inputTokenDetails.{noCacheTokens,cacheReadTokens,cacheWriteTokens}`, `usage.outputTokenDetails.{textTokens,reasoningTokens}`. All optional. |
+| Cost | `providerMetadata.gateway.cost` (decimal USD). Not always present. |
+| Request identity | `providerMetadata.gateway.generationId`; falls back to `response.id`. |
+| Provider identity | Gateway routing metadata when present, else the model slug prefix. |
+| Data freshness | At request time. |
+| Verification strength | ROUTED — observed by USAGE, not attested by the provider's billing system. |
+| Known limitations | No historical backfill without Custom Reporting (`GET /v1/report`), which is plan-gated, so the first proof path deliberately does not depend on it. Model slugs change; the probe resolves one from `gateway.getAvailableModels()` rather than hardcoding. |
+
+Token mapping: `inputTokens` is inclusive of cache reads, so USAGE stores
+`inputTokens - cacheReadTokens` as fresh input and the cache reads separately.
+Reasoning tokens are a breakdown of output tokens (already counted, and billed
+as output), so they are recorded in proof metadata for explainability rather
+than added to any total.
+
+### Not implemented (future VERIFIED sources)
+
+| Provider | Why not yet |
+| --- | --- |
+| Anthropic Usage & Cost Admin API | Requires organization/admin credentials. |
+| Anthropic Claude Code Analytics API | Requires organization/admin access. |
+| OpenAI Organization Usage/Costs API | Requires organization/admin access. |
+| Local Claude Code / Codex telemetry | REPORTED until a stronger attestation design exists. |

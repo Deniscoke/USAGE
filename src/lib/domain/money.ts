@@ -60,3 +60,47 @@ export function formatNumber(value: number, digits = 0): string {
     minimumFractionDigits: digits,
   }).format(value);
 }
+
+export interface ParsedCost {
+  micros: number;
+  /** True when the source carried more precision than micro-USD. */
+  rounded: boolean;
+}
+
+/**
+ * Parse an authoritative cost reported by a provider or gateway.
+ *
+ * Differs from `usdStringToMicros` in one deliberate way: providers quote costs
+ * with more precision than micro-USD (a single cheap call can be
+ * $0.0000004125), and silently truncating those to zero would under-report real
+ * spend. This rounds half-up at the micro boundary and reports that it did so,
+ * which keeps the rounding decision explicit and testable rather than implicit.
+ *
+ * Still string-based: a float never touches the value.
+ */
+export function usdCostToMicros(value: string | number): ParsedCost {
+  // A JS number arriving from JSON is already a float; fix its decimal
+  // representation once, with enough digits to preserve everything meaningful.
+  const text = typeof value === "number" ? floatToDecimalString(value) : value.trim();
+
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(text);
+  if (!match) throw new Error(`Invalid cost amount: ${JSON.stringify(value)}`);
+
+  const [, sign, whole, frac = ""] = match;
+  const micros = frac.slice(0, 6).padEnd(6, "0");
+  const remainder = frac.slice(6);
+
+  let magnitude = Number(whole) * MICROS_PER_USD + Number(micros);
+  const roundUp = remainder.length > 0 && Number(remainder[0]) >= 5;
+  if (roundUp) magnitude += 1;
+
+  const rounded = remainder.replace(/0+$/, "").length > 0;
+  return { micros: sign === "-" ? -magnitude : magnitude, rounded };
+}
+
+function floatToDecimalString(value: number): string {
+  if (!Number.isFinite(value)) throw new Error(`Invalid cost amount: ${value}`);
+  // toFixed(12) is well past micro precision and avoids exponent notation for
+  // the magnitudes any single AI request can produce.
+  return value.toFixed(12);
+}

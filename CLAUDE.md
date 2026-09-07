@@ -24,9 +24,11 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
 7. **Rewards come from a fixed epoch pool.** Never a fixed points-per-token rate.
 8. Secrets stay server-side. `.env.example` holds names only, never values.
 9. Do not create billable cloud resources without asking. Local development uses
-   the Supabase CLI stack, not a hosted project.
+   the Supabase CLI stack, not a hosted project. `npm run usage:gateway:probe`
+   spends real credits and must never be run without `--confirm` and approval.
 10. **Verification type is assigned by trusted server-side ingestion.** Clients
-    have no write privilege on usage tables. Never add one.
+    have no write privilege on usage tables. Never add one. Gateway traffic USAGE
+    routes itself is ROUTED, never provider-VERIFIED; fixtures are REPORTED.
 11. **Dashboard reads run as the signed-in user** so RLS applies. The service
     role is for ingestion only, never for serving a read.
 
@@ -46,6 +48,8 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
   whole schema to `never`).
 - Demo usage enters through the real ingestion pipeline. Never hand-write usage
   rows or dashboard totals.
+- Provider cost is authoritative or unknown. Never estimate a cost for real
+  provider traffic, and keep `cost_basis` explicit.
 
 ## Checks before calling a milestone done
 

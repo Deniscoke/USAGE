@@ -33,10 +33,18 @@ export interface RawUsagePayload<T = unknown> {
   rows: readonly T[];
 }
 
+/**
+ * `pull`        — USAGE fetches historical usage from the provider on a schedule.
+ * `observation` — evidence is captured at request time by USAGE-controlled
+ *                 infrastructure; there is nothing to pull.
+ */
+export type IngestionMode = "pull" | "observation";
+
 export interface UsageProviderAdapter<TRaw = unknown> {
   readonly provider: string;
   readonly label: string;
   readonly capability: ProviderCapability;
+  readonly ingestionMode?: IngestionMode;
 
   validateConnection(context: ConnectionContext): Promise<ValidationResult>;
 
@@ -57,6 +65,7 @@ export interface ProviderIntegration {
   readonly label: string;
   readonly capability: ProviderCapability;
   readonly verificationType: VerificationType;
+  readonly ingestionMode: IngestionMode;
   validateConnection(context: ConnectionContext): Promise<ValidationResult>;
   collect(context: ConnectionContext, window: UsageWindow): Promise<NormalizedUsageRecord[]>;
 }
@@ -67,6 +76,7 @@ export function toIntegration<TRaw>(adapter: UsageProviderAdapter<TRaw>): Provid
     label: adapter.label,
     capability: adapter.capability,
     verificationType: adapter.getVerificationType(),
+    ingestionMode: adapter.ingestionMode ?? "pull",
     validateConnection: (context) => adapter.validateConnection(context),
     async collect(context, window) {
       const payload = await adapter.fetchUsage(context, window);

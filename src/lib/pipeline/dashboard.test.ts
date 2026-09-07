@@ -122,6 +122,27 @@ describe("buildDashboardView", () => {
     ).toBe(false);
   });
 
+  it("distinguishes demo, fixture and live routed evidence", () => {
+    const fixture = buildDashboardView({
+      ...EMPTY,
+      aggregates: [
+        aggregate({ provider: "vercel-ai-gateway", verificationType: "reported", model: "openai/gpt-5.4" }),
+      ],
+    });
+    expect(fixture.containsFixtureEvidence).toBe(true);
+    expect(fixture.hasLiveRoutedEvidence).toBe(false);
+    expect(fixture.containsDemoData).toBe(false);
+
+    const live = buildDashboardView({
+      ...EMPTY,
+      aggregates: [
+        aggregate({ provider: "vercel-ai-gateway", verificationType: "routed", model: "openai/gpt-5.4" }),
+      ],
+    });
+    expect(live.hasLiveRoutedEvidence).toBe(true);
+    expect(live.containsFixtureEvidence).toBe(false);
+  });
+
   it("resolves connection capability from the adapter registry", () => {
     const view = buildDashboardView({
       ...EMPTY,

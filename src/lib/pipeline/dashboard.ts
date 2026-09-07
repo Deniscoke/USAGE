@@ -4,6 +4,7 @@ import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
 import type { DailyAggregate, NormalizedUsageRecord, UsageTotals, VerificationType } from "@/lib/domain/types";
 import { DAILY_REWARD_POOL_POINTS, simulatedNetwork } from "@/lib/demo/network";
 import { listIntegrations } from "@/lib/providers/registry";
+import { VERCEL_GATEWAY_PROVIDER } from "@/lib/providers/vercel-gateway/observation";
 import type { ConnectionSummary } from "@/lib/db/usage-repository";
 import type { StoredDailyScore } from "@/lib/db/rows";
 
@@ -49,6 +50,10 @@ export interface DashboardData {
   isEmpty: boolean;
   /** True when any stored usage came from a demo adapter. */
   containsDemoData: boolean;
+  /** Gateway evidence that was replayed from a fixture: shown, never rewarded. */
+  containsFixtureEvidence: boolean;
+  /** At least one real request USAGE actually routed and observed. */
+  hasLiveRoutedEvidence: boolean;
 
   today: UsageTotals;
   monthToDate: UsageTotals;
@@ -174,6 +179,13 @@ export function buildDashboardView({
     windowDays: HISTORY_DAYS,
     isEmpty: aggregates.length === 0,
     containsDemoData: aggregates.some((a) => isDemoProvider(a.provider)),
+    // Gateway rows separate cleanly: fixtures are reported, live traffic is routed.
+    containsFixtureEvidence: aggregates.some(
+      (a) => a.provider === VERCEL_GATEWAY_PROVIDER && a.verificationType === "reported",
+    ),
+    hasLiveRoutedEvidence: aggregates.some(
+      (a) => a.provider === VERCEL_GATEWAY_PROVIDER && a.verificationType === "routed",
+    ),
 
     today: sum(todayAggregates),
     monthToDate: sum(monthAggregates),

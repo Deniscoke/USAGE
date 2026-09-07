@@ -110,6 +110,31 @@ export function DemoBanner() {
   );
 }
 
+export function FixtureBanner() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] px-4 py-2.5 text-xs">
+      <span className="font-medium uppercase tracking-[0.14em] text-[var(--reported)]">Fixture</span>
+      <span className="text-[var(--muted)]">
+        Gateway evidence replayed from a captured payload. USAGE did not observe these requests, so
+        they count as Reported and earn nothing.
+      </span>
+    </div>
+  );
+}
+
+export function LiveRoutedBanner() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--routed)_35%,transparent)] bg-[color-mix(in_srgb,var(--routed)_8%,transparent)] px-4 py-2.5 text-xs">
+      <span className="font-medium uppercase tracking-[0.14em] text-[var(--routed)]">
+        Routed proof
+      </span>
+      <span className="text-[var(--muted)]">
+        Real AI requests observed by USAGE infrastructure through the Vercel AI Gateway.
+      </span>
+    </div>
+  );
+}
+
 export function Bar({
   fraction,
   color,

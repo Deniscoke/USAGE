@@ -2,84 +2,105 @@
 
 ## Current milestone
 
-M2 — auth + real persistence. **Code complete; not yet run against a live
-Supabase stack** (see Database state).
+M3 — first real Proof of Usage path (Vercel AI Gateway → ROUTED). **Code
+complete. No live gateway request has been made** (see Live probe below).
 
 ## What works
 
-- Supabase Auth (email/password) with cookie sessions via `@supabase/ssr`:
-  `/sign-up`, `/login`, sign-out action. `src/proxy.ts` refreshes the session
-  and redirects unauthenticated visitors away from `/dashboard`.
-- Profiles created by the `on_auth_user_created` trigger, plus an idempotent
-  `ensureProfile` repair path.
-- Trusted server-side ingestion: demo adapters → normalize → dedupe →
-  `usage_events` → `usage_daily_aggregates` → `score_records`. Idempotent:
-  re-running stores no duplicates.
-- Dashboard reads stored rows through the *user's* RLS-scoped client and derives
-  its view model purely. It no longer calls adapters at render time.
-- Privilege split: clients cannot insert, update or delete usage, aggregates or
-  scores at all, so verification level cannot be self-declared.
-- 75 tests pass, including integration tests against a real Postgres (PGlite)
-  running the actual migrations: RLS isolation between users, idempotency,
-  micro-USD round trip, split-request anti-gaming, verification boundary.
+- **Routed proof path**: gateway observation → `VercelGatewayAdapter` →
+  normalized usage → trusted ingestion → `usage_events` + `proof_records` →
+  aggregates → `usage_score_v1` → dashboard. Exercised end to end against a real
+  Postgres.
+- Live gateway traffic is ROUTED / confirmed (weight 1.0) and scores through the
+  same pipeline as VERIFIED. It is never labelled provider-VERIFIED.
+- Idempotent on the gateway generation id: re-ingesting an observation inserts
+  0 events and adds no duplicate provenance.
+- Gateway cost is used verbatim (rounded half-up into micro-USD, with the
+  rounding recorded) or marked unknown. It is never estimated.
+- Malformed metadata and failed requests (401/402/429/5xx/timeout/network) are
+  operational errors that create no usage.
+- Provenance: every event gets a proof row (source, kind, external reference,
+  observed/ingested timestamps, adapter version, whitelisted metadata).
+- Dashboard distinguishes Verified / Routed / Reported, and labels Demo,
+  Fixture and live Routed evidence separately.
+- Earlier milestones unchanged: auth, RLS, persistence, epochs, demo adapters.
+- 125 tests pass (unit + Postgres integration via PGlite).
 
-## What remains demo / simulated
+## Evidence classes right now
 
-- All usage comes from the three demo adapters. No real provider exists.
-- The network denominator for network share is simulated
-  (`src/lib/demo/network.ts`) and labelled as such in the UI.
-- Epoch rewards are estimated per request. There is no settlement job, and
-  `reward_epochs` / `reward_allocations` are unwritten.
+| Class | Source | Weight | Status |
+| --- | --- | --- | --- |
+| Demo | three synthetic adapters | verified/routed/reported as simulated | working |
+| Fixture | captured-shape gateway payloads | REPORTED, 0.0 | working, free |
+| Real ROUTED | one live request through Vercel AI Gateway | ROUTED, 1.0 | implemented, **never executed** |
+| Real VERIFIED | Anthropic/OpenAI admin APIs | 1.0 | not implemented |
+
+Fixtures are classified REPORTED on purpose: USAGE did not observe them, so they
+cannot become rewardable routed evidence anywhere, including production.
+
+## Live probe: not executed
+
+`npm run usage:gateway:probe` currently runs as a **dry run** and prints what a
+real call would do. No `AI_GATEWAY_API_KEY` is configured here and a real request
+spends AI Gateway credits, so none was made. To produce the first genuine ROUTED
+event:
+
+```bash
+# set AI_GATEWAY_API_KEY in .env.local (server-side only), then:
+npm run usage:gateway:probe -- --confirm
+npm run usage:gateway:probe -- --confirm --user <profile-uuid>   # also persists
+```
+
+Free alternative that exercises the same path:
+
+```bash
+npm run usage:gateway:probe -- --fixtures --user <profile-uuid>
+```
 
 ## Database state
 
-Schema and migrations are committed and verified by tests, but **the local
-Supabase stack has never been started here: Docker is not installed on this
-machine**, so `npm run db:start` / `npm run db:reset` could not be run, no
-`.env.local` exists, and no real GoTrue signup has been exercised.
+Migrations 0001–0003 are committed and applied by the test suite against a real
+Postgres. **The local Supabase stack still has never been started here: Docker is
+not installed on this machine.** So `npm run db:start` / `db:reset` have not run,
+no `.env.local` exists, and no GoTrue signup has been exercised. PGlite proves
+the SQL, the RLS policies and the privilege model; it does **not** prove Supabase
+Auth or PostgREST runtime behaviour.
 
-To finish verification on a machine with Docker:
-
-```bash
-npm run db:start      # prints URL + keys
-cp .env.example .env.local   # fill in the printed values
-npm run db:reset      # apply migrations + seed
-npm run dev           # sign up, then press "Load demo usage"
-npm run db:types      # regenerate src/lib/supabase/database.types.ts
-```
-
-Until then the dashboard renders a "Database not configured" state instead of
-crashing.
-
-## Auth state
-
-Email/password only, confirmations disabled locally (`supabase/config.toml`).
-No password reset, OAuth, or profile editing UI — out of scope for M2.
+Outstanding verification item: **run migrations and the auth/RLS flows against an
+actual Supabase/Postgres stack.**
 
 ## Known limitations
 
 - `src/lib/supabase/database.types.ts` is hand-maintained until `db:types` can
-  run against a live stack; it must stay in sync with `supabase/migrations`.
-- Demo ingestion is a development-only server action (disabled in production
-  unless `USAGE_ALLOW_DEMO_INGEST=true`).
-- No E2E tests; the auth redirect is covered by unit tests of the pure routing
-  rules, not by a browser run.
-- Dashboard loads 90 days of aggregates per request with no caching.
+  run against a live stack.
+- No historical gateway reconciliation: Custom Reporting (`GET /v1/report`) is
+  plan-gated and deliberately not depended on.
+- Network denominator for network share remains simulated
+  (`src/lib/demo/network.ts`), labelled as such in the UI.
+- No epoch settlement job; `reward_epochs` / `reward_allocations` are unwritten.
+- Demo ingestion is a development-only server action; the probe is a
+  development-only CLI.
+- No E2E tests.
 
 ## Next recommended milestone
 
-M3 — first real provider integration: verify official API capabilities, fill the
-capability register in `docs/ARCHITECTURE.md`, store credentials via
-`provider_connections.secret_ref`, and add a sync trigger. Epoch settlement
-(writing `reward_epochs` / `reward_allocations`) is the natural follow-up.
+M4 — either (a) epoch settlement, writing `reward_epochs` and
+`reward_allocations` from stored scores, or (b) the first VERIFIED provider:
+verify the Anthropic or OpenAI organization usage/cost API against current
+official docs, fill the capability register in `docs/ARCHITECTURE.md`, and store
+credentials via `provider_connections.secret_ref`. Running the live gateway probe
+once (with a key) is a small, high-value step that can happen independently.
 
 ## Important local commands
 
 ```bash
-npm run dev          # http://localhost:3000
-npm run db:start     # local Supabase (requires Docker)
-npm run db:reset     # re-apply migrations + seed.sql
-npm run db:types     # regenerate database types from the local stack
-npm test             # unit + Postgres integration tests (no Docker needed)
+npm run dev                                # http://localhost:3000
+npm run db:start                           # local Supabase (requires Docker)
+npm run db:reset                           # re-apply migrations + seed
+npm run db:types                           # regenerate database types
+npm run usage:gateway:probe                # dry run, explains and costs nothing
+npm run usage:gateway:probe -- --fixtures  # free fixture path
+npm run usage:gateway:probe -- --confirm   # ONE real request, spends credits
+npm test                                   # unit + Postgres integration tests
 npm run typecheck && npm run lint && npm run build
 ```

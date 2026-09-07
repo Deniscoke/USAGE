@@ -27,6 +27,7 @@ npm run dev               # http://localhost:3000
 | `npm run build` | production build |
 | `npm run db:start` / `db:stop` / `db:reset` | local Supabase stack |
 | `npm run db:types` | regenerate database types from the local stack |
+| `npm run usage:gateway:probe` | dry run of the AI Gateway probe (costs nothing) |
 
 Docs: [`docs/PRODUCT.md`](docs/PRODUCT.md) ·
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·

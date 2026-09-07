@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, UsageEventRow } from "@/lib/supabase/database.types";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import { dailyAggregateToRow, rowToUsageRecord, type StoredDailyScore } from "./rows";
-import type { IngestStore } from "./ingest";
+import type { IngestStore, InsertedEventRef, ProofDraft } from "./ingest";
 
 /**
  * IngestStore over the Supabase service-role client.
@@ -18,11 +18,18 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
   }
 
   return {
-    async ensureConnection(userId, provider, accountLabel) {
+    async ensureConnection(userId, provider, accountLabel, secretRef = null) {
       const { data, error } = await admin
         .from("provider_connections")
         .upsert(
-          { user_id: userId, provider, account_label: accountLabel, status: "active" },
+          {
+            user_id: userId,
+            provider,
+            account_label: accountLabel,
+            status: "active",
+            // A reference to where the credential lives, never the credential.
+            ...(secretRef ? { secret_ref: secretRef } : {}),
+          },
           { onConflict: "user_id,provider,account_label" },
         )
         .select("id")
@@ -31,8 +38,8 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
       return data?.id ?? null;
     },
 
-    async insertEvents(rows) {
-      if (rows.length === 0) return 0;
+    async insertEvents(rows): Promise<InsertedEventRef[]> {
+      if (rows.length === 0) return [];
       // The unique natural key makes this idempotent: an event already stored is
       // ignored rather than duplicated or overwritten.
       const { data, error } = await admin
@@ -41,9 +48,33 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
           onConflict: "user_id,provider,source,external_reference",
           ignoreDuplicates: true,
         })
-        .select("id");
+        .select("id, provider, source, external_reference");
       fail("insertEvents", error);
-      return data?.length ?? 0;
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        source: row.source,
+        externalReference: row.external_reference,
+      }));
+    },
+
+    async insertProofs(userId: string, proofs: readonly ProofDraft[]) {
+      if (proofs.length === 0) return;
+      const { error } = await admin.from("proof_records").upsert(
+        proofs.map((proof) => ({
+          user_id: userId,
+          usage_event_id: proof.usageEventId,
+          verification_type: proof.verificationType,
+          proof_kind: proof.proofKind,
+          proof_source: proof.proofSource,
+          external_reference: proof.externalReference,
+          observed_at: proof.observedAt,
+          adapter_version: proof.adapterVersion,
+          proof_metadata: proof.metadata,
+        })),
+        { onConflict: "usage_event_id,proof_kind", ignoreDuplicates: true },
+      );
+      fail("insertProofs", error);
     },
 
     async loadEventsForDays(userId, days) {

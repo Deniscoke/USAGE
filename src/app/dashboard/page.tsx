@@ -2,7 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ScoreSparkline, StackedUsageChart } from "@/components/charts";
 import { DemoIngestButton } from "@/components/demo-ingest-button";
-import { Bar, DemoBanner, Panel, Stat, VERIFICATION_META, VerificationBadge } from "@/components/ui";
+import {
+  Bar,
+  DemoBanner,
+  FixtureBanner,
+  LiveRoutedBanner,
+  Panel,
+  Stat,
+  VERIFICATION_META,
+  VerificationBadge,
+} from "@/components/ui";
 import { signOut } from "@/app/auth/actions";
 import { formatNumber, formatTokens, formatUsd } from "@/lib/domain/money";
 import { totalTokens } from "@/lib/domain/normalize";
@@ -74,11 +83,11 @@ export default async function DashboardPage() {
             <DemoIngestButton label="Re-sync demo usage" />
           </div>
 
-          {data.containsDemoData && (
-            <div className="mb-6">
-              <DemoBanner />
-            </div>
-          )}
+          <div className="mb-6 space-y-2">
+            {data.hasLiveRoutedEvidence && <LiveRoutedBanner />}
+            {data.containsDemoData && <DemoBanner />}
+            {data.containsFixtureEvidence && <FixtureBanner />}
+          </div>
 
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Stat
@@ -252,7 +261,14 @@ export default async function DashboardPage() {
                         <td className="tnum px-4 py-2 text-[var(--muted)]">
                           {event.occurredAt.slice(5, 16).replace("T", " ")}
                         </td>
-                        <td className="px-4 py-2">{event.provider}</td>
+                        <td className="px-4 py-2">
+                          {event.provider}
+                          {event.rawMetadata.evidence_class === "fixture" && (
+                            <span className="ml-1.5 text-[10px] uppercase tracking-[0.1em] text-[var(--faint)]">
+                              fixture
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2 text-[var(--muted)]">{event.model}</td>
                         <td className="tnum px-4 py-2 text-right">{formatNumber(event.requests)}</td>
                         <td className="tnum px-4 py-2 text-right text-[var(--muted)]">

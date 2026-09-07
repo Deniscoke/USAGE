@@ -17,6 +17,7 @@ export type UsageSource =
   | "provider_cost_api"
   | "org_analytics_api"
   | "gateway"
+  | "vercel_ai_gateway"
   | "local_client"
   | "imported_report";
 

@@ -25,6 +25,7 @@ export type UsageSourceRow =
   | "provider_cost_api"
   | "org_analytics_api"
   | "gateway"
+  | "vercel_ai_gateway"
   | "local_client"
   | "imported_report";
 export type ConnectionStatusRow = "active" | "error" | "revoked";
@@ -84,6 +85,33 @@ export type UsageDailyAggregateRow = {
   cost_micros: number;
   updated_at: string;
 }
+
+export type ProofRecordRow = {
+  id: string;
+  user_id: string;
+  usage_event_id: string;
+  verification_type: VerificationTypeRow;
+  proof_kind: string;
+  proof_source: string | null;
+  external_reference: string | null;
+  observed_at: string | null;
+  ingested_at: string;
+  adapter_version: string | null;
+  proof_metadata: Record<string, string | number | boolean | null>;
+  created_at: string;
+};
+
+export type ProofRecordInsertRow = {
+  user_id: string;
+  usage_event_id: string;
+  verification_type: VerificationTypeRow;
+  proof_kind: string;
+  proof_source?: string | null;
+  external_reference?: string | null;
+  observed_at?: string | null;
+  adapter_version?: string | null;
+  proof_metadata?: Record<string, string | number | boolean | null>;
+};
 
 export type ScoreRecordRow = {
   id: string;
@@ -198,6 +226,12 @@ export type Database = {
         Row: UsageDailyAggregateRow;
         Insert: UsageDailyAggregateInsertRow;
         Update: Partial<UsageDailyAggregateRow>;
+        Relationships: [];
+      };
+      proof_records: {
+        Row: ProofRecordRow;
+        Insert: ProofRecordInsertRow;
+        Update: Partial<ProofRecordRow>;
         Relationships: [];
       };
       score_records: {

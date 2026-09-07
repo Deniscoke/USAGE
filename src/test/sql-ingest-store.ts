@@ -1,4 +1,4 @@
-import type { IngestStore } from "@/lib/db/ingest";
+import type { IngestStore, InsertedEventRef, ProofDraft } from "@/lib/db/ingest";
 import { rowToUsageRecord } from "@/lib/db/rows";
 import type { UsageEventRow } from "@/lib/supabase/database.types";
 import type { DailyAggregate } from "@/lib/domain/types";
@@ -12,19 +12,20 @@ import type { TestDb } from "./pg";
  */
 export function createSqlIngestStore(db: TestDb): IngestStore {
   return {
-    async ensureConnection(userId, provider, accountLabel) {
+    async ensureConnection(userId, provider, accountLabel, secretRef = null) {
       const rows = await db.asServiceRole<{ id: string }>(
-        `insert into provider_connections (user_id, provider, account_label, status)
-         values ($1, $2, $3, 'active')
-         on conflict (user_id, provider, account_label) do update set status = 'active'
+        `insert into provider_connections (user_id, provider, account_label, status, secret_ref)
+         values ($1, $2, $3, 'active', $4)
+         on conflict (user_id, provider, account_label) do update
+           set status = 'active', secret_ref = coalesce(excluded.secret_ref, provider_connections.secret_ref)
          returning id`,
-        [userId, provider, accountLabel],
+        [userId, provider, accountLabel, secretRef],
       );
       return rows[0]?.id ?? null;
     },
 
-    async insertEvents(rows) {
-      if (rows.length === 0) return 0;
+    async insertEvents(rows): Promise<InsertedEventRef[]> {
+      if (rows.length === 0) return [];
 
       const columns = [
         "user_id",
@@ -64,14 +65,47 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         return `(${placeholders.join(", ")})`;
       });
 
-      const inserted = await db.asServiceRole<{ id: string }>(
+      const inserted = await db.asServiceRole<{
+        id: string;
+        provider: string;
+        source: string;
+        external_reference: string;
+      }>(
         `insert into usage_events (${columns.join(", ")})
          values ${tuples.join(", ")}
          on conflict on constraint usage_events_natural_key do nothing
-         returning id`,
+         returning id, provider, source, external_reference`,
         params,
       );
-      return inserted.length;
+      return inserted.map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        source: row.source,
+        externalReference: row.external_reference,
+      }));
+    },
+
+    async insertProofs(userId: string, proofs: readonly ProofDraft[]) {
+      for (const proof of proofs) {
+        await db.asServiceRole(
+          `insert into proof_records
+             (user_id, usage_event_id, verification_type, proof_kind, proof_source,
+              external_reference, observed_at, adapter_version, proof_metadata)
+           values ($1, $2, $3::verification_type, $4, $5, $6, $7, $8, $9::jsonb)
+           on conflict (usage_event_id, proof_kind) do nothing`,
+          [
+            userId,
+            proof.usageEventId,
+            proof.verificationType,
+            proof.proofKind,
+            proof.proofSource,
+            proof.externalReference,
+            proof.observedAt,
+            proof.adapterVersion,
+            JSON.stringify(proof.metadata),
+          ],
+        );
+      }
     },
 
     async loadEventsForDays(userId, days) {
