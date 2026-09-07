@@ -53,6 +53,15 @@ function signingIssuer(): ProductionIssuer | null {
   const keyId = process.env.USAGE_RECEIPT_SIGNING_KEY_ID?.trim();
   if (!privateKeyBase64 || !keyId) return null;
 
+  // A non-empty string is not a key. Deriving the public half proves the value
+  // is actually usable -- otherwise this claims it can issue proofs and then
+  // throws on the first one, which is a worse failure than refusing up front.
+  try {
+    publicKeyFromPrivate(privateKeyBase64);
+  } catch {
+    return null;
+  }
+
   return {
     issuer: process.env.USAGE_RECEIPT_ISSUER?.trim() || DEFAULT_ISSUER,
     keyId,
@@ -75,7 +84,11 @@ export async function assessTrust(
   );
 
   if (!issuer) {
-    reasons.push("no production signing key is present in this environment");
+    reasons.push(
+      process.env.USAGE_RECEIPT_SIGNING_PRIVATE_KEY?.trim()
+        ? "the configured signing key is not a usable Ed25519 private key"
+        : "no production signing key is present in this environment",
+    );
   }
   if (oidc.state === "failed") reasons.push(`deployment identity rejected: ${oidc.reason}`);
   if (oidc.state === "missing_token") reasons.push("deployment identity token was not presented");

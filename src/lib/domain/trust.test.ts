@@ -216,6 +216,18 @@ describe("environment variables are not the root of trust", () => {
     expect(trust.issuer?.keyId).toBe(PRODUCTION.keyId);
   });
 
+  it("refuses a signing key that is not a usable key", async () => {
+    // A pasted variable name, a quoted value, a truncated key: all non-empty.
+    process.env.USAGE_RECEIPT_SIGNING_PRIVATE_KEY = "USAGE_RECEIPT_SIGNING_PRIVATE_KEY=MC4CAQ";
+    process.env.USAGE_RECEIPT_SIGNING_KEY_ID = "usage-prod-1";
+
+    const trust = await assessTrust();
+    expect(trust.canIssueProduction).toBe(false);
+    expect(trust.reasons[0]).toContain("not a usable");
+    // And it must not advertise a key it cannot sign with.
+    expect(publishedPublicKeys()).toEqual({});
+  });
+
   it("refuses when configured deployment identity cannot be verified", async () => {
     process.env.USAGE_RECEIPT_SIGNING_PRIVATE_KEY = PRODUCTION.privateKeyBase64;
     process.env.USAGE_RECEIPT_SIGNING_KEY_ID = PRODUCTION.keyId;
