@@ -18,6 +18,7 @@ import {
   appendDevObservation,
   checkRateLimit,
   logGatewayRequest,
+  scheduleAfterResponse,
 } from "@/lib/gateway/observability";
 import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
@@ -211,13 +212,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
     });
 
     if (!observation) return;
-    // Recording must never delay or break the client's response.
-    void recordObservation(
-      observation,
-      auth.identity.userId,
-      trust,
-      auth.identity.credentialId,
-    ).catch(() => {
+    // Recording must not delay the client's response -- but a serverless
+    // function is frozen the moment the response completes, so a plain
+    // fire-and-forget promise is simply never finished. after() keeps the
+    // invocation alive until the write lands.
+    scheduleAfterResponse(
+      recordObservation(
+        observation,
+        auth.identity.userId,
+        trust,
+        auth.identity.credentialId,
+      ).catch(() => {
       logGatewayRequest({
         requestId,
         userId: auth.identity.userId,
@@ -226,7 +231,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
         latencyMs: Date.now() - startedAt,
         outcome: "observation_persist_failed",
       });
-    });
+      }),
+    );
   };
 
   if (streaming && upstream.body) {

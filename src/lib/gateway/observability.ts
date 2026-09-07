@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { after } from "next/server";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
 
 /**
@@ -11,6 +12,24 @@ import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observat
  * API keys, miner tokens. Nothing here ever touches a request or response body,
  * which is the only reliable way to keep that promise.
  */
+
+/**
+ * Run work after the response has been sent.
+ *
+ * A serverless function is frozen the moment its response completes, so a plain
+ * fire-and-forget promise is never finished -- the usage write silently
+ * disappears. `after()` keeps the invocation alive until the work lands.
+ *
+ * Outside a request scope (unit tests, scripts) `after()` throws; there the
+ * plain promise is correct, because nothing is about to freeze.
+ */
+export function scheduleAfterResponse(work: Promise<unknown>): void {
+  try {
+    after(work);
+  } catch {
+    void work;
+  }
+}
 
 export interface GatewayLogFields {
   requestId: string;
