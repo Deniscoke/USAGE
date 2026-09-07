@@ -7,6 +7,7 @@ import { collectUsage } from "@/lib/pipeline/collect";
 import {
   normalizeGatewayObservation,
   type NormalizedObservation,
+  type ProofIssuance,
 } from "@/lib/providers/vercel-gateway/adapter";
 import {
   GatewayObservationError,
@@ -50,6 +51,13 @@ export interface ProofDraft {
   adapterVersion: string | null;
   proofHash: string | null;
   trustEnvironment: string | null;
+  proofStatus: string;
+  receiptId: string | null;
+  receiptVersion: string | null;
+  issuer: string | null;
+  issuerKeyId: string | null;
+  signature: string | null;
+  signedAt: string | null;
   metadata: Record<string, string | number | boolean | null>;
 }
 
@@ -111,6 +119,13 @@ function proofFromRecord(
     proofHash: override?.proofHash ?? null,
     trustEnvironment:
       override?.trustEnvironment ?? (typeof trustEnvironment === "string" ? trustEnvironment : null),
+    proofStatus: override?.proofStatus ?? "observed",
+    receiptId: override?.receiptId ?? null,
+    receiptVersion: override?.receiptVersion ?? null,
+    issuer: override?.issuer ?? null,
+    issuerKeyId: override?.issuerKeyId ?? null,
+    signature: override?.signature ?? null,
+    signedAt: override?.signedAt ?? null,
     metadata: override?.metadata ?? record.rawMetadata,
   };
 }
@@ -243,10 +258,21 @@ export interface GatewayIngestSummary extends IngestSummary {
  * credential is referenced, never stored: `provider_connections.secret_ref`
  * names the server environment variable holding it.
  */
+export interface GatewayIngestOptions {
+  /**
+   * Production issuance credentials. Present only on trusted hosted
+   * infrastructure; supplying them is what turns an observation into a
+   * CONFIRMED, signed proof.
+   */
+  issuance?: ProofIssuance | null;
+  minerCredentialId?: string | null;
+}
+
 export async function ingestGatewayObservations(
   store: IngestStore,
   userId: string,
   observations: readonly GatewayObservation[],
+  options: GatewayIngestOptions = {},
 ): Promise<GatewayIngestSummary> {
   const records: NormalizedUsageRecord[] = [];
   const proofOverrides = new Map<string, NormalizedObservation["proof"]>();
@@ -254,7 +280,11 @@ export async function ingestGatewayObservations(
 
   for (const observation of observations) {
     try {
-      const normalized = normalizeGatewayObservation(observation, { userId });
+      const normalized = normalizeGatewayObservation(observation, {
+        userId,
+        issuance: options.issuance ?? null,
+        minerCredentialId: options.minerCredentialId ?? null,
+      });
       records.push(normalized.record);
       proofOverrides.set(normalized.record.externalReference, normalized.proof);
     } catch (error) {

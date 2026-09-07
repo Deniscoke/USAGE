@@ -26,12 +26,17 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
 9. Do not create billable cloud resources without asking. Local development uses
    the Supabase CLI stack, not a hosted project. `npm run usage:gateway:probe`
    spends real credits and must never be run without `--confirm` and approval.
-10. **Verification type is assigned by trusted server-side ingestion.** Clients
+10. **The root of trust is the receipt signing key, never an environment
+    variable.** `USAGE_TRUST_ENVIRONMENT` is a diagnostic signal only. A proof
+    is CONFIRMED only when signed by a key that exists solely on trusted hosted
+    infrastructure. Never add a code path where a claim, header or env flag can
+    substitute for that signature.
+11. **Verification type is assigned by trusted server-side ingestion.** Clients
     have no write privilege on usage tables. Never add one. Gateway traffic USAGE
     routes itself is ROUTED, never provider-VERIFIED; fixtures are REPORTED.
     Only `verification_status = 'confirmed'` earns; development-observed and
     cost-unknown usage stays `pending`.
-11. **Dashboard reads run as the signed-in user** so RLS applies. The service
+12. **Dashboard reads run as the signed-in user** so RLS applies. The service
     role is for ingestion only, never for serving a read.
 
 ## Conventions
@@ -50,6 +55,8 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
   whole schema to `never`).
 - Demo usage enters through the real ingestion pipeline. Never hand-write usage
   rows or dashboard totals.
+- Proof status and economic status are separate. A confirmed proof with unknown
+  cost is `pending_cost`, not unconfirmed and not zero.
 - Provider cost is authoritative or unknown. Never estimate a cost for real
   provider traffic, and keep `cost_basis` explicit.
 - `AI_GATEWAY_API_KEY` is server-only and is never forwarded, logged, echoed in

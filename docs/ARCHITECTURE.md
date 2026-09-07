@@ -87,6 +87,51 @@ gateway is `observation` mode — evidence is captured at request time by
 USAGE-controlled infrastructure and pushed in, because there is nothing to pull.
 `listPullIntegrations()` keeps the demo sync from trying to poll it.
 
+**The root of trust is a signing key, not an environment variable.** This is
+the single most important property in the system, so it is worth stating
+negatively: `USAGE_TRUST_ENVIRONMENT=production` proves nothing, because anyone
+can set it on their own machine. A SHA-256 receipt hash proves nothing about
+origin either, because anyone can invent a receipt and hash it.
+
+What actually roots trust is possession of `USAGE_RECEIPT_SIGNING_PRIVATE_KEY`,
+an Ed25519 key held only as a Vercel sensitive variable on the hosted
+deployment. A proof is CONFIRMED only if it carries a signature that verifies
+against the published USAGE public key. A local gateway cannot produce one, so
+it cannot mint economic value no matter what it says about itself.
+
+Layered on top, when configured: **Vercel deployment identity**. Every Vercel
+Function invocation carries a signed OIDC token on `x-vercel-oidc-token`.
+`src/lib/trust/vercel-oidc.ts` verifies it against Vercel's JWKS and checks
+project id, owner id and `environment=production`. A developer can pull a real
+OIDC token locally with `vercel env pull`, but only for the *development*
+environment, so the check still separates the deployment from a laptop. When it
+is configured and fails, issuance is refused (fail closed). When it is not
+configured, the signing key alone is the root — documented rather than implied.
+
+`assessTrust()` returns both the decision and the individual signals, so a
+diagnostic can say exactly why a proof was or was not confirmed.
+
+**Three questions, three columns.**
+
+| Column | Question | Values |
+| --- | --- | --- |
+| `verification_type` | what kind of evidence is this? | verified / routed / reported |
+| `proof_status` | do we attest that it happened? | observed / confirmed / rejected |
+| `economic_status` | may it earn right now? | eligible / pending_cost / ineligible |
+
+A genuine hosted request whose cost has not reconciled is **routed + confirmed +
+pending_cost**: a real proof that is not yet payable. Calling it unconfirmed
+because a billing figure is missing would be false, and scoring it as $0 would
+be worse. Scoring gates on `economic_status`, so the proof ledger and the
+economic ledger move independently and points are never minted twice.
+
+**Cost is a separate layer.** `src/lib/domain/cost.ts` defines the reconciliation
+seam: `CostResolver` implementations answer "what did this generation cost?"
+independently of the proof. Only `gateway_reported` is implemented. A future
+price-table resolver produces `costBasis: "estimated"` with an explicit
+`pricingSource`/`pricingVersion`, and an estimate never makes usage eligible —
+it is not an invoice.
+
 **The USAGE Gateway owns the trust boundary.** A miner client authenticates
 with its own revocable credential and gets to *initiate* a request; the server
 decides what evidence that produces. Nothing in the request body or headers can
@@ -271,6 +316,21 @@ a server-side credential.
 | demo-gateway | Synthetic. Stands in for USAGE-operated gateway traffic (routed). |
 | demo-cli | Synthetic. Stands in for local dev-tool telemetry (reported, cost estimated). |
 | vercel-ai-gateway | **Implemented.** See below. |
+
+### Hosting
+
+The application deploys as-is to Vercel; there is no separate service. Trusted
+issuance requires, as sensitive environment variables on the production
+deployment: `AI_GATEWAY_API_KEY`, `SUPABASE_SECRET_KEY`, and
+`USAGE_RECEIPT_SIGNING_PRIVATE_KEY` + `USAGE_RECEIPT_SIGNING_KEY_ID`. The
+Supabase URL and publishable key are public by design.
+
+Schema reaches hosted Supabase through the existing migrations
+(`supabase link --project-ref <ref>` then `supabase db push`); tables are never
+hand-made in the dashboard.
+
+Changing a Vercel environment variable requires a redeploy before it takes
+effect.
 
 ### USAGE Gateway endpoints
 

@@ -289,7 +289,25 @@ export default async function DashboardPage() {
                           )}
                         </td>
                         <td className="px-4 py-2">
-                          <VerificationBadge type={event.verificationType} />
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <VerificationBadge type={event.verificationType} />
+                            {event.rawMetadata.proof_status === "confirmed" && (
+                              <span
+                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--verified)]"
+                                title="Signed by a USAGE production issuer"
+                              >
+                                signed ✓
+                              </span>
+                            )}
+                            {event.economicStatus === "pending_cost" && (
+                              <span
+                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--warn)]"
+                                title="Real proof; cost has not reconciled, so it earns nothing yet"
+                              >
+                                pending cost
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

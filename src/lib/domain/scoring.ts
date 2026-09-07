@@ -91,6 +91,9 @@ function roundPoints(points: number): number {
  * cost" are not grounds for paying anyone.
  */
 export function isEconomicallyEligible(record: NormalizedUsageRecord): boolean {
+  // Records written since signed issuance carry an explicit economic status.
+  // Older ones fall back to the verification status they were stored with.
+  if (record.economicStatus) return record.economicStatus === "eligible";
   return record.verificationStatus === "confirmed";
 }
 

@@ -5,6 +5,15 @@ import { ingestGatewayObservations, type IngestStore } from "./ingest";
 import { MICROS_PER_USD } from "@/lib/domain/money";
 import { buildMiningSession } from "@/lib/pipeline/session";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
+import { generateSigningKeyPair } from "@/lib/domain/signing";
+
+// The production signing key a laptop does not have.
+const TEST_KEY = generateSigningKeyPair("test-key-1");
+const ISSUANCE = {
+  issuer: "usage://issuer/production",
+  keyId: TEST_KEY.keyId,
+  privateKeyBase64: TEST_KEY.privateKeyBase64,
+};
 
 /**
  * Economic trust boundaries, end to end against a real Postgres.
@@ -68,7 +77,7 @@ async function scoreFor(userId: string): Promise<{
 describe("only trusted, costed evidence earns", () => {
   it("scores production-observed routed usage", async () => {
     const user = await db.createUser("hosted@example.com");
-    await ingestGatewayObservations(store, user, [observation()]);
+    await ingestGatewayObservations(store, user, [observation()], { issuance: ISSUANCE });
 
     const score = await scoreFor(user);
     expect(score.points).toBe(2_000); // sqrt($4) * 1000
@@ -78,9 +87,14 @@ describe("only trusted, costed evidence earns", () => {
 
   it("gives a locally observed request zero economic weight", async () => {
     const user = await db.createUser("laptop@example.com");
-    await ingestGatewayObservations(store, user, [
-      observation({ environment: "development", generationId: "gen_dev_1" }),
-    ]);
+    // Even handed an issuance, a development observation cannot be confirmed:
+    // the adapter requires the production trust environment as well.
+    await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ environment: "development", generationId: "gen_dev_1" })],
+      { issuance: ISSUANCE },
+    );
 
     const [event] = await db.asServiceRole<{
       verification_type: string;
@@ -99,9 +113,12 @@ describe("only trusted, costed evidence earns", () => {
 
   it("holds usage with unknown cost as pending rather than scoring it as zero dollars", async () => {
     const user = await db.createUser("nocost@example.com");
-    await ingestGatewayObservations(store, user, [
-      observation({ generationId: "gen_nocost_1", cost: null }),
-    ]);
+    await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ generationId: "gen_nocost_1", cost: null })],
+      { issuance: ISSUANCE },
+    );
 
     const [event] = await db.asServiceRole<{
       verification_status: string;
@@ -120,9 +137,12 @@ describe("only trusted, costed evidence earns", () => {
 
   it("gives fixture evidence zero economic weight", async () => {
     const user = await db.createUser("fixture-trust@example.com");
-    await ingestGatewayObservations(store, user, [
-      observation({ environment: "fixture", generationId: "gen_fix_1" }),
-    ]);
+    await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ environment: "fixture", generationId: "gen_fix_1" })],
+      { issuance: ISSUANCE },
+    );
 
     const score = await scoreFor(user);
     expect(score.points).toBe(0);
@@ -131,12 +151,18 @@ describe("only trusted, costed evidence earns", () => {
 
   it("keeps the same generation from earning twice", async () => {
     const user = await db.createUser("dedupe-trust@example.com");
-    const first = await ingestGatewayObservations(store, user, [
-      observation({ generationId: "gen_once" }),
-    ]);
-    const second = await ingestGatewayObservations(store, user, [
-      observation({ generationId: "gen_once" }),
-    ]);
+    const first = await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ generationId: "gen_once" })],
+      { issuance: ISSUANCE },
+    );
+    const second = await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ generationId: "gen_once" })],
+      { issuance: ISSUANCE },
+    );
 
     expect(first.inserted).toBe(1);
     expect(second.inserted).toBe(0);
@@ -146,7 +172,9 @@ describe("only trusted, costed evidence earns", () => {
 
   it("stores a proof hash alongside every gateway event", async () => {
     const user = await db.createUser("hashed@example.com");
-    await ingestGatewayObservations(store, user, [observation({ generationId: "gen_hash_1" })]);
+    await ingestGatewayObservations(store, user, [observation({ generationId: "gen_hash_1" })], {
+      issuance: ISSUANCE,
+    });
 
     const [proof] = await db.asServiceRole<{ proof_hash: string; trust_environment: string }>(
       `select proof_hash, trust_environment from proof_records where user_id = $1`,
@@ -160,15 +188,20 @@ describe("only trusted, costed evidence earns", () => {
 describe("mining session summary", () => {
   it("derives from persisted usage and reuses the one scoring engine", async () => {
     const user = await db.createUser("session@example.com");
-    await ingestGatewayObservations(store, user, [
-      observation({ generationId: "gen_session_1" }),
-      observation({
-        generationId: "gen_session_2",
-        environment: "development",
-        occurredAt: `${DAY}T11:00:00.000Z`,
-        cost: { value: "1.00", currency: "USD" },
-      }),
-    ]);
+    await ingestGatewayObservations(
+      store,
+      user,
+      [
+        observation({ generationId: "gen_session_1" }),
+        observation({
+          generationId: "gen_session_2",
+          environment: "development",
+          occurredAt: `${DAY}T11:00:00.000Z`,
+          cost: { value: "1.00", currency: "USD" },
+        }),
+      ],
+      { issuance: ISSUANCE },
+    );
 
     const stored = await store.loadEventsForDays(user, [DAY]);
     const session = buildMiningSession(stored, new Date(`${DAY}T12:00:00.000Z`));

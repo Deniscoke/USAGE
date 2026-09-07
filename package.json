@@ -17,12 +17,15 @@
     "usage:gateway:probe": "node --env-file-if-exists=.env.local --import tsx scripts/gateway-probe.ts",
     "miner:token": "node --env-file-if-exists=.env.local --import tsx scripts/miner-token.ts",
     "miner:claude": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-claude-miner.ps1",
-    "miner:summary": "node --env-file-if-exists=.env.local --import tsx scripts/miner-summary.ts"
+    "miner:summary": "node --env-file-if-exists=.env.local --import tsx scripts/miner-summary.ts",
+    "usage:signing-key": "node --import tsx scripts/generate-signing-key.ts",
+    "usage:verify-receipt": "node --env-file-if-exists=.env.local --import tsx scripts/verify-receipt.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",
     "@supabase/supabase-js": "^2.115.0",
     "ai": "^6.0.277",
+    "jose": "^6.2.12",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

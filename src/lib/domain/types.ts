@@ -11,6 +11,12 @@ export type VerificationType = "verified" | "routed" | "reported";
 /** Lifecycle of a record's verification, independent of its type. */
 export type VerificationStatus = "confirmed" | "pending" | "unverifiable";
 
+/** Does USAGE attest that this happened? Independent of money. */
+export type ProofStatus = "observed" | "confirmed" | "rejected";
+
+/** May it earn right now? Independent of whether the proof is sound. */
+export type EconomicStatus = "eligible" | "pending_cost" | "ineligible";
+
 /** Where the bytes physically came from (an adapter may support several). */
 export type UsageSource =
   | "provider_usage_api"
@@ -45,6 +51,11 @@ export interface NormalizedUsageRecord {
 
   verificationType: VerificationType;
   verificationStatus: VerificationStatus;
+  /**
+   * Set by trusted ingestion. Absent on older records, which fall back to
+   * verificationStatus for eligibility.
+   */
+  economicStatus?: EconomicStatus;
 
   /** Small, non-sensitive provider metadata. Never prompts or completions. */
   rawMetadata: Record<string, string | number | boolean | null>;

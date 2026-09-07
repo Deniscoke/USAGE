@@ -29,6 +29,8 @@ export type UsageSourceRow =
   | "local_client"
   | "imported_report";
 export type ConnectionStatusRow = "active" | "error" | "revoked";
+export type EconomicStatusRow = "eligible" | "pending_cost" | "ineligible";
+export type ProofStatusRow = "observed" | "confirmed" | "rejected";
 
 export type MinerCredentialRow = {
   id: string;
@@ -86,6 +88,7 @@ export type UsageEventRow = {
   normalized_cost_micros: number;
   verification_type: VerificationTypeRow;
   verification_status: VerificationStatusRow;
+  economic_status: EconomicStatusRow;
   raw_metadata: Record<string, string | number | boolean | null>;
   created_at: string;
 }
@@ -117,6 +120,13 @@ export type ProofRecordRow = {
   adapter_version: string | null;
   proof_hash: string | null;
   trust_environment: string | null;
+  proof_status: ProofStatusRow;
+  receipt_id: string | null;
+  receipt_version: string | null;
+  issuer: string | null;
+  issuer_key_id: string | null;
+  signature: string | null;
+  signed_at: string | null;
   proof_metadata: Record<string, string | number | boolean | null>;
   created_at: string;
 };
@@ -132,6 +142,13 @@ export type ProofRecordInsertRow = {
   adapter_version?: string | null;
   proof_hash?: string | null;
   trust_environment?: string | null;
+  proof_status?: ProofStatusRow;
+  receipt_id?: string | null;
+  receipt_version?: string | null;
+  issuer?: string | null;
+  issuer_key_id?: string | null;
+  signature?: string | null;
+  signed_at?: string | null;
   proof_metadata?: Record<string, string | number | boolean | null>;
 };
 
@@ -189,6 +206,7 @@ export type UsageEventInsertRow = {
   normalized_cost_micros?: number;
   verification_type: VerificationTypeRow;
   verification_status?: VerificationStatusRow;
+  economic_status?: EconomicStatusRow;
   raw_metadata?: Record<string, string | number | boolean | null>;
 }
 

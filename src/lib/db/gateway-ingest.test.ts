@@ -5,6 +5,15 @@ import { ingestGatewayObservations, type IngestStore } from "./ingest";
 import { gatewayFixtures, malformedGatewayFixtures } from "@/lib/providers/vercel-gateway/fixtures";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
 import { MICROS_PER_USD } from "@/lib/domain/money";
+import { generateSigningKeyPair } from "@/lib/domain/signing";
+
+// Stands in for the production signing key that only hosted USAGE holds.
+const TEST_KEY = generateSigningKeyPair("test-key-1");
+const ISSUANCE = {
+  issuer: "usage://issuer/production",
+  keyId: TEST_KEY.keyId,
+  privateKeyBase64: TEST_KEY.privateKeyBase64,
+};
 
 /**
  * The routed-proof path, end to end, against a real Postgres:
@@ -130,7 +139,9 @@ describe("live routed observations", () => {
 
   beforeAll(async () => {
     routedUser = await db.createUser("routed@example.com");
-    await ingestGatewayObservations(store, routedUser, [liveObservation()]);
+    await ingestGatewayObservations(store, routedUser, [liveObservation()], {
+      issuance: ISSUANCE,
+    });
   });
 
   it("stores ROUTED evidence with confirmed status", async () => {
@@ -214,7 +225,9 @@ describe("live routed observations", () => {
   });
 
   it("does not accumulate duplicate provenance when re-ingested", async () => {
-    await ingestGatewayObservations(store, routedUser, [liveObservation()]);
+    await ingestGatewayObservations(store, routedUser, [liveObservation()], {
+      issuance: ISSUANCE,
+    });
     const [count] = await rows<{ n: string }>(
       `select count(*)::text as n from proof_records where user_id = $1`,
       [routedUser],

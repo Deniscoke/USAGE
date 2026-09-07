@@ -34,6 +34,7 @@ describe("row mapping", () => {
     normalized_cost_micros: 4_500,
     verification_type: "verified",
     verification_status: "confirmed",
+    economic_status: "eligible",
     raw_metadata: { bucket: "hour" },
     created_at: "2026-03-15T10:01:00+00:00",
   };

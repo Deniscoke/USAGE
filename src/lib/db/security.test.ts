@@ -113,6 +113,37 @@ describe("verification is a server-side boundary", () => {
     ).rejects.toThrow(/permission denied/i);
   });
 
+  it("refuses a client attempt to declare a proof confirmed", async () => {
+    await expect(
+      db.asUser(
+        bob,
+        `insert into proof_records
+           (user_id, usage_event_id, verification_type, proof_kind, proof_status, issuer, signature)
+         values ($1, gen_random_uuid(), 'routed', 'gateway_observation', 'confirmed',
+                 'usage://issuer/production', 'forged')`,
+        [bob],
+      ),
+    ).rejects.toThrow(/permission denied/i);
+  });
+
+  it("refuses a client attempt to mark usage economically eligible", async () => {
+    await expect(
+      db.asUser(bob, `update usage_events set economic_status = 'eligible'`),
+    ).rejects.toThrow(/permission denied/i);
+
+    await expect(
+      db.asUser(
+        bob,
+        `insert into usage_events
+           (user_id, provider, source, external_reference, model, occurred_at,
+            normalized_cost_micros, verification_type, economic_status)
+         values ($1, 'vercel-ai-gateway', 'vercel_ai_gateway', 'live:forged',
+                 'anthropic/claude-opus-5', now(), 999000000, 'routed', 'eligible')`,
+        [bob],
+      ),
+    ).rejects.toThrow(/permission denied/i);
+  });
+
   it("refuses client-written scores and aggregates", async () => {
     await expect(
       db.asUser(

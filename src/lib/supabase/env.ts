@@ -14,7 +14,10 @@ export interface SupabasePublicEnv {
 
 export function supabasePublicEnv(): SupabasePublicEnv | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // Supabase renamed the browser key to "publishable"; the legacy anon JWT is
+  // still accepted so an existing project keeps working.
+  const anonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -29,10 +32,11 @@ export function isSupabaseConfigured(): boolean {
  * `server-only` guard in ./admin.
  */
 export function supabaseServiceRoleKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Prefer the current secret key; fall back to the legacy service_role JWT.
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is not set. Trusted ingestion cannot run without it.",
+      "SUPABASE_SECRET_KEY is not set. Trusted ingestion cannot run without it.",
     );
   }
   return key;

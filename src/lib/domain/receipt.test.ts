@@ -6,7 +6,11 @@ import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observat
 function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
   return {
     receiptVersion: RECEIPT_VERSION,
+    receiptId: "11111111-1111-4111-8111-111111111111",
+    issuer: "usage://issuer/production",
+    issuerKeyId: "key-1",
     userId: "user-1",
+    minerCredentialId: "cred-1",
     source: "vercel_ai_gateway",
     clientType: "claude-code",
     provider: "anthropic",
@@ -27,6 +31,8 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     observedAt: "2026-04-20T10:00:01.000Z",
     verificationType: "routed",
     verificationStatus: "confirmed",
+    proofStatus: "confirmed",
+    economicStatus: "eligible",
     adapterVersion: "vercel-gateway@1",
     ...overrides,
   };
@@ -121,20 +127,26 @@ describe("receipts produced by the gateway adapter", () => {
   };
 
   it("hashes the same observation identically across ingests", () => {
+    // Same receipt identity, different observation time: the hash must match,
+    // which is what makes re-derivation and comparison possible.
+    const receiptId = "22222222-2222-4222-8222-222222222222";
     const first = normalizeGatewayObservation(observation, {
       userId: "user-1",
+      receiptId,
       observedAt: "2026-04-20T10:00:01.000Z",
     });
     const second = normalizeGatewayObservation(observation, {
       userId: "user-1",
+      receiptId,
       observedAt: "2026-04-21T23:59:59.000Z",
     });
     expect(second.proof.proofHash).toBe(first.proof.proofHash);
   });
 
   it("binds the receipt to a user", () => {
-    const a = normalizeGatewayObservation(observation, { userId: "user-1" });
-    const b = normalizeGatewayObservation(observation, { userId: "user-2" });
+    const receiptId = "33333333-3333-4333-8333-333333333333";
+    const a = normalizeGatewayObservation(observation, { userId: "user-1", receiptId });
+    const b = normalizeGatewayObservation(observation, { userId: "user-2", receiptId });
     expect(a.proof.proofHash).not.toBe(b.proof.proofHash);
   });
 

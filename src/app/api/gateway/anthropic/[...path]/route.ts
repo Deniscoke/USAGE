@@ -22,7 +22,8 @@ import {
 import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { resolveTrustEnvironment, type GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
+import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
+import { assessTrust, type TrustAssessment } from "@/lib/trust/production";
 
 /**
  * USAGE Gateway — Anthropic-compatible endpoint.
@@ -51,8 +52,15 @@ async function resolveMinerStore() {
  * trusted ingestion as every other proof; without one it lands in a local
  * inspection log that is explicitly not production proof storage.
  */
-async function recordObservation(observation: GatewayObservation, userId: string): Promise<void> {
+async function recordObservation(
+  observation: GatewayObservation,
+  userId: string,
+  trust: TrustAssessment,
+  minerCredentialId: string,
+): Promise<void> {
   if (!isSupabaseConfigured()) {
+    // No trusted persistence available, so nothing here can be a confirmed
+    // proof no matter what this process holds.
     await appendDevObservation(observation);
     return;
   }
@@ -61,7 +69,13 @@ async function recordObservation(observation: GatewayObservation, userId: string
   const { ingestGatewayObservations } = await import("@/lib/db/ingest");
 
   const store = createSupabaseIngestStore(createAdminSupabase());
-  await ingestGatewayObservations(store, userId, [observation]);
+  await ingestGatewayObservations(store, userId, [observation], {
+    // Signing is what confirms a proof, and only trusted hosted infrastructure
+    // holds the key. A local gateway passes null here and produces an
+    // OBSERVED, economically ineligible record.
+    issuance: trust.canIssueProduction ? trust.issuer : null,
+    minerCredentialId,
+  });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
@@ -109,6 +123,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
     return anthropicError(503, "api_error", "USAGE Gateway upstream is not configured.");
   }
 
+  // Trust is assessed per request: the signing key must be present AND, when
+  // configured, Vercel must confirm cryptographically which deployment this is.
+  const trust = await assessTrust(request.headers);
+  const environment = trust.canIssueProduction ? "live" : "development";
+
   const rawBody = await request.text();
   let parsedBody: unknown = null;
   try {
@@ -130,7 +149,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
       : JSON.stringify(
           withAttribution(parsedBody, {
             user: auth.identity.userId,
-            tags: ["usage", "miner", CLIENT_TYPE, resolveTrustEnvironment() === "live" ? "production" : "development"],
+            tags: ["usage", "miner", CLIENT_TYPE, environment === "live" ? "production" : "development"],
           }),
         );
 
@@ -175,8 +194,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
     return new Response(body, { status: upstream.status, headers: responseHeaders });
   }
 
-  const environment = resolveTrustEnvironment();
-
   const finish = (observation: GatewayObservation | null, status: number) => {
     logGatewayRequest({
       requestId,
@@ -195,7 +212,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
 
     if (!observation) return;
     // Recording must never delay or break the client's response.
-    void recordObservation(observation, auth.identity.userId).catch(() => {
+    void recordObservation(
+      observation,
+      auth.identity.userId,
+      trust,
+      auth.identity.credentialId,
+    ).catch(() => {
       logGatewayRequest({
         requestId,
         userId: auth.identity.userId,

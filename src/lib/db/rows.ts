@@ -53,6 +53,7 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     normalizedCostMicros: toSafeInteger(row.normalized_cost_micros, "normalized_cost_micros"),
     verificationType: row.verification_type,
     verificationStatus: row.verification_status,
+    economicStatus: row.economic_status ?? undefined,
     rawMetadata: row.raw_metadata ?? {},
   };
 }
@@ -73,6 +74,7 @@ export interface UsageEventInsert {
   normalized_cost_micros: number;
   verification_type: NormalizedUsageRecord["verificationType"];
   verification_status: NormalizedUsageRecord["verificationStatus"];
+  economic_status: NonNullable<NormalizedUsageRecord["economicStatus"]>;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
 }
 
@@ -98,8 +100,22 @@ export function usageRecordToInsert(
     // Assigned by trusted ingestion from the adapter, never accepted from input.
     verification_type: record.verificationType,
     verification_status: record.verificationStatus,
+    economic_status: record.economicStatus ?? legacyEconomicStatus(record),
     raw_metadata: record.rawMetadata,
   };
+}
+
+/**
+ * Economic status for records produced before signed issuance existed (the demo
+ * adapters, and anything not routed through the hosted gateway). Confirmed
+ * evidence stays eligible; everything else is held rather than silently
+ * promoted.
+ */
+function legacyEconomicStatus(
+  record: NormalizedUsageRecord,
+): NonNullable<NormalizedUsageRecord["economicStatus"]> {
+  if (record.verificationType === "reported") return "ineligible";
+  return record.verificationStatus === "confirmed" ? "eligible" : "pending_cost";
 }
 
 export function rowToDailyAggregate(row: UsageDailyAggregateRow): DailyAggregate {

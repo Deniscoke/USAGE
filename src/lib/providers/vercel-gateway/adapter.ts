@@ -1,5 +1,15 @@
 import { usdCostToMicros } from "@/lib/domain/money";
-import { receiptHash, RECEIPT_VERSION, type CostBasis, type ProofReceipt } from "@/lib/domain/receipt";
+import {
+  deriveEconomicStatus,
+  newReceiptId,
+  receiptHash,
+  RECEIPT_VERSION,
+  signReceipt,
+  type CostBasis,
+  type ProofReceipt,
+  type SignedProofReceipt,
+} from "@/lib/domain/receipt";
+import type { EconomicStatus, ProofStatus } from "@/lib/domain/types";
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
   ConnectionContext,
@@ -48,10 +58,35 @@ function splitInputTokens(observation: GatewayObservation): {
   return { inputTokens: uncached, cachedInputTokens: cacheRead, cacheWriteTokens: cacheWrite };
 }
 
+/**
+ * Credentials for production issuance. Present only where the signing key is,
+ * i.e. trusted hosted infrastructure -- see src/lib/trust/production.ts.
+ */
+export interface ProofIssuance {
+  issuer: string;
+  keyId: string;
+  privateKeyBase64: string;
+}
+
+export interface NormalizeOptions {
+  userId?: string;
+  observedAt?: string;
+  /** Supply to re-derive an existing receipt exactly (verification, tests). */
+  receiptId?: string;
+  minerCredentialId?: string | null;
+  /**
+   * Supplying this is what CONFIRMS a proof. It cannot be faked by a caller:
+   * the private key only exists where USAGE put it.
+   */
+  issuance?: ProofIssuance | null;
+}
+
 export interface NormalizedObservation {
   record: NormalizedUsageRecord;
   /** The tamper-evident receipt this record was derived from. */
   receipt: ProofReceipt;
+  /** Present only when a production issuer signed it. */
+  signed: SignedProofReceipt | null;
   /** Provenance for proof_records. Non-secret fields only. */
   proof: {
     proofKind: string;
@@ -61,6 +96,14 @@ export interface NormalizedObservation {
     adapterVersion: string;
     proofHash: string;
     trustEnvironment: string;
+    proofStatus: ProofStatus;
+    economicStatus: EconomicStatus;
+    receiptId: string;
+    receiptVersion: string;
+    issuer: string | null;
+    issuerKeyId: string | null;
+    signature: string | null;
+    signedAt: string | null;
     metadata: Record<string, string | number | boolean | null>;
   };
 }
@@ -71,7 +114,7 @@ export interface NormalizedObservation {
  */
 export function normalizeGatewayObservation(
   input: GatewayObservation,
-  options: { userId?: string; observedAt?: string } = {},
+  options: NormalizeOptions = {},
 ): NormalizedObservation {
   const observation = assertObservation(input);
   const verification = deriveVerification(observation.environment);
@@ -96,9 +139,23 @@ export function normalizeGatewayObservation(
   const externalReference = observationReference(observation);
   const occurredAt = new Date(observation.occurredAt).toISOString();
 
+  // CONFIRMED is not a claim a caller can make: it follows from holding the
+  // production signing key, which only trusted hosted infrastructure does.
+  const issuance = options.issuance ?? null;
+  const proofStatus: ProofStatus =
+    issuance && verification.trustEnvironment === "production" ? "confirmed" : "observed";
+  const economicStatus: EconomicStatus = deriveEconomicStatus({
+    proofStatus,
+    verificationType: verification.verificationType,
+    costBasis,
+    costMicroUsd: parsedCost ? parsedCost.micros : null,
+  });
+
   const metadata: Record<string, string | number | boolean | null> = {
     evidence_class: verification.evidenceClass,
     trust_environment: verification.trustEnvironment,
+    proof_status: proofStatus,
+    economic_status: economicStatus,
     client_type: observation.clientType ?? "unknown",
     generation_id_source: observation.generationIdSource ?? "gateway_generation_id",
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
@@ -129,15 +186,20 @@ export function normalizeGatewayObservation(
     normalizedCostMicros: parsedCost ? parsedCost.micros : 0,
     verificationType: verification.verificationType,
     verificationStatus,
+    economicStatus,
     rawMetadata: metadata,
   };
 
   const observedAt = options.observedAt ?? new Date().toISOString();
   const receipt: ProofReceipt = {
     receiptVersion: RECEIPT_VERSION,
+    receiptId: options.receiptId ?? newReceiptId(),
+    issuer: issuance?.issuer ?? "usage://issuer/unsigned",
+    issuerKeyId: issuance?.keyId ?? "unsigned",
     // A receipt is always about someone; an unattributed one is only useful for
     // inspecting the pipeline, so it is explicitly marked rather than blank.
     userId: options.userId ?? "unattributed",
+    minerCredentialId: options.minerCredentialId ?? null,
     source: record.source,
     clientType: observation.clientType ?? "unknown",
     provider: observation.servedByProvider ?? VERCEL_GATEWAY_PROVIDER,
@@ -158,20 +220,37 @@ export function normalizeGatewayObservation(
     observedAt,
     verificationType: record.verificationType,
     verificationStatus,
+    proofStatus,
+    economicStatus,
     adapterVersion: VERCEL_GATEWAY_ADAPTER_VERSION,
   };
+
+  // Only confirmed proofs are signed. A signature is an attestation that USAGE
+  // stands behind this as trusted evidence; there is nothing to stand behind
+  // when the observation was not made by trusted infrastructure.
+  const signed =
+    issuance && proofStatus === "confirmed" ? signReceipt(receipt, issuance.privateKeyBase64) : null;
 
   return {
     record,
     receipt,
+    signed,
     proof: {
       proofKind: "gateway_observation",
       proofSource: VERCEL_GATEWAY_PROVIDER,
       externalReference,
       observedAt,
       adapterVersion: VERCEL_GATEWAY_ADAPTER_VERSION,
-      proofHash: receiptHash(receipt),
+      proofHash: signed?.canonicalHash ?? receiptHash(receipt),
       trustEnvironment: verification.trustEnvironment,
+      proofStatus,
+      economicStatus,
+      receiptId: receipt.receiptId,
+      receiptVersion: receipt.receiptVersion,
+      issuer: issuance?.issuer ?? null,
+      issuerKeyId: issuance?.keyId ?? null,
+      signature: signed?.signature ?? null,
+      signedAt: signed?.signedAt ?? null,
       metadata,
     },
   };

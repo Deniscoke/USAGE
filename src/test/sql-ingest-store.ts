@@ -43,6 +43,7 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "normalized_cost_micros",
         "verification_type",
         "verification_status",
+        "economic_status",
         "raw_metadata",
       ] as const;
 
@@ -91,8 +92,10 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
           `insert into proof_records
              (user_id, usage_event_id, verification_type, proof_kind, proof_source,
               external_reference, observed_at, adapter_version, proof_hash,
-              trust_environment, proof_metadata)
-           values ($1, $2, $3::verification_type, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+              trust_environment, proof_status, receipt_id, receipt_version, issuer,
+              issuer_key_id, signature, signed_at, proof_metadata)
+           values ($1, $2, $3::verification_type, $4, $5, $6, $7, $8, $9, $10, $11,
+                   $12::uuid, $13, $14, $15, $16, $17, $18::jsonb)
            on conflict (usage_event_id, proof_kind) do nothing`,
           [
             userId,
@@ -105,6 +108,13 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
             proof.adapterVersion,
             proof.proofHash,
             proof.trustEnvironment,
+            proof.proofStatus,
+            proof.receiptId,
+            proof.receiptVersion,
+            proof.issuer,
+            proof.issuerKeyId,
+            proof.signature,
+            proof.signedAt,
             JSON.stringify(proof.metadata),
           ],
         );
