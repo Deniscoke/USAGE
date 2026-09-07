@@ -2,24 +2,56 @@
 
 ## Current milestone
 
-M4B — Trusted Hosted Mining. **Supabase is live and verified. Vercel is not
-deployed yet**, so no CONFIRMED proof exists (see *What I need from you*).
+M4B — Trusted Hosted Mining. **Complete.** A request through the hosted gateway
+produces a signed, CONFIRMED proof that anyone can verify with the public key.
 
 ## Verification status
 
 | Item | Status |
 | --- | --- |
-| Hosted Vercel gateway | **NO** — needs your Vercel login |
-| Real Supabase runtime | **YES** — migrations 0001-0005 pushed, 9 tables live |
+| Hosted Vercel gateway | **YES** — `usage-denis-mitrovics-projects.vercel.app` |
+| Real Supabase runtime | **YES** — migrations 0001-0005 applied, 9 tables live |
 | GoTrue tested | **YES** — real sign-up, password sign-in, session, profile trigger |
-| RLS runtime tested | **YES** — 23/23 checks through PostgREST with real user JWTs |
-| Receipt signing | **YES** — Ed25519, signed and independently verified end to end locally |
-| First production-signed proof | **NO** — no production key exists yet |
-| First Claude Code hosted proof | **NO** — blocked on hosting |
-| Proof status | all stored proofs are `observed` |
-| Economic status | all `ineligible` or `pending_cost`; nothing has earned |
-| Cost reconciliation | seam exists; only `gateway_reported` implemented; Anthropic surface reports no cost |
-| Next blocker | **you: create the Vercel project and set the signing key** |
+| RLS runtime tested | **YES** — 23/23 through PostgREST with real user JWTs |
+| Receipt signing | **YES** — Ed25519, key held only as a Vercel sensitive variable |
+| First production-signed proof | **YES** — `gen_01M1YQ6ASABFFZVB0NK3KXYG7J` |
+| First Claude Code hosted proof | **NO** — needs AI Gateway credit (free tier blocks Anthropic models) |
+| Proof status | `confirmed` |
+| Economic status | `pending_cost` — the Anthropic-compatible surface reports no cost |
+| Cost reconciliation | seam exists; only `gateway_reported` implemented |
+| Next blocker | AI Gateway credit, then Claude Code through the hosted gateway |
+
+## First trusted proof
+
+```
+proof_status    : confirmed
+economic_status : pending_cost
+verification    : routed / pending
+issuer          : usage://issuer/production   key: usage-prod-2026-09-07
+canonical hash  : sha256:587d7b7a11f117d725f0e9356ecb902fd5216a019ff9eff49893bf5fd1666733
+tokens          : 28 in / 0 cached / 16 out
+cost            : unknown (unavailable)
+signature       : VALID
+```
+
+Verified with nothing but the published public key from `/api/receipts/keys` —
+no private key, no Supabase secret, no gateway key. Re-ingesting the same
+generation left the event count at 1.
+
+`pending_cost` is the correct outcome, not a shortfall: the proof is real and
+signed, and no authoritative cost exists for it yet.
+
+## Two bugs production found that local testing could not
+
+- **The usage write never ran.** A serverless function freezes when its response
+  completes, so the fire-and-forget observation write silently disappeared: a
+  real request produced a generation and no proof. Now wrapped in Next's
+  `after()`. A local dev server keeps running, which is exactly why this was
+  invisible until it was hosted.
+- **`assessTrust` accepted an unusable signing key.** It only checked the
+  variable was non-empty, so a mistyped value made the deployment claim it could
+  issue proofs and then throw on the first one. It now derives the public half to
+  prove the key works, and reports plainly when it does not.
 
 ## Hosted Supabase verification (`npm run usage:verify-hosted`)
 
@@ -29,79 +61,30 @@ exercises the boundaries and deletes them again:
 - GoTrue sign-up, password sign-in, session, `getUser()`
 - `on_auth_user_created` creates the profile row
 - service-role ingestion writes usage; the same generation cannot be stored twice
-- unsigned ingestion stays `observed` / `ineligible` — as it must, since no
-  production signing key exists yet
-- a user reads only their own usage, aggregates, scores, proofs and profile;
-  naming another user's id changes nothing
+- unsigned ingestion stays `observed` / `ineligible`
+- a user reads only their own usage, aggregates, scores, proofs and profile
 - a client cannot insert usage or proofs, promote their own usage, or write
   scores or reward allocations (all `42501 permission denied`)
 - a user cannot read a stored miner token hash, or see anyone else's credentials
 
-This is what PGlite could not prove: GoTrue, PostgREST and the platform's grants.
+## Endpoints
 
-## What changed
-
-- **Trust root moved off the environment flag.** `USAGE_TRUST_ENVIRONMENT` is
-  now a diagnostic signal only. A proof is CONFIRMED only when signed by a key
-  that exists solely on the hosted deployment. Tested: a local process that sets
-  the flag, or even holds a key while observing in a development environment,
-  cannot produce a confirmed proof.
-- **Ed25519 receipt signing + verification.** `verifyUsageReceipt()` needs only
-  the receipt and a public key — no database, no secrets. Any mutation of a
-  signed field invalidates it.
-- **Vercel deployment identity** (`x-vercel-oidc-token`) verified against
-  Vercel's JWKS with project/owner/environment checks, fail-closed when
-  configured.
-- **Proof and economic ledgers separated**: `proof_status` and `economic_status`
-  alongside the unchanged `verification_type`. Scoring gates on economic status.
-- **Cost reconciliation seam** (`CostResolver`) with only the authoritative
-  gateway resolver implemented; estimates are explicitly not payable.
-- Supabase publishable/secret key names supported, legacy names still accepted.
-- 203 tests pass.
-
-## What I need from you
-
-Supabase is done. What remains needs a Vercel account.
-
-**1. Signing key** — the root of trust. Generate it, paste the private half into
-Vercel, and never store it locally:
-
-```bash
-npm run usage:signing-key
-```
-
-**2. Vercel project**
-
-```bash
-npm i -g vercel
-vercel link
-```
-
-Set these as **Sensitive** environment variables on Production:
-`AI_GATEWAY_API_KEY`, `SUPABASE_SECRET_KEY`,
-`USAGE_RECEIPT_SIGNING_PRIVATE_KEY`, `USAGE_RECEIPT_SIGNING_KEY_ID`.
-
-Set as normal variables: `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `USAGE_RECEIPT_PUBLIC_KEYS`,
-`USAGE_RECEIPT_ISSUER`, and optionally `USAGE_VERCEL_OIDC_ISSUER` +
-`USAGE_VERCEL_PROJECT_ID` + `USAGE_VERCEL_OWNER_ID`.
-
-Then `vercel deploy --prod` (env changes need a redeploy to take effect).
-
-**3. AI Gateway budget.** The team is still on the free tier: Anthropic models
-return 403 and free models are rate-limited. Add a small credit balance and a low
-spend cap before any Claude Code traffic. **I have not changed any budget.**
-
-Once those exist, the remaining work is mechanical: sign up on the hosted app,
-mint a production miner credential, point the launcher at the hosted URL, run one
-tiny Claude Code session, and verify the resulting receipt with the public key.
+| Path | Auth | Purpose |
+| --- | --- | --- |
+| `/api/gateway/anthropic/[...path]` | miner credential | the gateway itself |
+| `/api/gateway/trust` | none (redacted) | which trust signal failed, and why |
+| `/api/receipts/keys` | none | published verification keys |
 
 ## Known limitations
 
-- No hosted deployment, so no CONFIRMED proof exists and nothing has earned.
-- `USAGE_DEV_MINER_USER_ID` in `.env.local` is a random uuid with no profile row
-  in the live database. Local gateway ingestion will fail its foreign key until
-  it is replaced with a real profile id, or a real miner credential is minted.
+- Nothing has earned: every proof is `pending_cost` until a cost resolver exists.
+- Vercel OIDC deployment identity is not configured, so the signing key alone is
+  the trust root. Adding `USAGE_VERCEL_OIDC_ISSUER` + project/owner ids layers a
+  second, cryptographic signal on top.
+- The Vercel project is not connected to GitHub; deploys are manual
+  (`vercel deploy --prod`).
+- `.usage/hosted-miner.json` holds a plaintext test miner token (gitignored).
+  Revoke that credential once it is no longer needed.
 - Local observations still land in `.usage/observations.jsonl` (gitignored),
   which is an inspection artifact, not proof storage.
 - The Anthropic-compatible gateway surface returns no cost, so even a hosted
