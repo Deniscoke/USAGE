@@ -29,7 +29,12 @@ export type UsageSourceRow =
   | "local_client"
   | "imported_report";
 export type ConnectionStatusRow = "active" | "error" | "revoked";
-export type EconomicStatusRow = "eligible" | "pending_cost" | "ineligible";
+export type EconomicStatusRow =
+  | "eligible"
+  | "pending_pricing"
+  | "pending_cost"
+  | "settled"
+  | "ineligible";
 export type ProofStatusRow = "observed" | "confirmed" | "rejected";
 
 export type MinerCredentialRow = {
@@ -89,6 +94,11 @@ export type UsageEventRow = {
   verification_type: VerificationTypeRow;
   verification_status: VerificationStatusRow;
   economic_status: EconomicStatusRow;
+  protocol_compute_micros: number;
+  protocol_pricing_version: string | null;
+  protocol_pricing_basis: string | null;
+  fraud_status: string;
+  reward_hold: boolean;
   raw_metadata: Record<string, string | number | boolean | null>;
   created_at: string;
 }
@@ -173,6 +183,46 @@ export type RewardEpochRow = {
   scoring_version: string;
   network_score: string | number;
   settled_at: string | null;
+  pricing_version: string | null;
+  epoch_kind: string;
+}
+
+export type UsagePointLedgerRow = {
+  id: string;
+  user_id: string;
+  epoch_id: string;
+  allocation_id: string;
+  amount: number;
+  reason: string;
+  created_at: string;
+}
+
+export type UsagePointLedgerInsertRow = {
+  user_id: string;
+  epoch_id: string;
+  allocation_id: string;
+  amount: number;
+  reason: string;
+}
+
+export type ProtocolPricingVersionRow = {
+  version: string;
+  source: string;
+  effective_from: string;
+  captured_at: string;
+  status: string;
+  created_at: string;
+}
+
+export type ProtocolModelPriceRow = {
+  pricing_version: string;
+  model: string;
+  provider_family: string;
+  input_micros_per_million: number;
+  output_micros_per_million: number;
+  cache_read_micros_per_million: number | null;
+  cache_write_micros_per_million: number | null;
+  reasoning_micros_per_million: number | null;
 }
 
 export type RewardAllocationRow = {
@@ -207,6 +257,9 @@ export type UsageEventInsertRow = {
   verification_type: VerificationTypeRow;
   verification_status?: VerificationStatusRow;
   economic_status?: EconomicStatusRow;
+  protocol_compute_micros?: number;
+  protocol_pricing_version?: string | null;
+  protocol_pricing_basis?: string | null;
   raw_metadata?: Record<string, string | number | boolean | null>;
 }
 
@@ -290,8 +343,26 @@ export type Database = {
       };
       reward_epochs: {
         Row: RewardEpochRow;
-        Insert: RewardEpochRow;
+        Insert: Partial<RewardEpochRow> & { id: string; starts_at: string; ends_at: string };
         Update: Partial<RewardEpochRow>;
+        Relationships: [];
+      };
+      usage_point_ledger: {
+        Row: UsagePointLedgerRow;
+        Insert: UsagePointLedgerInsertRow;
+        Update: Partial<UsagePointLedgerRow>;
+        Relationships: [];
+      };
+      protocol_pricing_versions: {
+        Row: ProtocolPricingVersionRow;
+        Insert: Partial<ProtocolPricingVersionRow> & { version: string; source: string; effective_from: string; captured_at: string };
+        Update: Partial<ProtocolPricingVersionRow>;
+        Relationships: [];
+      };
+      protocol_model_prices: {
+        Row: ProtocolModelPriceRow;
+        Insert: ProtocolModelPriceRow;
+        Update: Partial<ProtocolModelPriceRow>;
         Relationships: [];
       };
       reward_allocations: {

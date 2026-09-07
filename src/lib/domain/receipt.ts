@@ -41,8 +41,9 @@ export type { EconomicStatus, ProofStatus };
  * fields are `null`, never 0 — "we don't know" and "zero" are different claims.
  */
 
-export const RECEIPT_VERSION = "usage.receipt.v2";
-export const SUPPORTED_RECEIPT_VERSIONS = [RECEIPT_VERSION] as const;
+export const RECEIPT_VERSION = "usage.receipt.v3";
+/** v2 receipts predate protocol pricing and still verify against their own form. */
+export const SUPPORTED_RECEIPT_VERSIONS = ["usage.receipt.v2", "usage.receipt.v3"] as const;
 
 export type CostBasis = "gateway_reported" | "provider_reported" | "estimated" | "unavailable";
 
@@ -92,6 +93,13 @@ export interface ProofReceipt {
   occurredAt: string;
   observedAt: string;
 
+  /**
+   * Deterministic protocol value of the compute, in micro-USD, from the pricing
+   * snapshot named below. NOT what anybody was billed.
+   */
+  protocolComputeMicroUsd: number | null;
+  protocolPricingVersion: string | null;
+
   verificationType: VerificationType;
   verificationStatus: VerificationStatus;
   proofStatus: ProofStatus;
@@ -107,8 +115,14 @@ export interface SignedProofReceipt {
   signedAt: string;
 }
 
-/** Fields covered by the hash and therefore by the signature, in a fixed order. */
-const SIGNED_FIELDS = [
+/**
+ * Fields covered by the hash, per receipt version, in a fixed order.
+ *
+ * A new version appends; it never reorders or removes. Old receipts keep
+ * verifying against the exact form they were signed with, which is the whole
+ * point of versioning the canonical form rather than the code that builds it.
+ */
+const SIGNED_FIELDS_V2 = [
   "receiptVersion",
   "receiptId",
   "issuer",
@@ -139,6 +153,16 @@ const SIGNED_FIELDS = [
   "adapterVersion",
 ] as const satisfies readonly (keyof ProofReceipt)[];
 
+const SIGNED_FIELDS_V3 = [
+  ...SIGNED_FIELDS_V2,
+  "protocolComputeMicroUsd",
+  "protocolPricingVersion",
+] as const satisfies readonly (keyof ProofReceipt)[];
+
+function signedFieldsFor(version: string): readonly (keyof ProofReceipt)[] {
+  return version === "usage.receipt.v2" ? SIGNED_FIELDS_V2 : SIGNED_FIELDS_V3;
+}
+
 /**
  * Canonical serialization: newline-joined `key=value` pairs in the fixed order
  * above, with `null` for unknown values and timestamps normalized to UTC ISO.
@@ -148,7 +172,7 @@ const SIGNED_FIELDS = [
  * runtime is not a proof of anything.
  */
 export function canonicalReceipt(receipt: ProofReceipt): string {
-  return SIGNED_FIELDS.map((field) => {
+  return signedFieldsFor(receipt.receiptVersion).map((field) => {
     const value = receipt[field];
     if (value === null || value === undefined) return `${field}=null`;
     if (field === "occurredAt") return `${field}=${new Date(String(value)).toISOString()}`;
@@ -248,20 +272,22 @@ export function verifyUsageReceipt(
 /**
  * Economic classification, derived — never accepted from a caller.
  *
- * A confirmed proof with authoritative cost is eligible. A confirmed proof with
- * unknown cost is a genuine proof awaiting reconciliation. Anything unconfirmed
- * is not economic evidence.
+ * Mining v1 turns on PROTOCOL COMPUTE VALUE, not on what anyone was billed.
+ * A confirmed proof priced by an approved snapshot is eligible even when the
+ * gateway never reported a cost: the protocol values verified compute, and a
+ * missing invoice says nothing about whether the compute happened.
+ *
+ * An unpriced model is a dead end rather than a guess — the proof stays
+ * confirmed and waits for a pricing version that covers it.
  */
 export function deriveEconomicStatus(input: {
   proofStatus: ProofStatus;
   verificationType: VerificationType;
-  costBasis: CostBasis;
-  costMicroUsd: number | null;
+  protocolComputeMicros: number | null;
+  pricingVersion: string | null;
 }): EconomicStatus {
   if (input.proofStatus !== "confirmed") return "ineligible";
   if (input.verificationType === "reported") return "ineligible";
-  // Estimated cost is explicitly not an invoice: it may inform a UI, never a payout.
-  if (input.costBasis === "estimated" || input.costBasis === "unavailable") return "pending_cost";
-  if (input.costMicroUsd === null) return "pending_cost";
+  if (input.protocolComputeMicros === null || !input.pricingVersion) return "pending_pricing";
   return "eligible";
 }

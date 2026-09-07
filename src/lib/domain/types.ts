@@ -14,8 +14,21 @@ export type VerificationStatus = "confirmed" | "pending" | "unverifiable";
 /** Does USAGE attest that this happened? Independent of money. */
 export type ProofStatus = "observed" | "confirmed" | "rejected";
 
-/** May it earn right now? Independent of whether the proof is sound. */
-export type EconomicStatus = "eligible" | "pending_cost" | "ineligible";
+/**
+ * May it earn right now? Independent of whether the proof is sound.
+ *
+ *   eligible        priced by an approved snapshot; counts toward mining
+ *   pending_pricing genuine proof, but no approved price for this model yet
+ *   pending_cost    legacy: awaiting an authoritative cost (pre-mining-v1)
+ *   settled         already counted into an epoch allocation
+ *   ineligible      not economic evidence at all
+ */
+export type EconomicStatus =
+  | "eligible"
+  | "pending_pricing"
+  | "pending_cost"
+  | "settled"
+  | "ineligible";
 
 /** Where the bytes physically came from (an adapter may support several). */
 export type UsageSource =
@@ -56,6 +69,12 @@ export interface NormalizedUsageRecord {
    * verificationStatus for eligibility.
    */
   economicStatus?: EconomicStatus;
+  /**
+   * Deterministic protocol value of this compute, in micro-USD. NOT a cost:
+   * see src/lib/pricing/compute.ts.
+   */
+  protocolComputeMicros?: number;
+  protocolPricingVersion?: string | null;
 
   /** Small, non-sensitive provider metadata. Never prompts or completions. */
   rawMetadata: Record<string, string | number | boolean | null>;

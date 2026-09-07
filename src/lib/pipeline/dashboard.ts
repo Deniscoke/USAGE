@@ -65,6 +65,9 @@ export interface DashboardData {
 
   series: SeriesPoint[];
   scoring: { version: string; totalPoints: number; scoredDays: number };
+  /** Protocol compute value backing the score, and the snapshot that priced it. */
+  protocolComputeMicros: number;
+  pricingVersion: string | null;
 
   epoch: {
     definition: RewardEpoch;
@@ -198,6 +201,12 @@ export function buildDashboardView({
     byModel: toSlices(groupTotals(monthAggregates, (a) => a.model)),
 
     series,
+    protocolComputeMicros: recentEvents.reduce(
+      (acc, event) => acc + (event.protocolComputeMicros ?? 0),
+      0,
+    ),
+    pricingVersion:
+      recentEvents.find((event) => event.protocolPricingVersion)?.protocolPricingVersion ?? null,
     scoring: {
       version: CURRENT_SCORING_VERSION,
       totalPoints: Math.round(scores.reduce((acc, score) => acc + score.points, 0) * 10_000) / 10_000,

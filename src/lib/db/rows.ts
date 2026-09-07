@@ -54,6 +54,13 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     verificationType: row.verification_type,
     verificationStatus: row.verification_status,
     economicStatus: row.economic_status ?? undefined,
+    // Only meaningful when a pricing version produced it. Left undefined
+    // otherwise so pre-mining records keep falling back to their stored cost
+    // rather than silently becoming worth zero.
+    protocolComputeMicros: row.protocol_pricing_version
+      ? toSafeInteger(row.protocol_compute_micros ?? 0, "protocol_compute_micros")
+      : undefined,
+    protocolPricingVersion: row.protocol_pricing_version ?? null,
     rawMetadata: row.raw_metadata ?? {},
   };
 }
@@ -75,6 +82,9 @@ export interface UsageEventInsert {
   verification_type: NormalizedUsageRecord["verificationType"];
   verification_status: NormalizedUsageRecord["verificationStatus"];
   economic_status: NonNullable<NormalizedUsageRecord["economicStatus"]>;
+  protocol_compute_micros: number;
+  protocol_pricing_version: string | null;
+  protocol_pricing_basis: string | null;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
 }
 
@@ -101,6 +111,9 @@ export function usageRecordToInsert(
     verification_type: record.verificationType,
     verification_status: record.verificationStatus,
     economic_status: record.economicStatus ?? legacyEconomicStatus(record),
+    protocol_compute_micros: record.protocolComputeMicros ?? 0,
+    protocol_pricing_version: record.protocolPricingVersion ?? null,
+    protocol_pricing_basis: record.protocolPricingVersion ? "protocol_pricing" : null,
     raw_metadata: record.rawMetadata,
   };
 }

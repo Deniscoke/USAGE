@@ -110,7 +110,10 @@ export function scoreRecords(
 
   for (const record of records) {
     const weight = algorithm.weights[record.verificationType];
-    const cost = record.normalizedCostMicros;
+    // Mining values verified compute, so the economic quantity is the protocol
+    // compute value. Records from before mining v1 fall back to their stored
+    // cost, which is what they were scored on at the time.
+    const cost = record.protocolComputeMicros ?? record.normalizedCostMicros;
 
     if (weight === 0) {
       excluded += cost;

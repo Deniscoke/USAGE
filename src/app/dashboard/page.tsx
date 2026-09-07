@@ -166,8 +166,20 @@ export default async function DashboardPage() {
                   <dd className="tnum">{formatNumber(data.epoch.userScore, 1)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Scored spend</dt>
-                  <dd className="tnum">{formatUsd(scoredCost)}</dd>
+                  <dt className="text-[var(--muted)]">Protocol compute</dt>
+                  <dd className="tnum">
+                    {formatUsd(data.protocolComputeMicros, { maximumFractionDigits: 6 })}
+                  </dd>
+                </div>
+                {data.pricingVersion && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--muted)]">Pricing</dt>
+                    <dd className="tnum text-[var(--faint)]">{data.pricingVersion}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted)]">Actual gateway cost</dt>
+                  <dd className="tnum text-[var(--faint)]">{formatUsd(scoredCost)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-[var(--muted)]">Pending today</dt>
@@ -183,7 +195,9 @@ export default async function DashboardPage() {
                 </div>
               </dl>
               <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-                Score is concave in daily spend (√), so wasting tokens cannot farm points.
+                Mining values verified compute at protocol prices, not what anyone was billed.
+                The score is concave in the daily total (√), so splitting or wasting requests
+                cannot farm points. Usage Points — Beta: off-chain and non-transferable.
               </p>
             </Panel>
           </section>
@@ -297,6 +311,22 @@ export default async function DashboardPage() {
                                 title="Signed by a USAGE production issuer"
                               >
                                 signed ✓
+                              </span>
+                            )}
+                            {event.economicStatus === "eligible" && (
+                              <span
+                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--verified)]"
+                                title="Priced by an approved protocol pricing snapshot"
+                              >
+                                mining
+                              </span>
+                            )}
+                            {event.economicStatus === "pending_pricing" && (
+                              <span
+                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--warn)]"
+                                title="Real proof; no approved price for this model yet"
+                              >
+                                pending price
                               </span>
                             )}
                             {event.economicStatus === "pending_cost" && (

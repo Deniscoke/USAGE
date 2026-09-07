@@ -10,6 +10,7 @@ import {
   type SignedProofReceipt,
 } from "@/lib/domain/receipt";
 import type { EconomicStatus, ProofStatus } from "@/lib/domain/types";
+import { CURRENT_PRICING_VERSION, protocolComputeValue } from "@/lib/pricing/compute";
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
   ConnectionContext,
@@ -73,6 +74,8 @@ export interface NormalizeOptions {
   observedAt?: string;
   /** Supply to re-derive an existing receipt exactly (verification, tests). */
   receiptId?: string;
+  /** Protocol pricing snapshot to value this compute with. */
+  pricingVersion?: string;
   minerCredentialId?: string | null;
   /**
    * Supplying this is what CONFIRMS a proof. It cannot be faked by a caller:
@@ -136,6 +139,18 @@ export function normalizeGatewayObservation(
       ? "pending"
       : verification.verificationStatus;
 
+  // Protocol compute value: what this compute is worth to the protocol, from a
+  // frozen pricing snapshot. Deliberately independent of the bill -- identical
+  // compute mines identically whoever paid what for it.
+  const pricingVersion = options.pricingVersion ?? CURRENT_PRICING_VERSION;
+  const protocol = protocolComputeValue(pricingVersion, observation.model, {
+    inputTokens,
+    cachedReadTokens: cachedInputTokens,
+    cachedWriteTokens: cacheWriteTokens,
+    outputTokens,
+    reasoningTokens,
+  });
+
   const externalReference = observationReference(observation);
   const occurredAt = new Date(observation.occurredAt).toISOString();
 
@@ -147,8 +162,8 @@ export function normalizeGatewayObservation(
   const economicStatus: EconomicStatus = deriveEconomicStatus({
     proofStatus,
     verificationType: verification.verificationType,
-    costBasis,
-    costMicroUsd: parsedCost ? parsedCost.micros : null,
+    protocolComputeMicros: protocol?.micros ?? null,
+    pricingVersion: protocol ? pricingVersion : null,
   });
 
   const metadata: Record<string, string | number | boolean | null> = {
@@ -156,6 +171,8 @@ export function normalizeGatewayObservation(
     trust_environment: verification.trustEnvironment,
     proof_status: proofStatus,
     economic_status: economicStatus,
+    protocol_compute_micros: protocol?.micros ?? null,
+    protocol_pricing_version: protocol ? pricingVersion : null,
     client_type: observation.clientType ?? "unknown",
     generation_id_source: observation.generationIdSource ?? "gateway_generation_id",
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
@@ -187,6 +204,8 @@ export function normalizeGatewayObservation(
     verificationType: verification.verificationType,
     verificationStatus,
     economicStatus,
+    protocolComputeMicros: protocol?.micros ?? 0,
+    protocolPricingVersion: protocol ? pricingVersion : null,
     rawMetadata: metadata,
   };
 
@@ -216,6 +235,8 @@ export function normalizeGatewayObservation(
     costMicroUsd: parsedCost ? parsedCost.micros : null,
     costBasis,
     currency: "USD",
+    protocolComputeMicroUsd: protocol?.micros ?? null,
+    protocolPricingVersion: protocol ? pricingVersion : null,
     occurredAt,
     observedAt,
     verificationType: record.verificationType,

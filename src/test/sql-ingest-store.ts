@@ -44,6 +44,9 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "verification_type",
         "verification_status",
         "economic_status",
+        "protocol_compute_micros",
+        "protocol_pricing_version",
+        "protocol_pricing_basis",
         "raw_metadata",
       ] as const;
 

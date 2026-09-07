@@ -57,6 +57,8 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     verificationStatus: "confirmed",
     proofStatus: "confirmed",
     economicStatus: "eligible",
+    protocolComputeMicroUsd: 4_000_000,
+    protocolPricingVersion: "usage-pricing-v1",
     adapterVersion: "vercel-gateway@1",
     ...overrides,
   };
@@ -351,7 +353,7 @@ describe("a local gateway cannot mint confirmed proofs", () => {
     expect(verifyUsageReceipt(signed!, verifyOptions).valid).toBe(true);
   });
 
-  it("confirms without cost, and holds the economics", () => {
+  it("mines a confirmed proof even when no cost was ever reported", () => {
     const { receipt: issued, signed } = normalizeGatewayObservation(
       { ...observation, environment: "live", cost: null },
       {
@@ -364,25 +366,43 @@ describe("a local gateway cannot mint confirmed proofs", () => {
       },
     );
 
-    // A real proof whose price nobody has stated yet.
+    // No invoice, real compute: mining values the compute, not the bill.
     expect(issued.proofStatus).toBe("confirmed");
-    expect(issued.economicStatus).toBe("pending_cost");
+    expect(issued.economicStatus).toBe("eligible");
     expect(issued.costMicroUsd).toBeNull();
+    expect(issued.protocolComputeMicroUsd).toBeGreaterThan(0);
+    expect(issued.protocolPricingVersion).toBe("usage-pricing-v1");
     expect(verifyUsageReceipt(signed!, verifyOptions).valid).toBe(true);
   });
 });
 
 describe("economic classification", () => {
-  it("separates proof soundness from payability", () => {
-    const base = { verificationType: "routed" as const, costMicroUsd: 1_000 };
+  const base = {
+    verificationType: "routed" as const,
+    protocolComputeMicros: 1_000,
+    pricingVersion: "usage-pricing-v1",
+  };
 
-    expect(deriveEconomicStatus({ ...base, proofStatus: "confirmed", costBasis: "gateway_reported" })).toBe("eligible");
-    expect(deriveEconomicStatus({ ...base, proofStatus: "confirmed", costBasis: "unavailable" })).toBe("pending_cost");
-    // An estimate is not an invoice.
-    expect(deriveEconomicStatus({ ...base, proofStatus: "confirmed", costBasis: "estimated" })).toBe("pending_cost");
-    expect(deriveEconomicStatus({ ...base, proofStatus: "observed", costBasis: "gateway_reported" })).toBe("ineligible");
+  it("values priced compute even when no bill exists", () => {
+    // The protocol rewards verified compute, not what somebody was charged.
+    expect(deriveEconomicStatus({ ...base, proofStatus: "confirmed" })).toBe("eligible");
+  });
+
+  it("waits rather than guessing when the model has no approved price", () => {
     expect(
-      deriveEconomicStatus({ ...base, verificationType: "reported", proofStatus: "confirmed", costBasis: "gateway_reported" }),
+      deriveEconomicStatus({
+        ...base,
+        proofStatus: "confirmed",
+        protocolComputeMicros: null,
+        pricingVersion: null,
+      }),
+    ).toBe("pending_pricing");
+  });
+
+  it("gives nothing to unconfirmed or reported evidence", () => {
+    expect(deriveEconomicStatus({ ...base, proofStatus: "observed" })).toBe("ineligible");
+    expect(
+      deriveEconomicStatus({ ...base, verificationType: "reported", proofStatus: "confirmed" }),
     ).toBe("ineligible");
   });
 });

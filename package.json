@@ -20,7 +20,10 @@
     "miner:summary": "node --env-file-if-exists=.env.local --import tsx scripts/miner-summary.ts",
     "usage:signing-key": "node --import tsx scripts/generate-signing-key.ts",
     "usage:verify-receipt": "node --env-file-if-exists=.env.local --import tsx scripts/verify-receipt.ts",
-    "usage:verify-hosted": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/verify-hosted.ts"
+    "usage:verify-hosted": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/verify-hosted.ts",
+    "usage:pricing:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/generate-pricing-snapshot.ts",
+    "usage:pricing:publish": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/publish-pricing.ts",
+    "usage:settle-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/settle-epoch.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",

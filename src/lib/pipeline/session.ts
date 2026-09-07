@@ -16,12 +16,17 @@ import { DAILY_REWARD_POOL_POINTS, simulatedNetwork } from "@/lib/demo/network";
 export interface MiningSessionSummary {
   requests: number;
   totals: UsageTotals;
-  /** Spend that is eligible and confirmed: the part that actually scores. */
+  /**
+   * Protocol compute value that actually scores, in micro-USD. This is what the
+   * protocol says the verified compute is worth -- NOT what anyone was billed.
+   */
   routedCostMicros: number;
-  /** Real usage whose economic weight is not yet established. */
+  /** Eligible-looking compute whose economic weight is not yet established. */
   pendingCostMicros: number;
-  /** Usage with no economic weight at all (reported evidence). */
+  /** Compute with no economic weight at all (reported evidence). */
   excludedCostMicros: number;
+  /** Authoritative gateway cost, where the gateway reported one. Analytics only. */
+  actualGatewayCostMicros: number;
 
   miningScore: number;
   scoresByDay: DailyScore[];
@@ -62,6 +67,10 @@ export function buildMiningSession(
   return {
     requests: totals.requests,
     totals,
+    actualGatewayCostMicros: records.reduce(
+      (acc, record) => acc + (record.reportedCostMicros ?? 0),
+      0,
+    ),
     routedCostMicros: scoresByDay.reduce((acc, score) => acc + score.weightedCostMicros, 0),
     pendingCostMicros: scoresByDay.reduce((acc, score) => acc + score.pendingCostMicros, 0),
     excludedCostMicros: scoresByDay.reduce((acc, score) => acc + score.excludedCostMicros, 0),

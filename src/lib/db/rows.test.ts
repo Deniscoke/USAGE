@@ -35,6 +35,11 @@ describe("row mapping", () => {
     verification_type: "verified",
     verification_status: "confirmed",
     economic_status: "eligible",
+    protocol_compute_micros: 4_500,
+    protocol_pricing_version: "usage-pricing-v1",
+    protocol_pricing_basis: "protocol_pricing",
+    fraud_status: "none",
+    reward_hold: false,
     raw_metadata: { bucket: "hour" },
     created_at: "2026-03-15T10:01:00+00:00",
   };

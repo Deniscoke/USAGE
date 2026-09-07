@@ -74,15 +74,39 @@ async function scoreFor(userId: string): Promise<{
   };
 }
 
-describe("only trusted, costed evidence earns", () => {
-  it("scores production-observed routed usage", async () => {
+/**
+ * anthropic/claude-haiku-4.5 under usage-pricing-v1:
+ *   input  $1.00 / 1M  ->  1000 tokens = 1000 micro-USD
+ *   output $5.00 / 1M  ->   200 tokens = 1000 micro-USD
+ */
+const EXPECTED_PROTOCOL_MICROS = 2_000;
+
+describe("only trusted, priced evidence earns", () => {
+  it("values production-observed routed usage by protocol compute, not by the bill", async () => {
     const user = await db.createUser("hosted@example.com");
     await ingestGatewayObservations(store, user, [observation()], { issuance: ISSUANCE });
 
+    const [event] = await db.asServiceRole<{
+      protocol_compute_micros: string;
+      protocol_pricing_version: string;
+      economic_status: string;
+      reported_cost_micros: string;
+    }>(
+      `select protocol_compute_micros::text, protocol_pricing_version, economic_status,
+              reported_cost_micros::text
+       from usage_events where user_id = $1`,
+      [user],
+    );
+
+    expect(event.protocol_compute_micros).toBe(String(EXPECTED_PROTOCOL_MICROS));
+    expect(event.protocol_pricing_version).toBe("usage-pricing-v1");
+    expect(event.economic_status).toBe("eligible");
+    // The observation claimed a $4.00 bill. Mining ignores it entirely.
+    expect(event.reported_cost_micros).toBe(String(4 * MICROS_PER_USD));
+
     const score = await scoreFor(user);
-    expect(score.points).toBe(2_000); // sqrt($4) * 1000
-    expect(score.weighted).toBe(4 * MICROS_PER_USD);
-    expect(score.pending).toBe(0);
+    expect(score.weighted).toBe(EXPECTED_PROTOCOL_MICROS);
+    expect(score.points).toBeCloseTo(Math.sqrt(EXPECTED_PROTOCOL_MICROS / MICROS_PER_USD) * 1000, 3);
   });
 
   it("gives a locally observed request zero economic weight", async () => {
@@ -108,10 +132,10 @@ describe("only trusted, costed evidence earns", () => {
     const score = await scoreFor(user);
     expect(score.points).toBe(0);
     expect(score.weighted).toBe(0);
-    expect(score.pending).toBe(4 * MICROS_PER_USD);
+    expect(score.pending).toBe(EXPECTED_PROTOCOL_MICROS);
   });
 
-  it("holds usage with unknown cost as pending rather than scoring it as zero dollars", async () => {
+  it("still mines when the gateway reported no cost at all", async () => {
     const user = await db.createUser("nocost@example.com");
     await ingestGatewayObservations(
       store,
@@ -121,18 +145,47 @@ describe("only trusted, costed evidence earns", () => {
     );
 
     const [event] = await db.asServiceRole<{
-      verification_status: string;
-      normalized_cost_micros: string;
-      raw_metadata: Record<string, unknown>;
+      economic_status: string;
+      protocol_compute_micros: string;
+      reported_cost_micros: string | null;
     }>(
-      `select verification_status, normalized_cost_micros::text, raw_metadata
+      `select economic_status, protocol_compute_micros::text, reported_cost_micros::text
        from usage_events where user_id = $1`,
       [user],
     );
 
-    expect(event.verification_status).toBe("pending");
-    expect(event.raw_metadata.cost_basis).toBe("unavailable");
-    expect(await scoreFor(user)).toMatchObject({ points: 0, weighted: 0 });
+    // No invoice, real compute: the protocol values the compute.
+    expect(event.reported_cost_micros).toBeNull();
+    expect(event.economic_status).toBe("eligible");
+    expect(event.protocol_compute_micros).toBe(String(EXPECTED_PROTOCOL_MICROS));
+    expect((await scoreFor(user)).weighted).toBe(EXPECTED_PROTOCOL_MICROS);
+  });
+
+  it("waits instead of guessing when the model has no approved price", async () => {
+    const user = await db.createUser("unpriced@example.com");
+    await ingestGatewayObservations(
+      store,
+      user,
+      [observation({ generationId: "gen_unpriced_1", model: "acme/never-priced-9" })],
+      { issuance: ISSUANCE },
+    );
+
+    const [event] = await db.asServiceRole<{
+      proof_status: string;
+      economic_status: string;
+      protocol_pricing_version: string | null;
+    }>(
+      `select p.proof_status, e.economic_status, e.protocol_pricing_version
+       from usage_events e join proof_records p on p.usage_event_id = e.id
+       where e.user_id = $1`,
+      [user],
+    );
+
+    // The proof is sound; only its price is unknown.
+    expect(event.proof_status).toBe("confirmed");
+    expect(event.economic_status).toBe("pending_pricing");
+    expect(event.protocol_pricing_version).toBeNull();
+    expect((await scoreFor(user)).points).toBe(0);
   });
 
   it("gives fixture evidence zero economic weight", async () => {
@@ -146,7 +199,7 @@ describe("only trusted, costed evidence earns", () => {
 
     const score = await scoreFor(user);
     expect(score.points).toBe(0);
-    expect(score.excluded).toBe(4 * MICROS_PER_USD);
+    expect(score.excluded).toBe(EXPECTED_PROTOCOL_MICROS);
   });
 
   it("keeps the same generation from earning twice", async () => {
@@ -164,10 +217,16 @@ describe("only trusted, costed evidence earns", () => {
       { issuance: ISSUANCE },
     );
 
+    const total = await db.asServiceRole<{ n: string }>(
+      `select count(*)::text as n from usage_events where user_id = $1`,
+      [user],
+    );
+
     expect(first.inserted).toBe(1);
     expect(second.inserted).toBe(0);
+    expect(total[0].n).toBe("1");
     // Re-ingesting must not double the score either.
-    expect((await scoreFor(user)).points).toBe(2_000);
+    expect((await scoreFor(user)).weighted).toBe(EXPECTED_PROTOCOL_MICROS);
   });
 
   it("stores a proof hash alongside every gateway event", async () => {
@@ -208,9 +267,12 @@ describe("mining session summary", () => {
 
     expect(session.requests).toBe(2);
     expect(session.totals.outputTokens).toBe(400);
-    expect(session.routedCostMicros).toBe(4 * MICROS_PER_USD);
-    expect(session.pendingCostMicros).toBe(1 * MICROS_PER_USD);
-    expect(session.miningScore).toBe(2_000);
+    expect(session.routedCostMicros).toBe(EXPECTED_PROTOCOL_MICROS);
+    expect(session.pendingCostMicros).toBe(EXPECTED_PROTOCOL_MICROS);
+    expect(session.miningScore).toBeCloseTo(
+      Math.sqrt(EXPECTED_PROTOCOL_MICROS / MICROS_PER_USD) * 1000,
+      3,
+    );
     expect(session.networkIsSimulated).toBe(true);
     expect(session.estimatedPoints).toBeGreaterThan(0);
   });

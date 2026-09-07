@@ -33,6 +33,8 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     verificationStatus: "confirmed",
     proofStatus: "confirmed",
     economicStatus: "eligible",
+    protocolComputeMicroUsd: 4_000_000,
+    protocolPricingVersion: "usage-pricing-v1",
     adapterVersion: "vercel-gateway@1",
     ...overrides,
   };

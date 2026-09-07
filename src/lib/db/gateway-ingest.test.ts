@@ -169,15 +169,27 @@ describe("live routed observations", () => {
     expect(event.requests).toBe(1);
   });
 
-  it("carries full economic weight through the existing scorer", async () => {
+  it("carries economic weight from the protocol pricing snapshot", async () => {
+    const [event] = await rows<{ protocol_compute_micros: string; economic_status: string }>(
+      `select protocol_compute_micros::text, economic_status from usage_events
+       where user_id = $1`,
+      [routedUser],
+    );
     const [score] = await rows<{ points: string; weighted_cost_micros: string }>(
       `select points::text, weighted_cost_micros::text from score_records
        where user_id = $1 and day = $2`,
       [routedUser, DAY],
     );
-    // sqrt($4) * 1000 — routed weighs the same as verified.
-    expect(Number(score.points)).toBe(2_000);
-    expect(score.weighted_cost_micros).toBe(String(4 * MICROS_PER_USD));
+
+    // openai/gpt-5.4 under usage-pricing-v1: input $2.50/1M, output $15.00/1M.
+    // 800 uncached + 200 cached input, 250 output.
+    expect(Number(event.protocol_compute_micros)).toBeGreaterThan(0);
+    expect(event.economic_status).toBe("eligible");
+    expect(score.weighted_cost_micros).toBe(event.protocol_compute_micros);
+    expect(Number(score.points)).toBeCloseTo(
+      Math.sqrt(Number(event.protocol_compute_micros) / MICROS_PER_USD) * 1000,
+      3,
+    );
   });
 
   it("writes provenance explaining the event", async () => {
