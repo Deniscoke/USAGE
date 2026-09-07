@@ -58,32 +58,46 @@ total records          : 1
 
 ## Live Claude proof (production)
 
-
+```
+model            : anthropic/claude-3-haiku      provider: anthropic
+generation       : gen_01M1YSKKSGPBYJ6X5CQ3ENPQ6W   (streamed)
+tokens           : 0 in / 0 cache read / 0 cache write / 10 out
+verification     : routed        proof_status: confirmed
+signature        : VALID (usage-prod-2026-09-07)
+protocol compute : 13 micro-USD  (usage-pricing-v2)
+actual cost      : unavailable
+economic_status  : eligible
+daily score      : 3.6056        (usage_score_v1)
+```
 
 Input tokens are recorded as 0 because that is what the upstream reported in
- for this model. USAGE records what was observed and never
+`message_start` for this model. USAGE records what was observed and never
 substitutes an estimate.
 
 ## Blocker: Claude Code specifically
 
 The team is **still on the AI Gateway free tier**, despite the credit purchase.
-Of 16 Anthropic models the catalog lists, exactly one is reachable:
+Of the 16 Anthropic models in the catalog, exactly one is reachable:
 
+```
+anthropic/claude-3-haiku     200 OK
+anthropic/claude-haiku-4.5   403      anthropic/claude-sonnet-5    403
+anthropic/claude-sonnet-4    403      anthropic/claude-sonnet-4.5  403
+```
 
-
-Balance is unchanged at $4.99 free credit ($0.008 used), and there is only one
-Vercel team (), so the purchase did not land on the
-account holding the gateway key.
+Balance is unchanged at $4.99 of free credit ($0.008 used), and there is only one
+Vercel team (`denis-mitrovics-projects`), so the purchase did not land on the
+account that holds the gateway key.
 
 Claude Code was launched through the hosted gateway from an empty directory and
-authenticated correctly, but  (a March 2024 model) returns
+authenticated correctly, but `claude-3-haiku` (a March 2024 model) returns
 upstream **500** on the tool-calling payload Claude Code sends. A single plain
-streaming request to the same model through the same gateway succeeds — so the
+streaming request to the same model through the same gateway succeeds — the
 gateway is fine; the model is too old for an agentic client.
 
 **To unblock:** confirm the credit purchase applied to the
- team, then re-run the launcher with
-.
+`denis-mitrovics-projects` team, then re-run the launcher with
+`anthropic/claude-haiku-4.5`.
 
 ## Known limitations
 
