@@ -2,25 +2,42 @@
 
 ## Current milestone
 
-M4B — Trusted Hosted Mining. **Code complete and locally verified. Not yet
-hosted:** creating the Vercel project and the Supabase project needs your login,
-so those steps are waiting on you (see *What I need from you*).
+M4B — Trusted Hosted Mining. **Supabase is live and verified. Vercel is not
+deployed yet**, so no CONFIRMED proof exists (see *What I need from you*).
 
 ## Verification status
 
 | Item | Status |
 | --- | --- |
 | Hosted Vercel gateway | **NO** — needs your Vercel login |
-| Real Supabase runtime | **NO** — needs your Supabase project |
-| GoTrue tested | **NO** — never run against a live auth server |
-| RLS runtime tested | **PGlite only** — real migrations, real policies, not the Supabase runtime |
+| Real Supabase runtime | **YES** — migrations 0001-0005 pushed, 9 tables live |
+| GoTrue tested | **YES** — real sign-up, password sign-in, session, profile trigger |
+| RLS runtime tested | **YES** — 23/23 checks through PostgREST with real user JWTs |
 | Receipt signing | **YES** — Ed25519, signed and independently verified end to end locally |
 | First production-signed proof | **NO** — no production key exists yet |
 | First Claude Code hosted proof | **NO** — blocked on hosting |
 | Proof status | all stored proofs are `observed` |
 | Economic status | all `ineligible` or `pending_cost`; nothing has earned |
 | Cost reconciliation | seam exists; only `gateway_reported` implemented; Anthropic surface reports no cost |
-| Next blocker | **you: create the Supabase and Vercel projects** |
+| Next blocker | **you: create the Vercel project and set the signing key** |
+
+## Hosted Supabase verification (`npm run usage:verify-hosted`)
+
+23 checks against the live project, all passing. It creates two throwaway users,
+exercises the boundaries and deletes them again:
+
+- GoTrue sign-up, password sign-in, session, `getUser()`
+- `on_auth_user_created` creates the profile row
+- service-role ingestion writes usage; the same generation cannot be stored twice
+- unsigned ingestion stays `observed` / `ineligible` — as it must, since no
+  production signing key exists yet
+- a user reads only their own usage, aggregates, scores, proofs and profile;
+  naming another user's id changes nothing
+- a client cannot insert usage or proofs, promote their own usage, or write
+  scores or reward allocations (all `42501 permission denied`)
+- a user cannot read a stored miner token hash, or see anyone else's credentials
+
+This is what PGlite could not prove: GoTrue, PostgREST and the platform's grants.
 
 ## What changed
 
@@ -44,25 +61,16 @@ so those steps are waiting on you (see *What I need from you*).
 
 ## What I need from you
 
-Nothing here can be done without your accounts. In order:
+Supabase is done. What remains needs a Vercel account.
 
-**1. Supabase project** (free tier is fine)
-
-```bash
-npx supabase login
-npx supabase link --project-ref <your-project-ref>
-npx supabase db push        # applies migrations 0001-0005
-```
-
-Then from the Supabase dashboard collect: project URL, publishable key, secret key.
-
-**2. Signing key** (never leaves your hands until you paste it into Vercel)
+**1. Signing key** — the root of trust. Generate it, paste the private half into
+Vercel, and never store it locally:
 
 ```bash
 npm run usage:signing-key
 ```
 
-**3. Vercel project**
+**2. Vercel project**
 
 ```bash
 npm i -g vercel
@@ -80,7 +88,7 @@ Set as normal variables: `NEXT_PUBLIC_SUPABASE_URL`,
 
 Then `vercel deploy --prod` (env changes need a redeploy to take effect).
 
-**4. AI Gateway budget.** The team is still on the free tier: Anthropic models
+**3. AI Gateway budget.** The team is still on the free tier: Anthropic models
 return 403 and free models are rate-limited. Add a small credit balance and a low
 spend cap before any Claude Code traffic. **I have not changed any budget.**
 
@@ -91,6 +99,9 @@ tiny Claude Code session, and verify the resulting receipt with the public key.
 ## Known limitations
 
 - No hosted deployment, so no CONFIRMED proof exists and nothing has earned.
+- `USAGE_DEV_MINER_USER_ID` in `.env.local` is a random uuid with no profile row
+  in the live database. Local gateway ingestion will fail its foreign key until
+  it is replaced with a real profile id, or a real miner credential is minted.
 - Local observations still land in `.usage/observations.jsonl` (gitignored),
   which is an inspection artifact, not proof storage.
 - The Anthropic-compatible gateway surface returns no cost, so even a hosted
@@ -111,6 +122,7 @@ proof, then either Codex miner support or the first real cost resolver.
 npm run dev
 npm run usage:signing-key                  # generate an issuer key pair
 npm run usage:verify-receipt -- <file>     # verify a receipt with a public key
+npm run usage:verify-hosted                # 23 runtime checks against hosted Supabase
 npm run miner:token                        # mint a miner credential
 npm run miner:claude                       # Claude Code via USAGE Gateway
 npm run miner:summary                      # mining session summary
