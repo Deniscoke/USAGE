@@ -87,6 +87,57 @@ gateway is `observation` mode — evidence is captured at request time by
 USAGE-controlled infrastructure and pushed in, because there is nothing to pull.
 `listPullIntegrations()` keeps the demo sync from trying to poll it.
 
+**Mining rewards verified compute, not what anyone paid.** This is the central
+economic decision. Two identical requests must mine identically whether one was
+billed at list price and the other covered by BYOK, promotional credits, an
+enterprise contract or free-tier credit — none of which say anything about how
+much compute happened.
+
+So there are two numbers, and they are never conflated:
+
+| | |
+| --- | --- |
+| `protocol_compute_micros` | deterministic value from a frozen pricing snapshot. The economic basis for mining. |
+| `reported_cost_micros` | what the gateway said it cost, when it says anything. Analytics and reconciliation only. |
+
+`protocol_compute_micros` is **not a cost** and is never called one in the code
+or the UI. A confirmed proof is `eligible` as soon as an approved snapshot
+prices its model, even when no invoice exists anywhere.
+
+**Pricing snapshots are frozen, not fetched.** `src/lib/pricing/usage-pricing-v1.ts`
+is generated once from the AI Gateway catalog, reviewed, committed, and then
+never edited: mining must not change because a price list changed on a website
+overnight. A price change means `usage-pricing-v2`, and historical proofs keep
+the version they were priced with. `usage:pricing:publish` refuses to touch a
+version that has already priced events.
+
+Valuation is integer-only. `priceTokens` uses BigInt because the intermediate
+product overflows exact float range ($30/M × 10⁹ tokens is past 2⁵³), rounds
+half-up at the micro boundary, and prices each token class separately —
+including cache reads, which cost a tenth of fresh input on Anthropic models.
+
+**An unpriced model waits rather than being guessed at.** A confirmed proof for
+a model no snapshot covers becomes `pending_pricing`: the proof is sound, only
+its value is unknown. Inventing a price would invent money.
+
+**The proof ledger and the economic ledger move separately.**
+
+| Column | Question | Values |
+| --- | --- | --- |
+| `verification_type` | what kind of evidence? | verified / routed / reported |
+| `proof_status` | do we attest it happened? | observed / confirmed / rejected |
+| `economic_status` | may it earn now? | eligible / pending_pricing / pending_cost / settled / ineligible |
+
+**Settlement is idempotent by construction.** An allocation id is
+`<epoch>:<user>` with a unique index on the ledger, so running settlement twice
+credits nothing the second time. Largest-remainder allocation means the
+distributed total equals the pool exactly — no points created or destroyed by
+rounding. Counted events move to `settled` so they cannot be counted again.
+
+Usage Points are an off-chain protocol accounting unit: not money, not a
+security, not a claim on any future token. Everything shipped so far is a
+**development epoch**, recorded as such in `reward_epochs.epoch_kind`.
+
 **The root of trust is a signing key, not an environment variable.** This is
 the single most important property in the system, so it is worth stating
 negatively: `USAGE_TRUST_ENVIRONMENT=production` proves nothing, because anyone

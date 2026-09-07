@@ -124,11 +124,14 @@ async function main(): Promise<number> {
     const second = await ingestGatewayObservations(store, aliceId, [
       observation(`gen_hosted_${stamp}`, day),
     ]);
-    check(
-      "same generation cannot be stored twice",
-      second.inserted === 0 && second.duplicates === 1,
-      `inserted=${second.inserted} duplicates=${second.duplicates}`,
-    );
+    const stored = await admin
+      .from("usage_events")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", aliceId);
+
+    check("first ingest inserted exactly one event", first.inserted === 1, `inserted=${first.inserted}`);
+    check("second ingest inserted nothing", second.inserted === 0, `inserted=${second.inserted}`);
+    check("exactly one record total", stored.count === 1, `total=${stored.count}`);
 
     const proofs = await admin.from("proof_records").select("proof_status").eq("user_id", aliceId);
     check("exactly one proof record exists", proofs.data?.length === 1);
@@ -228,6 +231,54 @@ async function main(): Promise<number> {
       Boolean(forgeAllocation.error),
       forgeAllocation.error?.code,
     );
+
+    section("Economic fields are server-only");
+
+    const [event] = (
+      await admin.from("usage_events").select("*").eq("user_id", aliceId)
+    ).data!;
+    check(
+      "protocol compute value was computed server-side",
+      event.protocol_pricing_version === "usage-pricing-v1" && event.protocol_compute_micros > 0,
+      `${event.protocol_compute_micros} micro-USD @ ${event.protocol_pricing_version}`,
+    );
+
+    const forgeCompute = await aliceClient
+      .from("usage_events")
+      .update({ protocol_compute_micros: 999_000_000, economic_status: "eligible" })
+      .eq("user_id", aliceId);
+    check(
+      "client cannot set a protocol compute value",
+      Boolean(forgeCompute.error),
+      forgeCompute.error?.code,
+    );
+
+    const forgePrice = await bobClient.from("protocol_model_prices").insert({
+      pricing_version: "usage-pricing-v1",
+      model: "acme/free-money",
+      provider_family: "acme",
+      input_micros_per_million: 999_000_000,
+      output_micros_per_million: 999_000_000,
+      cache_read_micros_per_million: null,
+      cache_write_micros_per_million: null,
+      reasoning_micros_per_million: null,
+    });
+    check("client cannot publish a price", Boolean(forgePrice.error), forgePrice.error?.code);
+
+    const forgeLedger = await bobClient.from("usage_point_ledger").insert({
+      user_id: bobId,
+      epoch_id: `epoch-${day}`,
+      allocation_id: `forged-${stamp}`,
+      amount: 999_999,
+      reason: "self_credit",
+    });
+    check("client cannot credit itself points", Boolean(forgeLedger.error), forgeLedger.error?.code);
+
+    const readPrices = await bobClient.from("protocol_model_prices").select("model").limit(1);
+    check("prices are publicly readable", (readPrices.data?.length ?? 0) === 1);
+
+    const crossLedger = await bobClient.from("usage_point_ledger").select("amount");
+    check("a user sees only their own points", (crossLedger.data?.length ?? 0) === 0);
 
     section("Miner credential secrecy");
 

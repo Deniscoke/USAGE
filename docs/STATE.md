@@ -2,113 +2,98 @@
 
 ## Current milestone
 
-M4B — Trusted Hosted Mining. **Complete.** A request through the hosted gateway
-produces a signed, CONFIRMED proof that anyone can verify with the public key.
+M5 — Economic Usage Mining V1. **Complete**, except the live Claude Code session,
+which is blocked on AI Gateway credit (see *Blocker*).
+
+Confirmed AI compute now becomes deterministic off-chain Usage Points:
+
+```
+confirmed signed proof → protocol compute value → daily mining score
+                       → fixed-pool epoch settlement → Usage Points ledger
+```
 
 ## Verification status
 
 | Item | Status |
 | --- | --- |
-| Hosted Vercel gateway | **YES** — `usage-denis-mitrovics-projects.vercel.app` |
-| Real Supabase runtime | **YES** — migrations 0001-0005 applied, 9 tables live |
-| GoTrue tested | **YES** — real sign-up, password sign-in, session, profile trigger |
-| RLS runtime tested | **YES** — 23/23 through PostgREST with real user JWTs |
-| Receipt signing | **YES** — Ed25519, key held only as a Vercel sensitive variable |
-| First production-signed proof | **YES** — `gen_01M1YQ6ASABFFZVB0NK3KXYG7J` |
-| First Claude Code hosted proof | **NO** — needs AI Gateway credit (free tier blocks Anthropic models) |
-| Proof status | `confirmed` |
-| Economic status | `pending_cost` — the Anthropic-compatible surface reports no cost |
-| Cost reconciliation | seam exists; only `gateway_reported` implemented |
-| Next blocker | AI Gateway credit, then Claude Code through the hosted gateway |
+| Hosted Vercel gateway | **YES** |
+| Real Supabase runtime | **YES** — migrations 0001-0006 applied |
+| GoTrue / RLS runtime | **YES** — 31/31 hosted checks |
+| Production receipt signing | **YES** — Ed25519, key only on the deployment |
+| Protocol pricing | **YES** — `usage-pricing-v1`, 8 models, frozen |
+| First production mined proof | **YES** — `gen_01M1YRG2S6FR63R22P51S1KHN5` |
+| Epoch settlement + ledger | **YES** — pool distributed exactly, re-run credits 0 |
+| Live Claude Code mining | **NO** — Anthropic models return 403 on free tier |
+| Network | development epoch only; **Usage Points — Beta** |
 
-## First trusted proof
+## First mined proof (production)
 
 ```
-proof_status    : confirmed
-economic_status : pending_cost
-verification    : routed / pending
-issuer          : usage://issuer/production   key: usage-prod-2026-09-07
-canonical hash  : sha256:587d7b7a11f117d725f0e9356ecb902fd5216a019ff9eff49893bf5fd1666733
-tokens          : 28 in / 0 cached / 16 out
-cost            : unknown (unavailable)
-signature       : VALID
+model            : nvidia/nemotron-3-nano-30b-a3b
+generation       : gen_01M1YRG2S6FR63R22P51S1KHN5
+tokens           : 24 in / 0 cached / 24 out
+verification     : routed
+proof_status     : confirmed        signature: VALID (usage-prod-2026-09-07)
+protocol compute : 7 micro-USD      (usage-pricing-v1)
+actual cost      : unavailable
+economic_status  : eligible
+daily score      : 2.6458           (usage_score_v1)
+epoch            : epoch-2026-09-07, 100,000 points distributed, re-run credited 0
 ```
 
-Verified with nothing but the published public key from `/api/receipts/keys` —
-no private key, no Supabase secret, no gateway key. Re-ingesting the same
-generation left the event count at 1.
+`eligible` with no actual cost is the milestone's central decision working as
+intended: the protocol values verified compute, and a missing invoice says
+nothing about whether the compute happened.
 
-`pending_cost` is the correct outcome, not a shortfall: the proof is real and
-signed, and no authoritative cost exists for it yet.
+## Idempotency (explicit)
 
-## Two bugs production found that local testing could not
+Verified on the hosted database, no model call:
 
-- **The usage write never ran.** A serverless function freezes when its response
-  completes, so the fire-and-forget observation write silently disappeared: a
-  real request produced a generation and no proof. Now wrapped in Next's
-  `after()`. A local dev server keeps running, which is exactly why this was
-  invisible until it was hosted.
-- **`assessTrust` accepted an unusable signing key.** It only checked the
-  variable was non-empty, so a mistyped value made the deployment claim it could
-  issue proofs and then throw on the first one. It now derives the public half to
-  prove the key works, and reports plainly when it does not.
+```
+first ingest inserted  : 1
+second ingest inserted : 0
+total records          : 1
+```
 
-## Hosted Supabase verification (`npm run usage:verify-hosted`)
+## Blocker
 
-23 checks against the live project, all passing. It creates two throwaway users,
-exercises the boundaries and deletes them again:
+The Vercel team is on the **AI Gateway free tier**. `anthropic/claude-haiku-4.5`
+returns `403 Free tier users do not have access to this model` (verified with one
+minimal request; balance is $4.99 of free credit, $0.0076 used). Claude Code
+sends Anthropic model ids, so a real Claude Code mining session needs paid
+credits. Everything else in the path is proven with a priced non-Anthropic model.
 
-- GoTrue sign-up, password sign-in, session, `getUser()`
-- `on_auth_user_created` creates the profile row
-- service-role ingestion writes usage; the same generation cannot be stored twice
-- unsigned ingestion stays `observed` / `ineligible`
-- a user reads only their own usage, aggregates, scores, proofs and profile
-- a client cannot insert usage or proofs, promote their own usage, or write
-  scores or reward allocations (all `42501 permission denied`)
-- a user cannot read a stored miner token hash, or see anyone else's credentials
-
-## Endpoints
-
-| Path | Auth | Purpose |
-| --- | --- | --- |
-| `/api/gateway/anthropic/[...path]` | miner credential | the gateway itself |
-| `/api/gateway/trust` | none (redacted) | which trust signal failed, and why |
-| `/api/receipts/keys` | none | published verification keys |
+**To unblock:** add a small paid credit balance with a low spend cap, then one
+short Claude Code session through the hosted gateway in a throwaway directory.
 
 ## Known limitations
 
-- Nothing has earned: every proof is `pending_cost` until a cost resolver exists.
+- Development epoch only. No public network exists; the UI says Beta.
+- Actual gateway cost stays unavailable on the Anthropic-compatible surface. The
+  cost resolver seam exists; only `gateway_reported` is implemented, and actual
+  cost never changes a settled allocation under mining v1.
+- `fraud_status` and `reward_hold` columns exist and are unused — deliberately no
+  heuristics yet.
 - Vercel OIDC deployment identity is not configured, so the signing key alone is
-  the trust root. Adding `USAGE_VERCEL_OIDC_ISSUER` + project/owner ids layers a
-  second, cryptographic signal on top.
-- The Vercel project is not connected to GitHub; deploys are manual
-  (`vercel deploy --prod`).
+  the trust root.
+- The Vercel project is not connected to GitHub; deploys are manual.
 - `.usage/hosted-miner.json` holds a plaintext test miner token (gitignored).
-  Revoke that credential once it is no longer needed.
-- Local observations still land in `.usage/observations.jsonl` (gitignored),
-  which is an inspection artifact, not proof storage.
-- The Anthropic-compatible gateway surface returns no cost, so even a hosted
-  Claude Code proof will be `confirmed` + `pending_cost` until a cost resolver
-  exists. That is expected and acceptable: proof first, economics second.
-- Rate limiting is per-process; hosted deployment needs a shared limiter.
-- `database.types.ts` is hand-maintained until `db:types` can run.
-- Codex is not implemented (still M5).
 
 ## Next recommended milestone
 
-M5 — finish hosting with the credentials above and capture the first CONFIRMED
-proof, then either Codex miner support or the first real cost resolver.
+M6 — either Codex miner support over the same boundary, or the first real actual
+cost resolver for reconciliation. Neither is required for mining to work.
 
 ## Important local commands
 
 ```bash
 npm run dev
-npm run usage:signing-key                  # generate an issuer key pair
+npm run usage:verify-hosted                # 31 runtime checks against hosted Supabase
+npm run usage:pricing:snapshot -- <v>      # capture a new pricing snapshot
+npm run usage:pricing:publish -- <v>       # mirror it into the database
+npm run usage:settle-epoch [YYYY-MM-DD]    # settle an epoch into Usage Points
 npm run usage:verify-receipt -- <file>     # verify a receipt with a public key
-npm run usage:verify-hosted                # 23 runtime checks against hosted Supabase
 npm run miner:token                        # mint a miner credential
 npm run miner:claude                       # Claude Code via USAGE Gateway
-npm run miner:summary                      # mining session summary
-npm run usage:gateway:probe -- --confirm   # ONE real request, spends credits
 npm test && npm run typecheck && npm run lint && npm run build
 ```
