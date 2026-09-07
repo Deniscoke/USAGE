@@ -1,0 +1,7 @@
+# Belt and braces: these are already gitignored, and must never be uploaded
+# with a CLI deployment either.
+.env
+.env.local
+.env.*.local
+.usage
+supabase/.temp
