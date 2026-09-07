@@ -15,6 +15,7 @@ import { createSupabaseIngestStore } from "../src/lib/db/supabase-store";
 import { ingestGatewayObservations } from "../src/lib/db/ingest";
 import type { Database } from "../src/lib/supabase/database.types";
 import type { GatewayObservation } from "../src/lib/providers/vercel-gateway/observation";
+import { CURRENT_PRICING_VERSION } from "../src/lib/pricing/compute";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const publishable =
@@ -239,7 +240,7 @@ async function main(): Promise<number> {
     ).data!;
     check(
       "protocol compute value was computed server-side",
-      event.protocol_pricing_version === "usage-pricing-v1" && event.protocol_compute_micros > 0,
+      event.protocol_pricing_version === CURRENT_PRICING_VERSION && event.protocol_compute_micros > 0,
       `${event.protocol_compute_micros} micro-USD @ ${event.protocol_pricing_version}`,
     );
 

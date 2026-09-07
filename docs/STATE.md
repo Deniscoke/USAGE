@@ -20,10 +20,11 @@ confirmed signed proof → protocol compute value → daily mining score
 | Real Supabase runtime | **YES** — migrations 0001-0006 applied |
 | GoTrue / RLS runtime | **YES** — 31/31 hosted checks |
 | Production receipt signing | **YES** — Ed25519, key only on the deployment |
-| Protocol pricing | **YES** — `usage-pricing-v1`, 8 models, frozen |
+| Protocol pricing | **YES** — `usage-pricing-v2` current, `v1` frozen and still resolvable |
 | First production mined proof | **YES** — `gen_01M1YRG2S6FR63R22P51S1KHN5` |
 | Epoch settlement + ledger | **YES** — pool distributed exactly, re-run credits 0 |
-| Live Claude Code mining | **NO** — Anthropic models return 403 on free tier |
+| Live Claude model mining | **YES** — anthropic/claude-3-haiku, routed/confirmed/eligible |
+| Live Claude *Code* mining | **NO** — see Blocker |
 | Network | development epoch only; **Usage Points — Beta** |
 
 ## First mined proof (production)
@@ -55,16 +56,34 @@ second ingest inserted : 0
 total records          : 1
 ```
 
-## Blocker
+## Live Claude proof (production)
 
-The Vercel team is on the **AI Gateway free tier**. `anthropic/claude-haiku-4.5`
-returns `403 Free tier users do not have access to this model` (verified with one
-minimal request; balance is $4.99 of free credit, $0.0076 used). Claude Code
-sends Anthropic model ids, so a real Claude Code mining session needs paid
-credits. Everything else in the path is proven with a priced non-Anthropic model.
 
-**To unblock:** add a small paid credit balance with a low spend cap, then one
-short Claude Code session through the hosted gateway in a throwaway directory.
+
+Input tokens are recorded as 0 because that is what the upstream reported in
+ for this model. USAGE records what was observed and never
+substitutes an estimate.
+
+## Blocker: Claude Code specifically
+
+The team is **still on the AI Gateway free tier**, despite the credit purchase.
+Of 16 Anthropic models the catalog lists, exactly one is reachable:
+
+
+
+Balance is unchanged at $4.99 free credit ($0.008 used), and there is only one
+Vercel team (), so the purchase did not land on the
+account holding the gateway key.
+
+Claude Code was launched through the hosted gateway from an empty directory and
+authenticated correctly, but  (a March 2024 model) returns
+upstream **500** on the tool-calling payload Claude Code sends. A single plain
+streaming request to the same model through the same gateway succeeds — so the
+gateway is fine; the model is too old for an agentic client.
+
+**To unblock:** confirm the credit purchase applied to the
+ team, then re-run the launcher with
+.
 
 ## Known limitations
 
