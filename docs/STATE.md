@@ -2,105 +2,108 @@
 
 ## Current milestone
 
-M3 — first real Proof of Usage path (Vercel AI Gateway → ROUTED). **Code
-complete. No live gateway request has been made** (see Live probe below).
+M4 — Trusted Usage Miner V0. **Complete.** Claude Code can run through the USAGE
+Gateway and produce real, deduplicated proof receipts from real AI compute.
+
+## Verification status
+
+| Item | Status |
+| --- | --- |
+| First live Gateway proof | **PASS** (`gen_01M1XPMK09E2SFK3R2AJ0VYN0A`, 28 in / 16 out, receipt hashed, re-ingest 0 new) |
+| Claude Code through USAGE Gateway | **PASS** (streamed, clean exit, 2 generations captured) |
+| Trusted hosted production gateway | **NO** — the gateway has only ever run locally |
+| Real Supabase runtime verified | **NO** — Docker unavailable; PGlite proves the SQL, not GoTrue/PostgREST |
+| Current economic trust status | **All observed usage is PENDING** and earns nothing |
 
 ## What works
 
-- **Routed proof path**: gateway observation → `VercelGatewayAdapter` →
-  normalized usage → trusted ingestion → `usage_events` + `proof_records` →
-  aggregates → `usage_score_v1` → dashboard. Exercised end to end against a real
-  Postgres.
-- Live gateway traffic is ROUTED / confirmed (weight 1.0) and scores through the
-  same pipeline as VERIFIED. It is never labelled provider-VERIFIED.
-- Idempotent on the gateway generation id: re-ingesting an observation inserts
-  0 events and adds no duplicate provenance.
-- Gateway cost is used verbatim (rounded half-up into micro-USD, with the
-  rounding recorded) or marked unknown. It is never estimated.
-- Malformed metadata and failed requests (401/402/429/5xx/timeout/network) are
-  operational errors that create no usage.
-- Provenance: every event gets a proof row (source, kind, external reference,
-  observed/ingested timestamps, adapter version, whitelisted metadata).
-- Dashboard distinguishes Verified / Routed / Reported, and labels Demo,
-  Fixture and live Routed evidence separately.
-- Earlier milestones unchanged: auth, RLS, persistence, epochs, demo adapters.
-- 125 tests pass (unit + Postgres integration via PGlite).
+- **USAGE Gateway** at `/api/gateway/anthropic/[...path]`: authenticates a miner
+  credential, forwards to the Vercel AI Gateway with the server-side key, and
+  observes the response. Streaming passes through byte-for-byte; tool calls,
+  caching, beta headers and error bodies are untouched.
+- **Miner credentials**: `usgm_` tokens, SHA-256 stored, revocable, shown once.
+  Invalid, malformed and revoked credentials are rejected before any upstream
+  call, so a rejected miner can never spend.
+- **Proof receipts** with a deterministic `sha256:` hash over a documented
+  canonical form, stored on `proof_records` with trust environment and adapter
+  version.
+- **Trust separation**: hosted → routed/confirmed (earns); local → routed/pending
+  (earns nothing); fixture → reported/unverifiable (earns nothing); unknown cost →
+  pending regardless.
+- **Mining session summary** (`npm run miner:summary`) derived from observed
+  usage through the existing scorer and epoch logic.
+- Everything from M1–M3 unchanged: normalization, RLS, persistence, scoring v1,
+  epochs, idempotency.
+- 167 tests pass (unit + Postgres integration via PGlite).
 
-## Evidence classes right now
+## Why everything is currently PENDING
 
-| Class | Source | Weight | Status |
-| --- | --- | --- | --- |
-| Demo | three synthetic adapters | verified/routed/reported as simulated | working |
-| Fixture | captured-shape gateway payloads | REPORTED, 0.0 | working, free |
-| Real ROUTED | one live request through Vercel AI Gateway | ROUTED, 1.0 | implemented, **never executed** |
-| Real VERIFIED | Anthropic/OpenAI admin APIs | 1.0 | not implemented |
+Two independent reasons, both deliberate:
 
-Fixtures are classified REPORTED on purpose: USAGE did not observe them, so they
-cannot become rewardable routed evidence anywhere, including production.
+1. The gateway runs on this machine. A local process is not a trust anchor, so
+   its observations are `routed / pending`. Only `USAGE_TRUST_ENVIRONMENT=production`
+   on trusted hosted infrastructure promotes them, and that infrastructure does
+   not exist yet.
+2. The Anthropic-compatible gateway surface returns no cost, so proxied traffic
+   is cost-unknown. Unknown cost is held as pending rather than scored as $0.
 
-## Live probe: not executed
+## External account constraint
 
-`npm run usage:gateway:probe` currently runs as a **dry run** and prints what a
-real call would do. No `AI_GATEWAY_API_KEY` is configured here and a real request
-spends AI Gateway credits, so none was made. To produce the first genuine ROUTED
-event:
+The Vercel team is on the **AI Gateway free tier**: Anthropic models return 403
+("free tier users do not have access to this model") and free models are
+rate-limited. The live proofs above used free-tier models
+(`inclusionai/ling-3.0-flash-fin`, `perplexity/sonar`). Claude Code therefore had
+to be pointed at a non-Anthropic model, which it warns about
+(`unrecognized_model`) but handles.
 
-```bash
-# set AI_GATEWAY_API_KEY in .env.local (server-side only), then:
-npm run usage:gateway:probe -- --confirm
-npm run usage:gateway:probe -- --confirm --user <profile-uuid>   # also persists
-```
+Before any meaningful Claude Code traffic, add a small AI Gateway credit budget
+and set a low spend cap. **No budget was changed** — that is your call.
 
-Free alternative that exercises the same path:
+## Local miner setup (development only)
 
 ```bash
-npm run usage:gateway:probe -- --fixtures --user <profile-uuid>
+npm run miner:token                    # prints the token once + the hash line
+# add USAGE_DEV_MINER_TOKEN_HASH and USAGE_DEV_MINER_USER_ID to .env.local
+npm run dev
+$env:USAGE_MINER_TOKEN = "usgm_..."    # PowerShell, session only
+npm run miner:claude                   # or: ./scripts/start-claude-miner.ps1
+npm run miner:summary                  # what the session was worth
 ```
 
-## Database state
-
-Migrations 0001–0003 are committed and applied by the test suite against a real
-Postgres. **The local Supabase stack still has never been started here: Docker is
-not installed on this machine.** So `npm run db:start` / `db:reset` have not run,
-no `.env.local` exists, and no GoTrue signup has been exercised. PGlite proves
-the SQL, the RLS policies and the privilege model; it does **not** prove Supabase
-Auth or PostgREST runtime behaviour.
-
-Outstanding verification item: **run migrations and the auth/RLS flows against an
-actual Supabase/Postgres stack.**
+The launcher sets session-scoped variables only and never touches
+`~/.claude/settings.json` or your Claude login.
 
 ## Known limitations
 
-- `src/lib/supabase/database.types.ts` is hand-maintained until `db:types` can
-  run against a live stack.
-- No historical gateway reconciliation: Custom Reporting (`GET /v1/report`) is
-  plan-gated and deliberately not depended on.
-- Network denominator for network share remains simulated
-  (`src/lib/demo/network.ts`), labelled as such in the UI.
-- No epoch settlement job; `reward_epochs` / `reward_allocations` are unwritten.
-- Demo ingestion is a development-only server action; the probe is a
-  development-only CLI.
-- No E2E tests.
+- No hosted deployment, so no economically valid proof exists yet.
+- Local observations land in `.usage/observations.jsonl` (gitignored) rather than
+  a database. That is an inspection artifact, not proof storage.
+- Rate limiting is per-process and in-memory; a hosted deployment needs a shared
+  limiter.
+- `database.types.ts` is hand-maintained until `db:types` can run.
+- Some models report `input_tokens: 0` on the Anthropic-compatible stream; USAGE
+  records what was reported rather than estimating.
+- Codex is not implemented (M5). The miner, receipt, hashing, ingestion and
+  scoring layers are provider-neutral and ready for it.
+- No epoch settlement job; no E2E tests.
 
 ## Next recommended milestone
 
-M4 — either (a) epoch settlement, writing `reward_epochs` and
-`reward_allocations` from stored scores, or (b) the first VERIFIED provider:
-verify the Anthropic or OpenAI organization usage/cost API against current
-official docs, fill the capability register in `docs/ARCHITECTURE.md`, and store
-credentials via `provider_connections.secret_ref`. Running the live gateway probe
-once (with a key) is a small, high-value step that can happen independently.
+M5 — either (a) deploy the gateway to trusted hosted infrastructure with a real
+Supabase, which is what turns PENDING into CONFIRMED and finally exercises
+GoTrue/RLS at runtime, or (b) Codex miner support over the same boundary. (a) is
+the higher-value step: nothing can actually earn until it is done.
 
 ## Important local commands
 
 ```bash
 npm run dev                                # http://localhost:3000
-npm run db:start                           # local Supabase (requires Docker)
-npm run db:reset                           # re-apply migrations + seed
-npm run db:types                           # regenerate database types
-npm run usage:gateway:probe                # dry run, explains and costs nothing
+npm run miner:token                        # mint a miner credential
+npm run miner:claude                       # Claude Code via USAGE Gateway
+npm run miner:summary                      # mining session summary
+npm run usage:gateway:probe                # dry run, costs nothing
 npm run usage:gateway:probe -- --fixtures  # free fixture path
 npm run usage:gateway:probe -- --confirm   # ONE real request, spends credits
-npm test                                   # unit + Postgres integration tests
-npm run typecheck && npm run lint && npm run build
+npm run db:start / db:reset / db:types     # local Supabase (needs Docker)
+npm test && npm run typecheck && npm run lint && npm run build
 ```

@@ -75,6 +75,8 @@ export interface DashboardData {
     networkShare: number;
     estimatedPoints: number;
     excludedCostMicros: number;
+    /** Real usage today whose economic weight is not yet established. */
+    pendingCostMicros: number;
     networkIsSimulated: true;
   };
 
@@ -210,6 +212,7 @@ export function buildDashboardView({
       networkShare: reward.networkShare,
       estimatedPoints: reward.points,
       excludedCostMicros: todayScore?.excludedCostMicros ?? 0,
+      pendingCostMicros: todayScore?.pendingCostMicros ?? 0,
       networkIsSimulated: true,
     },
 

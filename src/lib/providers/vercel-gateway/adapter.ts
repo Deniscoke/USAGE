@@ -1,4 +1,5 @@
 import { usdCostToMicros } from "@/lib/domain/money";
+import { receiptHash, RECEIPT_VERSION, type CostBasis, type ProofReceipt } from "@/lib/domain/receipt";
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
   ConnectionContext,
@@ -49,6 +50,8 @@ function splitInputTokens(observation: GatewayObservation): {
 
 export interface NormalizedObservation {
   record: NormalizedUsageRecord;
+  /** The tamper-evident receipt this record was derived from. */
+  receipt: ProofReceipt;
   /** Provenance for proof_records. Non-secret fields only. */
   proof: {
     proofKind: string;
@@ -56,6 +59,8 @@ export interface NormalizedObservation {
     externalReference: string;
     observedAt: string;
     adapterVersion: string;
+    proofHash: string;
+    trustEnvironment: string;
     metadata: Record<string, string | number | boolean | null>;
   };
 }
@@ -64,7 +69,10 @@ export interface NormalizedObservation {
  * Turn one trusted gateway observation into a normalized usage record.
  * Throws GatewayObservationError on malformed evidence.
  */
-export function normalizeGatewayObservation(input: GatewayObservation): NormalizedObservation {
+export function normalizeGatewayObservation(
+  input: GatewayObservation,
+  options: { userId?: string; observedAt?: string } = {},
+): NormalizedObservation {
   const observation = assertObservation(input);
   const verification = deriveVerification(observation.environment);
   const { inputTokens, cachedInputTokens, cacheWriteTokens } = splitInputTokens(observation);
@@ -75,13 +83,24 @@ export function normalizeGatewayObservation(input: GatewayObservation): Normaliz
   // zero and not estimated: we have no authoritative price for arbitrary
   // upstream models, and inventing one would fabricate economic value.
   const parsedCost = observation.cost ? usdCostToMicros(observation.cost.value) : null;
-  const costBasis = parsedCost ? "gateway_reported" : "unavailable";
+  const costBasis: CostBasis = parsedCost ? "gateway_reported" : "unavailable";
+
+  // Usage with no authoritative cost is real, but there is nothing to weigh. It
+  // stays visible and stays out of the reward pool until a cost is known --
+  // scoring it as $0 would quietly say "this compute was worthless".
+  const verificationStatus =
+    verification.verificationType !== "reported" && parsedCost === null
+      ? "pending"
+      : verification.verificationStatus;
 
   const externalReference = observationReference(observation);
   const occurredAt = new Date(observation.occurredAt).toISOString();
 
   const metadata: Record<string, string | number | boolean | null> = {
     evidence_class: verification.evidenceClass,
+    trust_environment: verification.trustEnvironment,
+    client_type: observation.clientType ?? "unknown",
+    generation_id_source: observation.generationIdSource ?? "gateway_generation_id",
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
     gateway_generation_id: observation.generationId,
     gateway_model: observation.model,
@@ -109,18 +128,50 @@ export function normalizeGatewayObservation(input: GatewayObservation): Normaliz
     reportedCostMicros: parsedCost ? parsedCost.micros : null,
     normalizedCostMicros: parsedCost ? parsedCost.micros : 0,
     verificationType: verification.verificationType,
-    verificationStatus: verification.verificationStatus,
+    verificationStatus,
     rawMetadata: metadata,
+  };
+
+  const observedAt = options.observedAt ?? new Date().toISOString();
+  const receipt: ProofReceipt = {
+    receiptVersion: RECEIPT_VERSION,
+    // A receipt is always about someone; an unattributed one is only useful for
+    // inspecting the pipeline, so it is explicitly marked rather than blank.
+    userId: options.userId ?? "unattributed",
+    source: record.source,
+    clientType: observation.clientType ?? "unknown",
+    provider: observation.servedByProvider ?? VERCEL_GATEWAY_PROVIDER,
+    model: observation.model,
+    generationId: observation.generationId,
+    generationIdSource: observation.generationIdSource ?? "gateway_generation_id",
+    trustEnvironment: verification.trustEnvironment,
+    inputTokens,
+    cachedReadTokens: cachedInputTokens,
+    cachedWriteTokens: cacheWriteTokens,
+    outputTokens,
+    reasoningTokens,
+    requests: 1,
+    costMicroUsd: parsedCost ? parsedCost.micros : null,
+    costBasis,
+    currency: "USD",
+    occurredAt,
+    observedAt,
+    verificationType: record.verificationType,
+    verificationStatus,
+    adapterVersion: VERCEL_GATEWAY_ADAPTER_VERSION,
   };
 
   return {
     record,
+    receipt,
     proof: {
       proofKind: "gateway_observation",
       proofSource: VERCEL_GATEWAY_PROVIDER,
       externalReference,
-      observedAt: occurredAt,
+      observedAt,
       adapterVersion: VERCEL_GATEWAY_ADAPTER_VERSION,
+      proofHash: receiptHash(receipt),
+      trustEnvironment: verification.trustEnvironment,
       metadata,
     },
   };

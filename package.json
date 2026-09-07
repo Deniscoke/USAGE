@@ -14,7 +14,10 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
-    "usage:gateway:probe": "tsx scripts/gateway-probe.ts"
+    "usage:gateway:probe": "node --env-file-if-exists=.env.local --import tsx scripts/gateway-probe.ts",
+    "miner:token": "node --env-file-if-exists=.env.local --import tsx scripts/miner-token.ts",
+    "miner:claude": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-claude-miner.ps1",
+    "miner:summary": "node --env-file-if-exists=.env.local --import tsx scripts/miner-summary.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",

@@ -90,8 +90,9 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         await db.asServiceRole(
           `insert into proof_records
              (user_id, usage_event_id, verification_type, proof_kind, proof_source,
-              external_reference, observed_at, adapter_version, proof_metadata)
-           values ($1, $2, $3::verification_type, $4, $5, $6, $7, $8, $9::jsonb)
+              external_reference, observed_at, adapter_version, proof_hash,
+              trust_environment, proof_metadata)
+           values ($1, $2, $3::verification_type, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
            on conflict (usage_event_id, proof_kind) do nothing`,
           [
             userId,
@@ -102,6 +103,8 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
             proof.externalReference,
             proof.observedAt,
             proof.adapterVersion,
+            proof.proofHash,
+            proof.trustEnvironment,
             JSON.stringify(proof.metadata),
           ],
         );
@@ -167,11 +170,13 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
       for (const score of scores) {
         await db.asServiceRole(
           `insert into score_records
-             (user_id, day, algorithm_version, weighted_cost_micros, excluded_cost_micros, points)
-           values ($1, $2, $3, $4, $5, $6)
+             (user_id, day, algorithm_version, weighted_cost_micros, excluded_cost_micros,
+              pending_cost_micros, points)
+           values ($1, $2, $3, $4, $5, $6, $7)
            on conflict (user_id, day, algorithm_version) do update
              set weighted_cost_micros = excluded.weighted_cost_micros,
                  excluded_cost_micros = excluded.excluded_cost_micros,
+                 pending_cost_micros = excluded.pending_cost_micros,
                  points = excluded.points`,
           [
             userId,
@@ -179,6 +184,7 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
             score.algorithmVersion,
             score.weightedCostMicros,
             score.excludedCostMicros,
+            score.pendingCostMicros,
             score.points,
           ],
         );

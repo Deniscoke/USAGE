@@ -16,6 +16,7 @@ import {
   runGatewayProbe,
 } from "../src/lib/providers/vercel-gateway/probe";
 import { formatUsd } from "../src/lib/domain/money";
+import type { GatewayObservation } from "../src/lib/providers/vercel-gateway/observation";
 
 const args = process.argv.slice(2);
 const confirmed = args.includes("--confirm");
@@ -64,7 +65,11 @@ async function main(): Promise<number> {
   const resolvedModel = await resolveProbeModel(model);
   line(`Requesting one completion from ${resolvedModel} ...`);
 
-  const result = await runGatewayProbe({ model: resolvedModel });
+  const result = await runGatewayProbe({
+    model: resolvedModel,
+    prompt: "Reply exactly: USAGE_PROOF_OK",
+    maxOutputTokens: 16,
+  });
 
   if (!result.ok) {
     // Operational failure. No usage event is created: a failed request is not
@@ -77,7 +82,9 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const { record, proof } = normalizeGatewayObservation(result.observation);
+  const { record, receipt, proof } = normalizeGatewayObservation(result.observation, {
+    userId: userId ?? "unattributed",
+  });
 
   line();
   line("Observed routed usage");
@@ -95,9 +102,19 @@ async function main(): Promise<number> {
       : `${formatUsd(record.normalizedCostMicros, { maximumFractionDigits: 6 })} (${record.normalizedCostMicros} micro-USD)`
   }`);
   line(`verification    : ${record.verificationType} / ${record.verificationStatus}`);
+  line(`trust env       : ${receipt.trustEnvironment}`);
   line(`external ref    : ${record.externalReference}`);
   line(`adapter         : ${proof.adapterVersion}`);
+  line(`receipt hash    : ${proof.proofHash}`);
   line();
+
+  if (receipt.trustEnvironment !== "production") {
+    line("NOTE: observed by a locally running gateway, not trusted hosted USAGE");
+    line("infrastructure, so this proof is economically PENDING and earns nothing.");
+    line();
+  }
+
+  await proveIdempotency(result.observation);
 
   if (!userId) {
     line("Not persisted. Pass --user <profile-uuid> with Supabase configured to ingest it.");
@@ -116,6 +133,38 @@ async function main(): Promise<number> {
       `${summary.rejected.length} rejected.`,
   );
   return 0;
+}
+
+/**
+ * Demonstrate the idempotency invariant on a real observation using the local
+ * Postgres harness. This is an inspection harness, NOT production persistence.
+ */
+async function proveIdempotency(observation: GatewayObservation): Promise<void> {
+  const { createTestDb } = await import("../src/test/pg");
+  const { createSqlIngestStore } = await import("../src/test/sql-ingest-store");
+  const { ingestGatewayObservations } = await import("../src/lib/db/ingest");
+
+  const db = await createTestDb();
+  try {
+    const user = await db.createUser("probe@usage.local");
+    const store = createSqlIngestStore(db);
+
+    const first = await ingestGatewayObservations(store, user, [observation]);
+    const second = await ingestGatewayObservations(store, user, [observation]);
+    const events = await db.asServiceRole<{ n: string }>(
+      "select count(*)::text as n from usage_events where user_id = $1",
+      [user],
+    );
+
+    line("Idempotency (local Postgres harness, not production storage)");
+    line("-----------------------------------------------------------");
+    line(`first ingest    : ${first.inserted} inserted`);
+    line(`second ingest   : ${second.inserted} inserted, ${second.duplicates} duplicate`);
+    line(`stored events   : ${events[0].n}`);
+    line();
+  } finally {
+    await db.close();
+  }
 }
 
 /**

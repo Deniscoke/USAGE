@@ -1,4 +1,9 @@
-import type { GatewayObservation, GatewayTokenUsage } from "./observation";
+import {
+  resolveTrustEnvironment,
+  type GatewayObservation,
+  type GatewayTokenUsage,
+  type ObservationEnvironment,
+} from "./observation";
 
 /**
  * Real-mode gateway probe: makes ONE small AI request through the Vercel AI
@@ -111,7 +116,13 @@ interface AiSdkResult {
  */
 export function observationFromAiSdkResult(
   result: AiSdkResult,
-  context: { model: string; startedAt: Date; finishedAt: Date },
+  context: {
+    model: string;
+    startedAt: Date;
+    finishedAt: Date;
+    environment?: ObservationEnvironment;
+    clientType?: string;
+  },
 ): GatewayObservation {
   const gateway = (result.providerMetadata?.gateway ?? {}) as {
     generationId?: unknown;
@@ -130,7 +141,11 @@ export function observationFromAiSdkResult(
   const resolvedProvider = gateway.routing?.resolvedProvider;
 
   return {
-    environment: "live",
+    // Trust comes from where this ran, never from the response.
+    environment: context.environment ?? resolveTrustEnvironment(),
+    clientType: context.clientType ?? "probe",
+    generationIdSource:
+      typeof gateway.generationId === "string" ? "gateway_generation_id" : "response_id",
     generationId,
     model: result.response?.modelId || context.model,
     servedByProvider:
@@ -165,6 +180,9 @@ export async function runGatewayProbe(options: GatewayProbeOptions): Promise<Gat
       model: options.model,
       prompt: options.prompt ?? "Reply with the single word: ok",
       maxOutputTokens: options.maxOutputTokens ?? 16,
+      // No automatic retries: a probe must make exactly one attempt, so a
+      // failure is reported rather than quietly multiplied into more spend.
+      maxRetries: 0,
     });
 
     return {
@@ -173,6 +191,7 @@ export async function runGatewayProbe(options: GatewayProbeOptions): Promise<Gat
         model: options.model,
         startedAt,
         finishedAt: new Date(),
+        clientType: "probe",
       }),
     };
   } catch (error) {

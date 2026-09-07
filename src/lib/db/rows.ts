@@ -137,6 +137,8 @@ export interface StoredDailyScore {
   algorithmVersion: string;
   weightedCostMicros: number;
   excludedCostMicros: number;
+  /** Eligible usage whose economic weight is not yet established. */
+  pendingCostMicros: number;
   points: number;
 }
 
@@ -146,6 +148,7 @@ export function rowToScore(row: ScoreRecordRow): StoredDailyScore {
     algorithmVersion: row.algorithm_version,
     weightedCostMicros: toSafeInteger(row.weighted_cost_micros, "weighted_cost_micros"),
     excludedCostMicros: toSafeInteger(row.excluded_cost_micros, "excluded_cost_micros"),
+    pendingCostMicros: toSafeInteger(row.pending_cost_micros ?? 0, "pending_cost_micros"),
     points: toDecimal(row.points),
   };
 }

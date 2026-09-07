@@ -11,7 +11,17 @@ server-rendered SVG.
 ## Data flow
 
 ```
-authenticated user
+Claude Code (miner token)
+        │
+        ▼
+USAGE Gateway  /api/gateway/anthropic/v1/messages
+        │  authenticates the miner, attaches attribution,
+        │  forwards with the USAGE-owned AI Gateway key
+        ▼
+Vercel AI Gateway ──▶ provider ──▶ model
+        │
+        ▼
+response streams back untouched; USAGE reads only usage metadata
         │
         ▼
 provider adapter ──raw──▶ normalize() ──▶ NormalizedUsageRecord
@@ -46,16 +56,21 @@ src/lib/providers/    adapter interface, deterministic RNG, registry,
                       demo/{provider-api,gateway,local-cli},
                       vercel-gateway/{observation,adapter,fixtures,probe}
 src/lib/pipeline/     collect (fetch→normalize→dedupe), dashboard (view model)
+src/lib/gateway/      anthropic (proxy rules), usage-extract (JSON + SSE),
+                      observability (safe logging, rate limit, dev sink)
+src/lib/miner/        token (mint/hash/read), credentials (resolve, revoke)
 src/lib/db/           ingest (trusted write path), supabase-store, rows
                       (row↔domain mapping), usage-repository (reads), profile
 src/lib/supabase/     env, server/browser/admin clients, database.types.ts
 src/lib/auth/         pure route-gating rules
 src/lib/demo/         simulated network denominator for network share
 src/proxy.ts          session refresh + route gating (Next 16 "proxy")
-src/app/              landing, /login, /sign-up, /dashboard, auth actions
+src/app/              landing, /login, /sign-up, /dashboard, auth actions,
+                      api/gateway/anthropic/[...path] (the USAGE Gateway)
 src/components/       ui primitives, SVG charts, auth form
 src/test/             PGlite harness + SQL IngestStore for integration tests
-scripts/              gateway-probe.ts (dev-only, the only code that can spend)
+scripts/              gateway-probe.ts (dev-only, the only code that can spend),
+                      miner-token.ts, miner-summary.ts, start-claude-miner.ps1
 supabase/             config.toml, migrations/, seed.sql
 ```
 
@@ -71,6 +86,51 @@ than silently losing precision (PostgREST returns bigint as a JSON number).
 gateway is `observation` mode — evidence is captured at request time by
 USAGE-controlled infrastructure and pushed in, because there is nothing to pull.
 `listPullIntegrations()` keeps the demo sync from trying to poll it.
+
+**The USAGE Gateway owns the trust boundary.** A miner client authenticates
+with its own revocable credential and gets to *initiate* a request; the server
+decides what evidence that produces. Nothing in the request body or headers can
+influence verification type, token counts, cost, or the identity a proof is
+bound to. The upstream AI Gateway key never leaves the server: client
+`authorization`, `x-api-key`, `x-ai-gateway-api-key` and the miner header are
+all stripped before forwarding, and the equivalent response headers are stripped
+on the way back.
+
+**Miner credentials are hashed, never stored.** A token is 256 bits of CSPRNG
+output prefixed `usgm_`; only its SHA-256 lands in the database. A slow KDF would
+add latency to every request while defending against a dictionary attack that
+cannot exist against random 256-bit secrets. The plaintext is shown once.
+
+**A subscription-authenticated Claude Code keeps its own `Authorization`**, so
+the miner token is also accepted on `x-usage-miner-token` (set via
+`ANTHROPIC_CUSTOM_HEADERS`). Only miner-shaped values are ever *read* as
+credentials — another provider's secret is never compared, logged, or forwarded.
+
+**Three trust environments, one vocabulary.**
+
+| Observed by | verification_type | verification_status | Earns |
+| --- | --- | --- | --- |
+| Trusted hosted USAGE infrastructure | routed | confirmed | yes |
+| A gateway on someone's own machine | routed | pending | no |
+| A captured fixture | reported | unverifiable | no |
+| Any of the above with unknown cost | (unchanged) | pending | no |
+
+The public vocabulary did not change: a locally observed request genuinely was
+routed. What gates the economics is `verification_status`, which the scorer now
+requires to be `confirmed` (`isEconomicallyEligible`). `USAGE_TRUST_ENVIRONMENT`
+is the only thing that can promote an environment to `production`, and it is
+server configuration, never a request field.
+
+**Unknown cost is pending, not zero.** Scoring `$unknown` as `$0` would quietly
+assert that real compute was worthless. Such usage is stored, displayed, and
+counted in `pending_cost_micros` until a cost is known.
+
+**Proof receipts are hashed over a canonical form.** `canonicalReceipt` emits a
+fixed field order as `key=value` lines (not `JSON.stringify`, whose key order and
+number formatting are not guaranteed stable) and `null` for unknown values.
+`observedAt` is deliberately excluded so re-ingesting the same generation
+produces the same hash. `src/lib/domain/receipt.ts` documents the exact covered
+fields; prompts, responses and credentials are not among them.
 
 **Routed is not verified.** A request USAGE itself sent through the Vercel AI
 Gateway is *observed* (ROUTED, weight 1.0), not attested by the provider's
@@ -212,6 +272,17 @@ a server-side credential.
 | demo-cli | Synthetic. Stands in for local dev-tool telemetry (reported, cost estimated). |
 | vercel-ai-gateway | **Implemented.** See below. |
 
+### USAGE Gateway endpoints
+
+| | |
+| --- | --- |
+| Anthropic surface | `POST /api/gateway/anthropic/v1/messages` (also `/v1/messages/count_tokens`, and GET for model discovery) |
+| Client auth | `x-usage-miner-token`, `Authorization: Bearer usgm_…`, or `x-api-key` |
+| Upstream | `https://ai-gateway.vercel.sh/claude-code` (override with `USAGE_UPSTREAM_BASE_URL`) |
+| Upstream auth | `AI_GATEWAY_API_KEY`, server-side only |
+| Attribution | server-set `providerOptions.gateway.{user,tags}`; user is the internal uuid, never an email |
+| Streaming | SSE passes through byte-for-byte; usage is read from `message_start` + `message_delta` |
+
 ### Vercel AI Gateway (verified against official docs, April 2026)
 
 | | |
@@ -225,7 +296,7 @@ a server-side credential.
 | Provider identity | Gateway routing metadata when present, else the model slug prefix. |
 | Data freshness | At request time. |
 | Verification strength | ROUTED — observed by USAGE, not attested by the provider's billing system. |
-| Known limitations | No historical backfill without Custom Reporting (`GET /v1/report`), which is plan-gated, so the first proof path deliberately does not depend on it. Model slugs change; the probe resolves one from `gateway.getAvailableModels()` rather than hardcoding. |
+| Known limitations | No historical backfill without Custom Reporting (`GET /v1/report`), which is plan-gated, so the first proof path deliberately does not depend on it. Model slugs change; the probe resolves one from `gateway.getAvailableModels()` rather than hardcoding. **The Anthropic-compatible surface returns no cost**, so gateway-proxied traffic is always cost-unknown and therefore economically pending; the AI SDK surface does return `providerMetadata.gateway.cost`. Some models report `input_tokens: 0` in `message_start` on that surface — USAGE records what was reported and never substitutes an estimate. |
 
 Token mapping: `inputTokens` is inclusive of cache reads, so USAGE stores
 `inputTokens - cacheReadTokens` as fresh input and the cache reads separately.

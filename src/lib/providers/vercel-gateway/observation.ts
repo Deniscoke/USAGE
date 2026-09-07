@@ -1,3 +1,5 @@
+import type { TrustEnvironment } from "@/lib/domain/receipt";
+
 /**
  * What trusted USAGE infrastructure observed while an AI request went through
  * the Vercel AI Gateway.
@@ -15,13 +17,17 @@ export const VERCEL_GATEWAY_PROVIDER = "vercel-ai-gateway";
 export const VERCEL_GATEWAY_ADAPTER_VERSION = "vercel-gateway@1";
 
 /**
- * `live`    — the request really happened through the gateway, observed by us.
- * `fixture` — a captured/synthetic payload used in development and tests.
+ * Where an observation was made:
  *
- * Fixtures are never routed evidence: USAGE did not observe them, so they are
- * classified REPORTED and carry zero economic weight. See `deriveVerification`.
+ * `live`        — a real request through trusted, hosted USAGE infrastructure.
+ * `development` — a real request, but observed by a gateway running on someone's
+ *                 own machine. Technically identical, economically not: a local
+ *                 process is not a trust anchor and must not mint rewards.
+ * `fixture`     — a captured/synthetic payload used in tests.
+ *
+ * See `deriveVerification` for how each maps onto the public vocabulary.
  */
-export type ObservationEnvironment = "live" | "fixture";
+export type ObservationEnvironment = "live" | "development" | "fixture";
 
 /** Mirrors the AI SDK v6 usage shape. Every field may legitimately be absent. */
 export interface GatewayTokenUsage {
@@ -51,6 +57,10 @@ export interface GatewayObservation {
   generationId: string;
   /** Gateway model slug, e.g. "openai/gpt-5.4". */
   model: string;
+  /** What produced the traffic: "probe", "claude-code", ... Non-PII. */
+  clientType?: string;
+  /** How the identity was obtained, for provenance. */
+  generationIdSource?: string;
   /** Upstream provider that actually served the request, when the gateway says. */
   servedByProvider?: string;
   occurredAt: string;
@@ -144,24 +154,47 @@ export function assertObservation(observation: GatewayObservation): GatewayObser
 
 export interface DerivedVerification {
   verificationType: "routed" | "reported";
-  verificationStatus: "confirmed" | "unverifiable";
+  verificationStatus: "confirmed" | "pending" | "unverifiable";
   evidenceClass: ObservationEnvironment;
+  trustEnvironment: TrustEnvironment;
 }
 
 /**
  * The single place verification level is decided for gateway evidence.
  *
- * live    -> ROUTED / confirmed  (weight 1.0)
- * fixture -> REPORTED / unverifiable (weight 0.0)
+ *   live        -> ROUTED / confirmed      (weight 1.0, economically eligible)
+ *   development -> ROUTED / pending        (real, shown, earns nothing)
+ *   fixture     -> REPORTED / unverifiable (weight 0.0)
  *
- * A fixture is not routed evidence by definition: nothing observed it happen.
- * Classifying it REPORTED is what makes it structurally impossible for fixture
- * data to earn rewards, without needing a separate guard in the scorer.
+ * The vocabulary does not change: a locally observed request genuinely was
+ * routed, so calling it REPORTED would be a lie in the other direction. What
+ * makes it non-economic is the *status*, which the scorer requires to be
+ * `confirmed` (see isEconomicallyEligible).
  */
 export function deriveVerification(environment: ObservationEnvironment): DerivedVerification {
-  return environment === "live"
-    ? { verificationType: "routed", verificationStatus: "confirmed", evidenceClass: "live" }
-    : { verificationType: "reported", verificationStatus: "unverifiable", evidenceClass: "fixture" };
+  switch (environment) {
+    case "live":
+      return {
+        verificationType: "routed",
+        verificationStatus: "confirmed",
+        evidenceClass: "live",
+        trustEnvironment: "production",
+      };
+    case "development":
+      return {
+        verificationType: "routed",
+        verificationStatus: "pending",
+        evidenceClass: "development",
+        trustEnvironment: "development",
+      };
+    case "fixture":
+      return {
+        verificationType: "reported",
+        verificationStatus: "unverifiable",
+        evidenceClass: "fixture",
+        trustEnvironment: "fixture",
+      };
+  }
 }
 
 /**
@@ -171,4 +204,9 @@ export function deriveVerification(environment: ObservationEnvironment): Derived
  */
 export function observationReference(observation: GatewayObservation): string {
   return `${observation.environment}:${observation.generationId}`;
+}
+
+/** Trusted hosted infrastructure, or a laptop? Resolved from server config only. */
+export function resolveTrustEnvironment(): ObservationEnvironment {
+  return process.env.USAGE_TRUST_ENVIRONMENT === "production" ? "live" : "development";
 }

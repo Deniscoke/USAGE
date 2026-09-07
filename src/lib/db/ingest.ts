@@ -48,6 +48,8 @@ export interface ProofDraft {
   externalReference: string;
   observedAt: string;
   adapterVersion: string | null;
+  proofHash: string | null;
+  trustEnvironment: string | null;
   metadata: Record<string, string | number | boolean | null>;
 }
 
@@ -96,6 +98,7 @@ function proofFromRecord(
   override?: NormalizedObservation["proof"],
 ): ProofDraft {
   const adapterVersion = record.rawMetadata.adapter_version;
+  const trustEnvironment = record.rawMetadata.trust_environment;
   return {
     usageEventId,
     verificationType: record.verificationType,
@@ -105,6 +108,9 @@ function proofFromRecord(
     observedAt: override?.observedAt ?? record.occurredAt,
     adapterVersion:
       override?.adapterVersion ?? (typeof adapterVersion === "string" ? adapterVersion : null),
+    proofHash: override?.proofHash ?? null,
+    trustEnvironment:
+      override?.trustEnvironment ?? (typeof trustEnvironment === "string" ? trustEnvironment : null),
     metadata: override?.metadata ?? record.rawMetadata,
   };
 }
@@ -162,6 +168,7 @@ export async function ingestRecords(
       algorithmVersion: scored.algorithmVersion,
       weightedCostMicros: scored.weightedCostMicros,
       excludedCostMicros: scored.excludedCostMicros,
+      pendingCostMicros: scored.pendingCostMicros,
       points: scored.points,
     };
   });
@@ -247,7 +254,7 @@ export async function ingestGatewayObservations(
 
   for (const observation of observations) {
     try {
-      const normalized = normalizeGatewayObservation(observation);
+      const normalized = normalizeGatewayObservation(observation, { userId });
       records.push(normalized.record);
       proofOverrides.set(normalized.record.externalReference, normalized.proof);
     } catch (error) {

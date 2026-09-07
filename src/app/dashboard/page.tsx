@@ -170,6 +170,12 @@ export default async function DashboardPage() {
                   <dd className="tnum">{formatUsd(scoredCost)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted)]">Pending today</dt>
+                  <dd className="tnum text-[var(--warn)]">
+                    {formatUsd(data.epoch.pendingCostMicros, { maximumFractionDigits: 4 })}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
                   <dt className="text-[var(--muted)]">Excluded today</dt>
                   <dd className="tnum text-[var(--reported)]">
                     {formatUsd(data.epoch.excludedCostMicros)}

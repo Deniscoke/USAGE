@@ -27,6 +27,7 @@ function score(overrides: Partial<StoredDailyScore>): StoredDailyScore {
     algorithmVersion: "usage_score_v1",
     weightedCostMicros: 4 * MICROS_PER_USD,
     excludedCostMicros: 0,
+    pendingCostMicros: 0,
     points: 2_000,
     ...overrides,
   };

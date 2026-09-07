@@ -30,6 +30,24 @@ export type UsageSourceRow =
   | "imported_report";
 export type ConnectionStatusRow = "active" | "error" | "revoked";
 
+export type MinerCredentialRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  token_hash: string;
+  token_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
+
+export type MinerCredentialInsertRow = {
+  user_id: string;
+  name?: string;
+  token_hash: string;
+  token_prefix: string;
+};
+
 export type ProfileRow = {
   id: string;
   handle: string | null;
@@ -97,6 +115,8 @@ export type ProofRecordRow = {
   observed_at: string | null;
   ingested_at: string;
   adapter_version: string | null;
+  proof_hash: string | null;
+  trust_environment: string | null;
   proof_metadata: Record<string, string | number | boolean | null>;
   created_at: string;
 };
@@ -110,6 +130,8 @@ export type ProofRecordInsertRow = {
   external_reference?: string | null;
   observed_at?: string | null;
   adapter_version?: string | null;
+  proof_hash?: string | null;
+  trust_environment?: string | null;
   proof_metadata?: Record<string, string | number | boolean | null>;
 };
 
@@ -120,6 +142,7 @@ export type ScoreRecordRow = {
   algorithm_version: string;
   weighted_cost_micros: number;
   excluded_cost_micros: number;
+  pending_cost_micros: number;
   /** numeric(20,4) — PostgREST returns numeric as a string. */
   points: string | number;
   created_at: string;
@@ -190,6 +213,7 @@ export type ScoreRecordInsertRow = {
   algorithm_version: string;
   weighted_cost_micros?: number;
   excluded_cost_micros?: number;
+  pending_cost_micros?: number;
   points?: number | string;
 }
 
@@ -226,6 +250,12 @@ export type Database = {
         Row: UsageDailyAggregateRow;
         Insert: UsageDailyAggregateInsertRow;
         Update: Partial<UsageDailyAggregateRow>;
+        Relationships: [];
+      };
+      usage_miner_credentials: {
+        Row: MinerCredentialRow;
+        Insert: MinerCredentialInsertRow;
+        Update: Partial<MinerCredentialRow>;
         Relationships: [];
       };
       proof_records: {

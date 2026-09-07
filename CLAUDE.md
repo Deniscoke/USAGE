@@ -29,6 +29,8 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
 10. **Verification type is assigned by trusted server-side ingestion.** Clients
     have no write privilege on usage tables. Never add one. Gateway traffic USAGE
     routes itself is ROUTED, never provider-VERIFIED; fixtures are REPORTED.
+    Only `verification_status = 'confirmed'` earns; development-observed and
+    cost-unknown usage stays `pending`.
 11. **Dashboard reads run as the signed-in user** so RLS applies. The service
     role is for ingestion only, never for serving a read.
 
@@ -50,6 +52,10 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
   rows or dashboard totals.
 - Provider cost is authoritative or unknown. Never estimate a cost for real
   provider traffic, and keep `cost_basis` explicit.
+- `AI_GATEWAY_API_KEY` is server-only and is never forwarded, logged, echoed in
+  a response, or handed to a miner. Miners get their own `usgm_` credential.
+- Gateway logs may carry ids, model, status, latency, tokens and cost. Never
+  prompts, responses, tool arguments, or credentials.
 
 ## Checks before calling a milestone done
 

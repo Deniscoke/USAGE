@@ -21,6 +21,7 @@ export function gatewayFixtures(now: Date = new Date()): GatewayObservation[] {
   return [
     {
       environment: "fixture",
+      clientType: "fixture",
       generationId: "gen_fixture_0001",
       model: "openai/gpt-5.4",
       servedByProvider: "openai",

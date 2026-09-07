@@ -217,6 +217,15 @@ describe("privacy", () => {
 });
 
 describe("probe result mapping", () => {
+  it("derives trust from where it ran, not from the response", () => {
+    // No USAGE_TRUST_ENVIRONMENT set in tests: a local run is development.
+    const local = observationFromAiSdkResult(
+      { usage: { inputTokens: 1, outputTokens: 1 }, response: { id: "r1", timestamp: NOW } },
+      { model: "openai/gpt-5.4", startedAt: NOW, finishedAt: NOW },
+    );
+    expect(local.environment).toBe("development");
+  });
+
   it("reads generation id, cost and usage from an AI SDK result", () => {
     const observation = observationFromAiSdkResult(
       {
@@ -229,7 +238,12 @@ describe("probe result mapping", () => {
         response: { id: "resp_1", modelId: "openai/gpt-5.4", timestamp: NOW },
         finishReason: "stop",
       },
-      { model: "openai/gpt-5.4", startedAt: new Date(NOW.getTime() - 500), finishedAt: NOW },
+      {
+        model: "openai/gpt-5.4",
+        startedAt: new Date(NOW.getTime() - 500),
+        finishedAt: NOW,
+        environment: "live",
+      },
     );
 
     expect(observation.environment).toBe("live");

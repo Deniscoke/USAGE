@@ -1,5 +1,5 @@
 import { microsToUsd } from "./money";
-import { totalsByVerification, utcDay } from "./normalize";
+import { utcDay } from "./normalize";
 import type { NormalizedUsageRecord, VerificationType } from "./types";
 
 /**
@@ -40,6 +40,12 @@ export interface DailyScore {
   weightedCostMicros: number;
   /** Spend excluded because its verification type has zero economic weight. */
   excludedCostMicros: number;
+  /**
+   * Spend that is otherwise eligible but whose economic weight is not yet
+   * established -- unconfirmed evidence, or usage whose cost the provider never
+   * reported. Held separately so unknown cost is never silently scored as $0.
+   */
+  pendingCostMicros: number;
   points: number;
 }
 
@@ -75,27 +81,48 @@ function roundPoints(points: number): number {
   return Math.round(points * 10_000) / 10_000;
 }
 
+/**
+ * Evidence is economically eligible only when it is BOTH of a verification type
+ * that carries weight AND confirmed.
+ *
+ * The status check is what keeps development-only and cost-unknown observations
+ * out of the reward pool: they are real usage and are displayed as such, but
+ * "we watched this happen on a laptop" and "the provider never told us what it
+ * cost" are not grounds for paying anyone.
+ */
+export function isEconomicallyEligible(record: NormalizedUsageRecord): boolean {
+  return record.verificationStatus === "confirmed";
+}
+
 /** Score one bucket of records (typically a single UTC day). */
 export function scoreRecords(
   records: readonly NormalizedUsageRecord[],
   version: string = CURRENT_SCORING_VERSION,
 ): Omit<DailyScore, "day"> {
   const algorithm = getScoringAlgorithm(version);
-  const totals = totalsByVerification(records);
 
   let weighted = 0;
   let excluded = 0;
-  for (const type of Object.keys(totals) as VerificationType[]) {
-    const weight = algorithm.weights[type];
-    const cost = totals[type].costMicros;
-    if (weight === 0) excluded += cost;
-    else weighted += Math.round(cost * weight);
+  let pending = 0;
+
+  for (const record of records) {
+    const weight = algorithm.weights[record.verificationType];
+    const cost = record.normalizedCostMicros;
+
+    if (weight === 0) {
+      excluded += cost;
+    } else if (!isEconomicallyEligible(record)) {
+      pending += cost;
+    } else {
+      weighted += Math.round(cost * weight);
+    }
   }
 
   return {
     algorithmVersion: algorithm.version,
     weightedCostMicros: weighted,
     excludedCostMicros: excluded,
+    pendingCostMicros: pending,
     points: algorithm.pointsForWeightedMicros(weighted),
   };
 }
