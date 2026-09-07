@@ -19,10 +19,10 @@ export default function LandingPage() {
         <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
           <span className="tnum text-sm font-medium tracking-[0.3em]">USAGE</span>
           <Link
-            href="/dashboard"
+            href="/login"
             className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--verified)] hover:text-[var(--foreground)]"
           >
-            Open demo
+            Sign in
           </Link>
         </header>
 
@@ -41,13 +41,13 @@ export default function LandingPage() {
 
           <div className="mt-9 flex flex-wrap items-center gap-3">
             <Link
-              href="/dashboard"
+              href="/sign-up"
               className="rounded-md bg-[var(--foreground)] px-5 py-2.5 text-sm font-medium text-[var(--background)] transition-opacity hover:opacity-90"
             >
               Start tracking
             </Link>
             <span className="text-xs text-[var(--faint)]">
-              Demo account. No provider credentials required.
+              Free account. No provider credentials required to try the demo pipeline.
             </span>
           </div>
         </section>

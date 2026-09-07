@@ -1,0 +1,121 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database, UsageEventRow } from "@/lib/supabase/database.types";
+import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
+import { dailyAggregateToRow, rowToUsageRecord, type StoredDailyScore } from "./rows";
+import type { IngestStore } from "./ingest";
+
+/**
+ * IngestStore over the Supabase service-role client.
+ *
+ * Thin by design: all ordering and recomputation logic lives in ingest.ts,
+ * which is covered by integration tests against a real Postgres.
+ */
+export function createSupabaseIngestStore(admin: SupabaseClient<Database>): IngestStore {
+  function fail(context: string, error: { message: string } | null): void {
+    if (error) throw new Error(`${context}: ${error.message}`);
+  }
+
+  return {
+    async ensureConnection(userId, provider, accountLabel) {
+      const { data, error } = await admin
+        .from("provider_connections")
+        .upsert(
+          { user_id: userId, provider, account_label: accountLabel, status: "active" },
+          { onConflict: "user_id,provider,account_label" },
+        )
+        .select("id")
+        .single();
+      fail("ensureConnection", error);
+      return data?.id ?? null;
+    },
+
+    async insertEvents(rows) {
+      if (rows.length === 0) return 0;
+      // The unique natural key makes this idempotent: an event already stored is
+      // ignored rather than duplicated or overwritten.
+      const { data, error } = await admin
+        .from("usage_events")
+        .upsert(rows, {
+          onConflict: "user_id,provider,source,external_reference",
+          ignoreDuplicates: true,
+        })
+        .select("id");
+      fail("insertEvents", error);
+      return data?.length ?? 0;
+    },
+
+    async loadEventsForDays(userId, days) {
+      if (days.length === 0) return [];
+      const sorted = [...days].sort();
+      const from = `${sorted[0]}T00:00:00.000Z`;
+      const to = new Date(
+        new Date(`${sorted[sorted.length - 1]}T00:00:00.000Z`).getTime() + 86_400_000,
+      ).toISOString();
+
+      const records: NormalizedUsageRecord[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await admin
+          .from("usage_events")
+          .select("*")
+          .eq("user_id", userId)
+          .gte("occurred_at", from)
+          .lt("occurred_at", to)
+          .order("occurred_at", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        fail("loadEventsForDays", error);
+        const rows = (data ?? []) as UsageEventRow[];
+        records.push(...rows.map(rowToUsageRecord));
+        if (rows.length < pageSize) break;
+      }
+      return records;
+    },
+
+    async replaceDailyAggregates(userId, days) {
+      if (days.length === 0) return;
+      const { error } = await admin
+        .from("usage_daily_aggregates")
+        .delete()
+        .eq("user_id", userId)
+        .in("day", [...days]);
+      fail("replaceDailyAggregates", error);
+    },
+
+    async upsertDailyAggregates(userId: string, aggregates: readonly DailyAggregate[]) {
+      if (aggregates.length === 0) return;
+      const { error } = await admin
+        .from("usage_daily_aggregates")
+        .upsert(
+          aggregates.map((aggregate) => dailyAggregateToRow(userId, aggregate)),
+          { onConflict: "user_id,day,provider,model,verification_type" },
+        );
+      fail("upsertDailyAggregates", error);
+    },
+
+    async upsertScores(userId: string, scores: readonly StoredDailyScore[]) {
+      if (scores.length === 0) return;
+      const { error } = await admin.from("score_records").upsert(
+        scores.map((score) => ({
+          user_id: userId,
+          day: score.day,
+          algorithm_version: score.algorithmVersion,
+          weighted_cost_micros: score.weightedCostMicros,
+          excluded_cost_micros: score.excludedCostMicros,
+          points: score.points,
+        })),
+        { onConflict: "user_id,day,algorithm_version" },
+      );
+      fail("upsertScores", error);
+    },
+
+    async markConnectionSynced(connectionId) {
+      const { error } = await admin
+        .from("provider_connections")
+        .update({ last_synced_at: new Date().toISOString(), last_error: null })
+        .eq("id", connectionId);
+      fail("markConnectionSynced", error);
+    },
+  };
+}

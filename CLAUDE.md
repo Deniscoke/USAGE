@@ -23,7 +23,12 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
 6. **Reported usage has zero economic weight.** It is displayed, never rewarded.
 7. **Rewards come from a fixed epoch pool.** Never a fixed points-per-token rate.
 8. Secrets stay server-side. `.env.example` holds names only, never values.
-9. Do not create billable cloud resources without asking.
+9. Do not create billable cloud resources without asking. Local development uses
+   the Supabase CLI stack, not a hosted project.
+10. **Verification type is assigned by trusted server-side ingestion.** Clients
+    have no write privilege on usage tables. Never add one.
+11. **Dashboard reads run as the signed-in user** so RLS applies. The service
+    role is for ingestion only, never for serving a read.
 
 ## Conventions
 
@@ -36,6 +41,11 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
   Everything downstream consumes `NormalizedUsageRecord`.
 - Colour encodes verification level only: verified green, routed blue,
   reported grey. Numbers use `.tnum` (tabular mono).
+- `src/lib/supabase/database.types.ts` must use `type`, not `interface`
+  (PostgREST generics need implicit index signatures; an interface resolves the
+  whole schema to `never`).
+- Demo usage enters through the real ingestion pipeline. Never hand-write usage
+  rows or dashboard totals.
 
 ## Checks before calling a milestone done
 

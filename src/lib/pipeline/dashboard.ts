@@ -1,13 +1,21 @@
 import { dailyEpochFor, estimateReward, type RewardEpoch } from "@/lib/domain/epoch";
-import { EMPTY_TOTALS, addToTotals, totalsBy, totalsByVerification, utcDay } from "@/lib/domain/normalize";
-import { CURRENT_SCORING_VERSION, scoreDaily, scoreRecords, totalPoints, type DailyScore } from "@/lib/domain/scoring";
-import type { NormalizedUsageRecord, UsageTotals, VerificationType } from "@/lib/domain/types";
+import { EMPTY_TOTALS, utcDay } from "@/lib/domain/normalize";
+import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
+import type { DailyAggregate, NormalizedUsageRecord, UsageTotals, VerificationType } from "@/lib/domain/types";
 import { DAILY_REWARD_POOL_POINTS, simulatedNetwork } from "@/lib/demo/network";
 import { listIntegrations } from "@/lib/providers/registry";
-import type { ProviderIntegration } from "@/lib/providers/adapter";
-import { collectUsage, type CollectResult } from "./collect";
+import type { ConnectionSummary } from "@/lib/db/usage-repository";
+import type { StoredDailyScore } from "@/lib/db/rows";
 
-/** How much history the demo account carries. */
+/**
+ * Dashboard view model.
+ *
+ * Pure: it takes what the database returned and derives what the page renders.
+ * It calls no adapter and performs no IO, so the dashboard reflects *stored*
+ * usage rather than regenerating usage on every render.
+ */
+
+/** How much history the dashboard loads. */
 export const HISTORY_DAYS = 90;
 
 export interface SeriesPoint {
@@ -24,161 +32,194 @@ export interface DistributionSlice {
   shareOfCost: number;
 }
 
+export interface ConnectionView {
+  provider: string;
+  label: string;
+  verificationType: VerificationType;
+  costDataAvailable: boolean;
+  dataFreshness: string;
+  status: ConnectionSummary["status"];
+  lastSyncedAt: string | null;
+  isDemo: boolean;
+}
+
 export interface DashboardData {
   generatedAt: string;
-  isDemo: boolean;
-  history: { days: number; events: number; duplicatesSkipped: number };
+  windowDays: number;
+  isEmpty: boolean;
+  /** True when any stored usage came from a demo adapter. */
+  containsDemoData: boolean;
 
   today: UsageTotals;
   monthToDate: UsageTotals;
-  allTime: UsageTotals;
+  window: UsageTotals;
 
   byVerification: Record<VerificationType, UsageTotals>;
   byProvider: DistributionSlice[];
   byModel: DistributionSlice[];
 
   series: SeriesPoint[];
-  scoring: {
-    version: string;
-    totalPoints: number;
-    dailyScores: DailyScore[];
-  };
+  scoring: { version: string; totalPoints: number; scoredDays: number };
 
   epoch: {
     definition: RewardEpoch;
     userScore: number;
+    /** Simulated until a real network exists. Always labelled as such in the UI. */
     networkScore: number;
     networkParticipants: number;
     networkShare: number;
     estimatedPoints: number;
     excludedCostMicros: number;
+    networkIsSimulated: true;
   };
 
   recentEvents: NormalizedUsageRecord[];
-  integrations: {
-    provider: string;
-    label: string;
-    verificationType: VerificationType;
-    costDataAvailable: boolean;
-    dataFreshness: string;
-    connected: boolean;
-  }[];
-  failures: CollectResult["failures"];
+  connections: ConnectionView[];
+}
+
+export interface DashboardInput {
+  aggregates: readonly DailyAggregate[];
+  scores: readonly StoredDailyScore[];
+  recentEvents: readonly NormalizedUsageRecord[];
+  connections: readonly ConnectionSummary[];
+  now?: Date;
+}
+
+function addAggregate(totals: UsageTotals, aggregate: DailyAggregate): UsageTotals {
+  return {
+    requests: totals.requests + aggregate.requests,
+    inputTokens: totals.inputTokens + aggregate.inputTokens,
+    cachedInputTokens: totals.cachedInputTokens + aggregate.cachedInputTokens,
+    outputTokens: totals.outputTokens + aggregate.outputTokens,
+    costMicros: totals.costMicros + aggregate.costMicros,
+  };
+}
+
+function sum(aggregates: readonly DailyAggregate[]): UsageTotals {
+  return aggregates.reduce<UsageTotals>(addAggregate, EMPTY_TOTALS);
+}
+
+function groupTotals<K extends string>(
+  aggregates: readonly DailyAggregate[],
+  keyOf: (aggregate: DailyAggregate) => K,
+): Map<K, UsageTotals> {
+  const out = new Map<K, UsageTotals>();
+  for (const aggregate of aggregates) {
+    const key = keyOf(aggregate);
+    out.set(key, addAggregate(out.get(key) ?? EMPTY_TOTALS, aggregate));
+  }
+  return out;
 }
 
 function toSlices(map: Map<string, UsageTotals>): DistributionSlice[] {
-  const total = [...map.values()].reduce((acc, t) => acc + t.costMicros, 0);
+  const total = [...map.values()].reduce((acc, totals) => acc + totals.costMicros, 0);
   return [...map.entries()]
-    .map(([key, totals]) => ({
-      key,
-      totals,
-      shareOfCost: total > 0 ? totals.costMicros / total : 0,
-    }))
+    .map(([key, totals]) => ({ key, totals, shareOfCost: total > 0 ? totals.costMicros / total : 0 }))
     .sort((a, b) => b.totals.costMicros - a.totals.costMicros);
 }
 
-function sumTotals(records: readonly NormalizedUsageRecord[]): UsageTotals {
-  return records.reduce<UsageTotals>((acc, r) => addToTotals(acc, r), EMPTY_TOTALS);
+function isDemoProvider(provider: string): boolean {
+  return provider.startsWith("demo-");
 }
 
-function demoConnections(integrations: readonly ProviderIntegration[]) {
-  return integrations.map((integration) => ({
-    provider: integration.provider,
-    context: {
-      connectionId: `demo-${integration.provider}`,
-      secrets: {},
-      config: {},
-    },
-  }));
-}
-
-/**
- * Runs the full vertical slice:
- *   adapters -> normalized usage -> aggregates -> Proof of Usage score -> epoch
- */
-export async function buildDashboard(now: Date = new Date()): Promise<DashboardData> {
-  const until = new Date(now.getTime() + 60 * 60 * 1000); // include the current hour
-  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - HISTORY_DAYS * 86_400_000);
-
-  const integrations = listIntegrations();
-  const collected = await collectUsage(demoConnections(integrations), { since, until });
-  const records = collected.records;
-
+export function buildDashboardView({
+  aggregates,
+  scores,
+  recentEvents,
+  connections,
+  now = new Date(),
+}: DashboardInput): DashboardData {
   const today = utcDay(now.toISOString());
   const monthPrefix = today.slice(0, 7);
 
-  const todayRecords = records.filter((r) => utcDay(r.occurredAt) === today);
-  const monthRecords = records.filter((r) => utcDay(r.occurredAt).startsWith(monthPrefix));
+  const todayAggregates = aggregates.filter((a) => a.day === today);
+  const monthAggregates = aggregates.filter((a) => a.day.startsWith(monthPrefix));
 
-  const dailyScores = scoreDaily(records);
-  const todayScore = scoreRecords(todayRecords);
+  const byVerificationMap = groupTotals(aggregates, (a) => a.verificationType);
+  const byVerification: Record<VerificationType, UsageTotals> = {
+    verified: byVerificationMap.get("verified") ?? EMPTY_TOTALS,
+    routed: byVerificationMap.get("routed") ?? EMPTY_TOTALS,
+    reported: byVerificationMap.get("reported") ?? EMPTY_TOTALS,
+  };
 
+  const scoreByDay = new Map(scores.map((score) => [score.day, score]));
+  const days = [...new Set(aggregates.map((a) => a.day))].sort();
+  const series: SeriesPoint[] = days.map((day) => {
+    const forDay = aggregates.filter((a) => a.day === day);
+    const totalsFor = (type: VerificationType) =>
+      forDay.filter((a) => a.verificationType === type).reduce((acc, a) => acc + a.costMicros, 0);
+    return {
+      day,
+      verifiedMicros: totalsFor("verified"),
+      routedMicros: totalsFor("routed"),
+      reportedMicros: totalsFor("reported"),
+      points: scoreByDay.get(day)?.points ?? 0,
+    };
+  });
+
+  const todayScore = scoreByDay.get(today);
+  const userScore = todayScore?.points ?? 0;
   const network = simulatedNetwork(today);
-  // The user is part of the network, so they belong in the denominator too.
-  const networkScore = network.score + todayScore.points;
+  const networkScore = network.score + userScore;
   const reward = estimateReward({
-    userScore: todayScore.points,
+    userScore,
     networkScore,
     rewardPoolPoints: DAILY_REWARD_POOL_POINTS,
   });
 
-  const scoreByDay = new Map(dailyScores.map((s) => [s.day, s.points]));
-  const seriesDays = [...new Set(records.map((r) => utcDay(r.occurredAt)))].sort();
-  const series: SeriesPoint[] = seriesDays.map((day) => {
-    const dayRecords = records.filter((r) => utcDay(r.occurredAt) === day);
-    const totals = totalsByVerification(dayRecords);
-    return {
-      day,
-      verifiedMicros: totals.verified.costMicros,
-      routedMicros: totals.routed.costMicros,
-      reportedMicros: totals.reported.costMicros,
-      points: scoreByDay.get(day) ?? 0,
-    };
-  });
+  const capabilities = new Map(listIntegrations().map((i) => [i.provider, i]));
 
   return {
     generatedAt: now.toISOString(),
-    isDemo: true,
-    history: {
-      days: HISTORY_DAYS,
-      events: records.length,
-      duplicatesSkipped: collected.duplicates,
-    },
+    windowDays: HISTORY_DAYS,
+    isEmpty: aggregates.length === 0,
+    containsDemoData: aggregates.some((a) => isDemoProvider(a.provider)),
 
-    today: sumTotals(todayRecords),
-    monthToDate: sumTotals(monthRecords),
-    allTime: sumTotals(records),
+    today: sum(todayAggregates),
+    monthToDate: sum(monthAggregates),
+    window: sum(aggregates),
 
-    byVerification: totalsByVerification(records),
-    byProvider: toSlices(totalsBy(monthRecords, (r) => r.provider)),
-    byModel: toSlices(totalsBy(monthRecords, (r) => r.model)),
+    byVerification,
+    byProvider: toSlices(groupTotals(monthAggregates, (a) => a.provider)),
+    byModel: toSlices(groupTotals(monthAggregates, (a) => a.model)),
 
     series,
     scoring: {
       version: CURRENT_SCORING_VERSION,
-      totalPoints: totalPoints(dailyScores),
-      dailyScores,
+      totalPoints: Math.round(scores.reduce((acc, score) => acc + score.points, 0) * 10_000) / 10_000,
+      scoredDays: scores.filter((score) => score.points > 0).length,
     },
 
     epoch: {
       definition: dailyEpochFor(now, DAILY_REWARD_POOL_POINTS),
-      userScore: todayScore.points,
+      userScore,
       networkScore,
       networkParticipants: network.participants,
       networkShare: reward.networkShare,
       estimatedPoints: reward.points,
-      excludedCostMicros: todayScore.excludedCostMicros,
+      excludedCostMicros: todayScore?.excludedCostMicros ?? 0,
+      networkIsSimulated: true,
     },
 
-    recentEvents: [...records].reverse().slice(0, 10),
-    integrations: integrations.map((i) => ({
-      provider: i.provider,
-      label: i.label,
-      verificationType: i.verificationType,
-      costDataAvailable: i.capability.costDataAvailable,
-      dataFreshness: i.capability.dataFreshness,
-      connected: true,
-    })),
-    failures: collected.failures,
+    recentEvents: [...recentEvents],
+    connections: connections.map((connection) => {
+      const capability = capabilities.get(connection.provider);
+      return {
+        provider: connection.provider,
+        label: capability?.label ?? connection.provider,
+        verificationType: capability?.verificationType ?? "reported",
+        costDataAvailable: capability?.capability.costDataAvailable ?? false,
+        dataFreshness: capability?.capability.dataFreshness ?? "unknown",
+        status: connection.status,
+        lastSyncedAt: connection.lastSyncedAt,
+        isDemo: isDemoProvider(connection.provider),
+      };
+    }),
   };
+}
+
+/** First day the dashboard loads, inclusive. */
+export function dashboardSinceDay(now: Date = new Date()): string {
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(start - HISTORY_DAYS * 86_400_000).toISOString().slice(0, 10);
 }

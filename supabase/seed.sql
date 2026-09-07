@@ -1,0 +1,16 @@
+-- Local development seed.
+--
+-- Deliberately does NOT insert usage rows.
+--
+-- Usage must enter through the real pipeline (adapters -> normalize -> dedupe ->
+-- usage_events -> aggregate -> score); hand-written usage rows would bypass the
+-- architecture this project exists to prove, and would let the dashboard show
+-- numbers no ingestion path could produce.
+--
+-- To populate a local account:
+--   1. npm run dev
+--   2. sign up at http://localhost:3000/sign-up
+--   3. press "Load demo usage" on the dashboard (development-only server action)
+--
+-- Reward epochs are derived per request in V0, so there is nothing to seed here
+-- either.

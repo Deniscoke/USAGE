@@ -7,19 +7,26 @@ normalizes it into one record shape, weights it by how strongly it can be
 verified, and turns that into a Proof of Usage score and epoch rewards paid in
 off-chain USAGE Points.
 
-Currently running on deterministic demo data — no provider account required.
+Usage is stored in Postgres behind Supabase Auth and row level security.
+Real provider integrations are not implemented yet: development uses
+deterministic demo adapters that run through the same ingestion pipeline.
 
 ```bash
 npm install
-npm run dev     # http://localhost:3000
+npm run db:start          # local Supabase stack (requires Docker)
+cp .env.example .env.local   # fill in the values db:start prints
+npm run db:reset          # apply migrations + seed
+npm run dev               # http://localhost:3000
 ```
 
 | Command | |
 | --- | --- |
-| `npm test` | unit tests (vitest) |
+| `npm test` | unit tests + Postgres integration tests (no Docker needed) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | eslint |
 | `npm run build` | production build |
+| `npm run db:start` / `db:stop` / `db:reset` | local Supabase stack |
+| `npm run db:types` | regenerate database types from the local stack |
 
 Docs: [`docs/PRODUCT.md`](docs/PRODUCT.md) ·
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·

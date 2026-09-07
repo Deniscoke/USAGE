@@ -43,3 +43,6 @@ next-env.d.ts
 # local env
 .env
 .env.local
+
+# ...but the template of variable NAMES is part of the repo
+!.env.example
