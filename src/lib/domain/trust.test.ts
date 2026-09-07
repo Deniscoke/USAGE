@@ -15,6 +15,7 @@ import { checkVercelDeploymentIdentity } from "@/lib/trust/vercel-oidc";
 import { normalizeGatewayObservation } from "@/lib/providers/vercel-gateway/adapter";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
 import { resolveCost } from "./cost";
+import { CURRENT_PRICING_VERSION } from "@/lib/pricing/compute";
 
 /**
  * The root-of-trust tests.
@@ -371,7 +372,7 @@ describe("a local gateway cannot mint confirmed proofs", () => {
     expect(issued.economicStatus).toBe("eligible");
     expect(issued.costMicroUsd).toBeNull();
     expect(issued.protocolComputeMicroUsd).toBeGreaterThan(0);
-    expect(issued.protocolPricingVersion).toBe("usage-pricing-v1");
+    expect(issued.protocolPricingVersion).toBe(CURRENT_PRICING_VERSION);
     expect(verifyUsageReceipt(signed!, verifyOptions).valid).toBe(true);
   });
 });

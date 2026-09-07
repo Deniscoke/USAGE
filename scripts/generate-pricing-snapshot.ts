@@ -12,6 +12,7 @@ import { writeFileSync } from "node:fs";
 
 /** Models the protocol prices. Anything else is PENDING_PRICING, never guessed. */
 const MODELS = [
+  "anthropic/claude-3-haiku",
   "anthropic/claude-haiku-4.5",
   "anthropic/claude-sonnet-4.6",
   "anthropic/claude-opus-5",

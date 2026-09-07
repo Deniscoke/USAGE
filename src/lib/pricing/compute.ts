@@ -1,4 +1,5 @@
 import { USAGE_PRICING_V1 } from "./usage-pricing-v1";
+import { USAGE_PRICING_V2 } from "./usage-pricing-v2";
 import type { ProtocolModelPrice, ProtocolPricingSnapshot } from "./types";
 
 /**
@@ -13,10 +14,15 @@ import type { ProtocolModelPrice, ProtocolPricingSnapshot } from "./types";
  * codebase or the UI would be a lie about what it measures.
  */
 
-export const CURRENT_PRICING_VERSION = USAGE_PRICING_V1.version;
+/**
+ * The version new proofs are priced with. Older proofs keep the version they
+ * were priced with, forever -- that is what makes historical mining stable.
+ */
+export const CURRENT_PRICING_VERSION = USAGE_PRICING_V2.version;
 
 const SNAPSHOTS: Readonly<Record<string, ProtocolPricingSnapshot>> = Object.freeze({
   [USAGE_PRICING_V1.version]: USAGE_PRICING_V1,
+  [USAGE_PRICING_V2.version]: USAGE_PRICING_V2,
 });
 
 export function getPricingSnapshot(version: string): ProtocolPricingSnapshot | null {

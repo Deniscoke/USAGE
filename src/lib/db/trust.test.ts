@@ -6,6 +6,7 @@ import { MICROS_PER_USD } from "@/lib/domain/money";
 import { buildMiningSession } from "@/lib/pipeline/session";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
 import { generateSigningKeyPair } from "@/lib/domain/signing";
+import { CURRENT_PRICING_VERSION } from "@/lib/pricing/compute";
 
 // The production signing key a laptop does not have.
 const TEST_KEY = generateSigningKeyPair("test-key-1");
@@ -99,7 +100,7 @@ describe("only trusted, priced evidence earns", () => {
     );
 
     expect(event.protocol_compute_micros).toBe(String(EXPECTED_PROTOCOL_MICROS));
-    expect(event.protocol_pricing_version).toBe("usage-pricing-v1");
+    expect(event.protocol_pricing_version).toBe(CURRENT_PRICING_VERSION);
     expect(event.economic_status).toBe("eligible");
     // The observation claimed a $4.00 bill. Mining ignores it entirely.
     expect(event.reported_cost_micros).toBe(String(4 * MICROS_PER_USD));

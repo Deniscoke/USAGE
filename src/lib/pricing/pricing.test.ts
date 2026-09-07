@@ -178,6 +178,14 @@ describe("snapshot integrity", () => {
   });
 
   it("does not resolve a version that was never published", () => {
-    expect(getPricingSnapshot("usage-pricing-v2")).toBeNull();
+    expect(getPricingSnapshot("usage-pricing-v99")).toBeNull();
+  });
+
+  it("keeps a superseded version resolvable, so its proofs stay priceable", () => {
+    // v1 is no longer current, but everything it priced must keep verifying.
+    expect(CURRENT_PRICING_VERSION).not.toBe("usage-pricing-v1");
+    expect(getPricingSnapshot("usage-pricing-v1")).not.toBeNull();
+    expect(findModelPrice("usage-pricing-v1", "anthropic/claude-3-haiku")).toBeNull();
+    expect(findModelPrice(CURRENT_PRICING_VERSION, "anthropic/claude-3-haiku")).not.toBeNull();
   });
 });
