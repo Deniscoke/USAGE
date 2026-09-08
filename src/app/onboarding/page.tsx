@@ -43,6 +43,24 @@ export default async function OnboardingPage() {
         </p>
       </section>
 
+      <section className="mb-8 rounded-lg border border-[color-mix(in_srgb,var(--verified)_30%,transparent)] bg-[color-mix(in_srgb,var(--verified)_6%,transparent)] p-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--verified)]">
+          Fastest way to start
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md text-xs leading-relaxed text-[var(--muted)]">
+            Connect OpenRouter in one click — sign in there, approve, done. One connection covers
+            hundreds of models from Anthropic, OpenAI, Google and others.
+          </p>
+          <a
+            href="/api/providers/oauth/openrouter/start"
+            className="shrink-0 rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)]"
+          >
+            Connect OpenRouter
+          </a>
+        </div>
+      </section>
+
       <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
         What AI do you use?
       </h2>

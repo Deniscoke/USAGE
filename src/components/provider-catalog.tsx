@@ -39,8 +39,11 @@ export interface ConnectionCard {
   modelCount: number;
   pricedModelCount: number;
   origin: string | null;
+  authMethod: "api_key" | "oauth";
   capabilities: { label: string; supported: boolean }[];
   lastSuccessAt: string | null;
+  /** Where a tool should send requests so USAGE can observe them. */
+  routeUrl: string;
 }
 
 const CATEGORY_LABEL: Record<CatalogCategory, string> = {
@@ -163,7 +166,7 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
         <div className="min-w-0">
           <p className="truncate text-sm">{connection.displayName}</p>
           <p className="tnum mt-0.5 truncate text-[10px] text-[var(--faint)]">
-            {connection.protocolLabel}
+            {connection.authMethod === "oauth" ? "Connected with sign-in" : connection.protocolLabel}
             {connection.host ? ` · ${connection.host}` : ""}
             {connection.origin ? ` · ${connection.origin.replace("_", " ")}` : ""}
           </p>
@@ -200,6 +203,27 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
           </p>
         )}
       </div>
+
+      {!disconnected && (
+        <details className="mt-3 border-t border-[var(--border)] pt-3">
+          <summary className="cursor-pointer text-[11px] text-[var(--routed)]">
+            Route your AI tool through this connection
+          </summary>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
+            Point your tool at this base URL and send your mining key as a header. Requests then
+            reach {connection.displayName} through USAGE, which is what makes them verifiable.
+          </p>
+          <code className="mt-2 block w-full overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
+            {connection.routeUrl}
+          </code>
+          <code className="mt-1.5 block w-full overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
+            x-usage-miner-token: &lt;your mining key&gt;
+          </code>
+          <p className="mt-2 text-[11px] text-[var(--faint)]">
+            Your provider key stays on USAGE&apos;s servers and is never sent to your machine.
+          </p>
+        </details>
+      )}
 
       {!disconnected && (
         <div className="mt-3 flex flex-wrap items-center gap-2">

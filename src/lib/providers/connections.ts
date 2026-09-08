@@ -47,6 +47,8 @@ export interface CreateConnectionInput {
   /** Reuse an official definition, or create a user-owned custom one. */
   definitionId?: string | null;
   providerFamily?: string | null;
+  /** How the credential was obtained. OAuth means the user never saw a key. */
+  authMethod?: "api_key" | "oauth";
   fetchImpl?: typeof fetch;
 }
 
@@ -60,6 +62,7 @@ export interface ConnectionSummaryView {
   miningEligibility: MiningEligibility;
   capabilities: ProtocolCapabilities;
   origin: ProviderDefinitionRow["origin"] | null;
+  authMethod: "api_key" | "oauth";
   modelCount: number;
   pricedModelCount: number;
   validatedAt: string | null;
@@ -193,6 +196,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           baseUrl,
           providerFamily: input.providerFamily ?? null,
           capabilities: probe.capabilities,
+          authMethod: input.authMethod,
         }));
 
       const models = await this.recordModels(
@@ -219,6 +223,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           provider: slugify(input.displayName),
           account_label: input.displayName,
           method: "byok",
+          auth_method: input.authMethod ?? "api_key",
           status: probe.ok ? "active" : "error",
           definition_id: definitionId,
           protocol: input.protocol,
@@ -243,7 +248,13 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
       };
     },
 
-    /** A user-owned definition for a provider USAGE has no curated entry for. */
+    /**
+     * The definition a connection belongs to.
+     *
+     * An OAuth provider is one USAGE configured, so its definition is SHARED:
+     * the second person to connect OpenRouter reuses the first one's row rather
+     * than publishing a duplicate. A pasted-key provider is the user's own.
+     */
     async createCustomDefinition(input: {
       userId: string;
       displayName: string;
@@ -251,17 +262,29 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
       baseUrl: string;
       providerFamily: string | null;
       capabilities: ProtocolCapabilities;
+      authMethod?: "api_key" | "oauth";
     }): Promise<string> {
+      if (input.authMethod === "oauth") {
+        // Shared definition, created once and reused by everyone after.
+        const existing = await admin
+          .from("provider_definitions")
+          .select("id")
+          .eq("slug", slugify(input.displayName))
+          .is("owner_user_id", null)
+          .maybeSingle();
+        if (existing.data) return existing.data.id;
+      }
+
       const { data, error } = await admin
         .from("provider_definitions")
         .insert({
-          slug: slugify(input.displayName),
+          slug: input.authMethod === "oauth"
+            ? slugify(input.displayName)
+            : `${slugify(input.displayName)}-${input.userId.slice(0, 8)}`,
           display_name: input.displayName,
           provider_family: input.providerFamily,
           protocol: input.protocol,
-          origin: "custom",
           default_base_url: input.baseUrl,
-          owner_user_id: input.userId,
           supports_models: input.capabilities.models,
           supports_streaming: input.capabilities.streaming,
           supports_usage: input.capabilities.usage,
@@ -272,6 +295,10 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           // A routable protocol can produce routed evidence. It is still only
           // CONFIRMED if trusted infrastructure signs it.
           verification_capability: "routed",
+          // A definition USAGE created from its own OAuth configuration is a
+          // provider it recognises, not a URL somebody typed.
+          origin: input.authMethod === "oauth" ? "community_supported" : "custom",
+          owner_user_id: input.authMethod === "oauth" ? null : input.userId,
         })
         .select("id")
         .single();
@@ -466,6 +493,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           origin: connection.definition_id
             ? (definitionById.get(connection.definition_id)?.origin ?? null)
             : null,
+          authMethod: connection.auth_method ?? "api_key",
           modelCount: forDefinition.length,
           pricedModelCount: forDefinition.filter((model) => model.protocol_model_key).length,
           validatedAt: connection.validated_at,

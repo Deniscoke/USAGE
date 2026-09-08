@@ -80,6 +80,10 @@ export type ProviderConnectionRow = {
   /** Handle into provider_secrets. Never a credential. */
   secret_id: string | null;
   connection_status: ConnectionStatusDetailRow;
+  /** How the connection was authorized: a pasted key, or one-click OAuth. */
+  auth_method: "api_key" | "oauth";
+  /** Non-secret account context from the provider, e.g. tier and spend. */
+  account_context: Record<string, unknown> | null;
   capabilities: Record<string, boolean>;
   mining_eligibility: MiningEligibilityRow;
   validated_at: string | null;
@@ -256,6 +260,18 @@ export type ProviderSecretRow = {
   backend: "aes" | "vault";
   created_at: string;
   rotated_at: string | null;
+}
+
+export type ProviderOAuthRequestRow = {
+  state: string;
+  user_id: string;
+  provider_slug: string;
+  /** Server-only PKCE verifier. No client role can read this table. */
+  code_verifier: string;
+  redirect_to: string | null;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
 }
 
 export type ProviderModelRow = {
@@ -598,6 +614,12 @@ export type Database = {
         Row: ProviderSecretRow;
         Insert: Partial<ProviderSecretRow> & { user_id: string; ciphertext: string };
         Update: Partial<ProviderSecretRow>;
+        Relationships: [];
+      };
+      provider_oauth_requests: {
+        Row: ProviderOAuthRequestRow;
+        Insert: Partial<ProviderOAuthRequestRow> & { state: string; user_id: string; provider_slug: string; code_verifier: string };
+        Update: Partial<ProviderOAuthRequestRow>;
         Relationships: [];
       };
       provider_models: {

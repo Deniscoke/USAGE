@@ -63,6 +63,9 @@ function capitalize(value: string): string {
 
 export default async function ProvidersPage() {
   const gateways = listComputeGateways();
+  // The public origin a miner should point at. Relative would be ambiguous in
+  // a config file the user pastes somewhere else.
+  const baseUrl = process.env.NEXT_PUBLIC_USAGE_URL ?? "https://usage-ten.vercel.app";
   const entries = catalogEntries();
 
   let connections: ConnectionCard[] = [];
@@ -92,6 +95,8 @@ export default async function ProvidersPage() {
         modelCount: summary.modelCount,
         pricedModelCount: summary.pricedModelCount,
         origin: summary.origin,
+        authMethod: summary.authMethod,
+        routeUrl: `${baseUrl}/api/gateway/provider/${summary.id}`,
         capabilities: [
           { label: "Usage", supported: summary.capabilities.usage },
           { label: "Request ID", supported: summary.capabilities.requestIdentity },
