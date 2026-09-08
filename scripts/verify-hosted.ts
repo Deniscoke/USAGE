@@ -241,8 +241,8 @@ async function main(): Promise<number> {
     ).data!;
     check(
       "protocol compute value was computed server-side",
-      event.protocol_pricing_version === CURRENT_PRICING_VERSION && event.protocol_compute_micros > 0,
-      `${event.protocol_compute_micros} micro-USD @ ${event.protocol_pricing_version}`,
+      event.protocol_pricing_version === CURRENT_PRICING_VERSION && (event.protocol_compute_micros ?? 0) > 0,
+      `${(event.protocol_compute_micros ?? 0)} micro-USD @ ${event.protocol_pricing_version}`,
     );
 
     const forgeCompute = await aliceClient

@@ -3,24 +3,24 @@ import type { MinerReleaseManifest } from "./release";
 
 export const GENERATED_MINER_RELEASE: MinerReleaseManifest = {
   "product": "USAGE Miner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "channel": "beta",
   "platform": "win32-x64",
-  "builtAt": "2026-09-08T16:46:08.178Z",
+  "builtAt": "2026-09-08T17:52:00.010Z",
   "nodeVersion": "v24.13.1",
   "signed": false,
   "signingNote": "Not code-signed. Windows SmartScreen will warn about an unrecognised publisher. Verify the SHA-256 below before running.",
   "files": [
     {
-      "name": "USAGE-Miner-0.2.0.exe",
-      "bytes": 91583488,
-      "sha256": "9ed4707e761267b7d09f22eeacad252fa7427984e40ba8821ba8edf8821c994e",
+      "name": "USAGE-Miner-0.3.0.exe",
+      "bytes": 91590144,
+      "sha256": "a4d2e221135f5e8d25a9acf8cb3ca2e3079afb6f851498ce49e61023da9377b4",
       "reproducible": true
     },
     {
-      "name": "USAGE-Miner-0.2.0-Setup.exe",
-      "bytes": 91593728,
-      "sha256": "61c2a1056645b9dc0fd6d2fa36e18eb44b86e6027ccfea9bfcd7b6991d18c278",
+      "name": "USAGE-Miner-0.3.0-Setup.exe",
+      "bytes": 91600896,
+      "sha256": "770ede5eb302afd7071f538dd6cd51c89d0d7e76af0418286c54fb440fd555b6",
       "reproducible": false
     }
   ]

@@ -244,7 +244,9 @@ export function normalizeGatewayObservation(
     verificationType: verification.verificationType,
     verificationStatus,
     economicStatus,
-    protocolComputeMicros: protocol?.micros ?? 0,
+    // Undefined, not zero. No approved price is a different fact from a price
+    // of nothing, and only one of them is allowed to look like free compute.
+    protocolComputeMicros: protocol?.micros,
     protocolPricingVersion: protocol ? pricingVersion : null,
     gatewayId: observation.gatewayId ?? null,
     actualCostBasis: costBasis,

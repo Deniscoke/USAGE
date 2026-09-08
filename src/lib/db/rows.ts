@@ -1,5 +1,6 @@
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
+  PricingStatusRow,
   ScoreRecordRow,
   UsageDailyAggregateRow,
   UsageEventRow,
@@ -58,9 +59,13 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     // Only meaningful when a pricing version produced it. Left undefined
     // otherwise so pre-mining records keep falling back to their stored cost
     // rather than silently becoming worth zero.
-    protocolComputeMicros: row.protocol_pricing_version
-      ? toSafeInteger(row.protocol_compute_micros ?? 0, "protocol_compute_micros")
-      : undefined,
+    // The column now says this itself. A null is an absent price; a number --
+    // including 0 -- is a real one. `protocol_pricing_version` is still
+    // required, so a value with no snapshot behind it cannot be believed.
+    protocolComputeMicros:
+      row.protocol_pricing_version && row.protocol_compute_micros !== null
+        ? toSafeInteger(row.protocol_compute_micros, "protocol_compute_micros")
+        : undefined,
     protocolPricingVersion: row.protocol_pricing_version ?? null,
     epochId: row.epoch_id ?? null,
     carriedForward: row.carried_forward ?? false,
@@ -97,7 +102,9 @@ export interface UsageEventInsert {
   verification_type: NormalizedUsageRecord["verificationType"];
   verification_status: NormalizedUsageRecord["verificationStatus"];
   economic_status: NonNullable<NormalizedUsageRecord["economicStatus"]>;
-  protocol_compute_micros: number;
+  /** Null means no approved price exists. A real 0 means priced at zero. */
+  protocol_compute_micros: number | null;
+  pricing_status: PricingStatusRow;
   protocol_pricing_version: string | null;
   protocol_pricing_basis: string | null;
   epoch_id: string | null;
@@ -118,6 +125,8 @@ export function usageRecordToInsert(
   record: NormalizedUsageRecord,
   connectionId: string | null,
 ): UsageEventInsert {
+  const protocolCompute = record.protocolComputeMicros ?? null;
+
   return {
     user_id: userId,
     connection_id: connectionId,
@@ -137,7 +146,14 @@ export function usageRecordToInsert(
     verification_type: record.verificationType,
     verification_status: record.verificationStatus,
     economic_status: record.economicStatus ?? legacyEconomicStatus(record),
-    protocol_compute_micros: record.protocolComputeMicros ?? 0,
+    // Unknown stays unknown. `0` here would be indistinguishable from a model
+    // that really is priced at nothing, which is the ambiguity migration 0015
+    // exists to remove.
+    // One expression for both, so the column and its status cannot disagree.
+    // `?? null` on its own would let an explicit null through as "priced",
+    // which the database check constraint correctly refuses.
+    protocol_compute_micros: protocolCompute,
+    pricing_status: protocolCompute === null ? "pending_pricing" : "priced",
     protocol_pricing_version: record.protocolPricingVersion ?? null,
     protocol_pricing_basis: record.protocolPricingVersion ? "protocol_pricing" : null,
     // Assigned by ingestion, from the epoch lifecycle -- never from input.

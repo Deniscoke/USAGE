@@ -16,7 +16,7 @@ import {
 } from "./usage-extract";
 import { checkRateLimit, logGatewayRequest, resetRateLimits } from "./observability";
 import { hashMinerToken, mintMinerToken, readPresentedToken } from "@/lib/miner/token";
-import { authenticateMiner, type MinerCredentialStore } from "@/lib/miner/credentials";
+import { authenticateMiner, hasScope, type MinerCredentialStore } from "@/lib/miner/credentials";
 import { normalizeGatewayObservation } from "@/lib/providers/vercel-gateway/adapter";
 import type { MinerCredentialRow } from "@/lib/supabase/database.types";
 
@@ -190,6 +190,7 @@ describe("miner authentication", () => {
       touch: async () => {},
       create: async () => ({ credentialId: "x", token: "y" }),
       revoke: async () => {},
+      rotate: async () => ({ credentialId: "x2", token: "y2" }),
     };
   }
 
@@ -197,8 +198,33 @@ describe("miner authentication", () => {
     const result = await authenticateMiner(minted.token, storeWith({}));
     expect(result).toEqual({
       ok: true,
-      identity: { credentialId: "cred-1", userId: "user-1", name: "default" },
+      identity: { credentialId: "cred-1", userId: "user-1", name: "default", scopes: [] },
     });
+  });
+
+  it("carries only the scopes a device credential is given", async () => {
+    // The point of naming them: a credential cannot reach account settings,
+    // provider secrets, proofs, rewards or settlement, because no scope for
+    // any of that exists to be granted.
+    const result = await authenticateMiner(
+      minted.token,
+      storeWith({ scopes: ["miner:route", "miner:config", "miner:heartbeat", "miner:rotate"] }),
+    );
+    if (!result.ok) throw new Error("expected an authenticated miner");
+
+    expect(hasScope(result.identity, "miner:route")).toBe(true);
+    expect(hasScope(result.identity, "miner:config")).toBe(true);
+    expect(result.identity.scopes).not.toContain("account:write");
+    expect(result.identity.scopes).not.toContain("secrets:read");
+    expect(result.identity.scopes.every((scope) => scope.startsWith("miner:"))).toBe(true);
+  });
+
+  it("treats a pre-scopes credential as an ordinary device, not as unlimited", async () => {
+    const result = await authenticateMiner(minted.token, storeWith({ scopes: [] }));
+    if (!result.ok) throw new Error("expected an authenticated miner");
+    expect(hasScope(result.identity, "miner:config")).toBe(true);
+    // Still bounded by the same list -- there is nothing wider to fall back to.
+    expect(hasScope(result.identity, "miner:route")).toBe(true);
   });
 
   it("rejects a missing, malformed, unknown or revoked credential", async () => {

@@ -118,6 +118,11 @@ export default function InstallMinerPage() {
             with suspicion, including this one. What you can check instead is the file itself:
             compare its SHA-256 against the value below before you run it.
           </p>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            Signing, when it arrives, will let this page name a publisher rather than ask you to
+            check a hash. It is not a promise that Windows will stop asking: SmartScreen weighs a
+            publisher&apos;s reputation as well as its identity, and a new certificate has none yet.
+          </p>
           <code className="mt-2 block overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
             certutil -hashfile {primary?.name ?? "USAGE-Miner.exe"} SHA256
           </code>
@@ -147,20 +152,30 @@ export default function InstallMinerPage() {
               entry. Nothing outside your own user account is touched.
             </li>
             <li>
-              Turning on mining changes two settings in the AI tool&apos;s own config file. What was
-              there is backed up first, and turning mining off puts it back exactly.
+              <strong>Claude Code is started by USAGE, not configured by it.</strong> Use
+              &ldquo;Start with USAGE&rdquo; in the app, or the Start Menu entry the installer adds.
+              The routing lives in that session&apos;s environment and is gone when you close the
+              tool &mdash; nothing is written to your Claude Code settings, and no credential
+              touches your disk.
+            </li>
+            <li>
+              Codex is configured instead, because its config file can name a credential
+              (<code>env_key</code>) rather than contain one. What was there is backed up first, and
+              turning mining off puts it back exactly.
             </li>
             <li>
               Stores this device&apos;s credential encrypted with Windows DPAPI, scoped to your user
               account. It is never printed and never logged.
             </li>
             <li>
-              One exception, worth knowing before you install: enabling mining for{" "}
-              <strong>Claude Code</strong> writes this device&apos;s miner token into its{" "}
-              <code>settings.json</code> in plaintext, because that file takes literal values and
-              cannot name a credential held elsewhere. It can spend your own connected provider
-              credit; it cannot reveal a provider key, and you can revoke it at any time. Codex is
-              unaffected — its config names the credential instead of containing it.
+              Upgrading from 0.2.x? That build wrote the miner token into your Claude Code
+              settings. This one removes it on first run, restores what was there before, and
+              replaces the exposed credential with a fresh one. It tells you when it has.
+            </li>
+            <li>
+              The device credential can only route requests, read its own configuration, send a
+              heartbeat and replace itself. There is no ability to change account settings, read a
+              provider key, create a proof, or alter a reward &mdash; not disabled, not expressible.
             </li>
             <li>
               If a tool already points at a custom endpoint, the app stops and asks rather than

@@ -47,6 +47,7 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "verification_status",
         "economic_status",
         "protocol_compute_micros",
+        "pricing_status",
         "protocol_pricing_version",
         "protocol_pricing_basis",
         "epoch_id",

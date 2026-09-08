@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credentials";
+import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createConnectionStore } from "@/lib/providers/connections";
@@ -40,6 +40,11 @@ export async function GET(request: NextRequest) {
     createSupabaseMinerStore(admin),
   );
   if (!auth.ok) return Response.json({ error: auth.reason }, { status: 401 });
+  // Scope checked even though every device currently has it: the check is
+  // what makes a narrower credential possible later without auditing routes.
+  if (!hasScope(auth.identity, "miner:config")) {
+    return Response.json({ error: "insufficient_scope" }, { status: 403 });
+  }
 
   if (!checkRateLimit(`config:${auth.identity.credentialId}`, 30).allowed) {
     return Response.json({ error: "rate_limited" }, { status: 429 });

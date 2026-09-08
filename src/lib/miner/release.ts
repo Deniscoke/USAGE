@@ -39,7 +39,12 @@ export const MINER_RELEASE = GENERATED_MINER_RELEASE;
 export const MINER_VERSION = MINER_RELEASE.version;
 export const MINER_PROTOCOL_VERSION = "miner-protocol-v1";
 /** Older builds still work; below this the server may refuse in future. */
-export const MINIMUM_MINER_VERSION = "0.1.0";
+/**
+ * Below this the server may refuse. Raised to 0.3.0 deliberately: 0.2.x wrote
+ * the device credential into a Claude Code config file, and a build that does
+ * that should be told to update rather than quietly kept working.
+ */
+export const MINIMUM_MINER_VERSION = "0.3.0";
 
 /**
  * The git tag these artifacts were published under.
@@ -49,7 +54,7 @@ export const MINIMUM_MINER_VERSION = "0.1.0";
  * once as beta.1, beta.2, and the binaries differ each time. A test asserts it
  * still contains the manifest's version, so the two cannot drift.
  */
-export const MINER_RELEASE_TAG = "v0.2.0-beta.1";
+export const MINER_RELEASE_TAG = "v0.3.0-beta.1";
 
 /**
  * Where the artifacts live.

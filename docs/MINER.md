@@ -4,9 +4,10 @@ The miner exists so that using AI can be verified without anyone configuring
 anything. The measure of success for this milestone is a sentence, not a
 feature list:
 
-> Download → install → sign in → enable mining → use AI.
+> Download → install → sign in → start your AI tool through USAGE → use AI.
 
 No npm. No PowerShell. No terminal. No copied token. No base URL. No headers.
+No credential written to any configuration file.
 
 Everything below is either how that is achieved, or an honest account of where
 it is not achieved yet.
@@ -93,16 +94,70 @@ that downloads and executes anything.
 | `%APPDATA%\USAGE\credential.dpapi` | This device's token, DPAPI-encrypted | Only if you say yes |
 | `%APPDATA%\USAGE\miner.log` | Local event log, no secrets | Only if you say yes |
 | `%TEMP%\usage-miner-setup.log` | One line, only if install or uninstall failed | No |
-| `~/.claude/settings.json`, `~/.codex/config.toml` | Routing settings, when mining is on | Restored, if you say yes |
+| `…\Start Menu\Programs\Claude Code - USAGE Mining.lnk` | Shortcut. Holds the argument `run claude-code`, never a credential | Yes |
+| `~/.codex/config.toml` | A provider block naming `USAGE_MINER_TOKEN`, when Codex mining is on | Restored, if you say yes |
+| `~/.claude/settings.json` | **Nothing.** Claude Code is launched, not configured | n/a |
 
 No service. No scheduled task. No autostart. No administrator rights, ever —
 per-user install, `HKCU` only.
 
 The credential is encrypted with Windows DPAPI at `CurrentUser` scope: another
 account on the same machine cannot read it, and a copied file is useless
-elsewhere. It is never written to a config file, never printed, and never
-logged. The log has an allowlist of fields and scrubs anything token-shaped as a
-last line of defence.
+elsewhere. It is never written to a config file, never placed in a shortcut,
+never printed, and never logged. The log has an allowlist of fields and scrubs
+anything token-shaped as a last line of defence.
+
+### Two ways to route a tool, and why Claude Code only gets one
+
+**LAUNCHED.** The miner starts the tool and puts the routing in that child
+process's environment. It exists while the tool runs and is gone when it exits.
+Nothing is written to disk. This is how **Claude Code** works, and the only way
+it works.
+
+**CONFIGURED.** The tool's own config file is edited — and may only *name* a
+credential, never contain one. **Codex** can do this: `env_key =
+"USAGE_MINER_TOKEN"` points at an environment variable the launcher sets.
+
+Claude Code's settings file takes literal environment values and has no
+`env_key` equivalent, so configuring it persistently would mean writing the
+device's miner token into `~/.claude/settings.json` in plaintext — a second copy
+of a credential otherwise held under DPAPI, in a file that gets copied into
+dotfile repositories and pasted into bug reports.
+
+Builds 0.2.x did exactly that. **0.3.0 removes the capability rather than
+documenting it**: `enableMining` refuses for Claude Code, and there is no flag
+to override it. An adapter that cannot configure a tool without writing a secret
+reports `persistentConfig: "unsafe"`, and the refusal is enforced at the CLI and
+at the loopback API as well, so a local caller cannot reach a path the UI does
+not offer.
+
+### Upgrading from 0.2.x
+
+First run cleans up, in this order and no other:
+
+1. **Detect** — only if the settings actually carry USAGE's own header. A file
+   the user wrote, or one pointing at somebody else's proxy, is never touched.
+2. **Remove** — restoring the rollback copy when one exists, so unrelated Claude
+   Code configuration comes back exactly; otherwise removing only the three keys
+   USAGE set.
+3. **Rotate** — because a secret that has sat in a readable file must be assumed
+   read. A fresh credential is minted and the old one revoked in the same
+   server-side operation.
+
+Idempotent and fail-safe: a clean machine does nothing, a failed cleanup does
+not rotate (that would replace a known-exposed credential with a
+newly-exposed one), and a failed rotation leaves the cleanup standing with a
+working credential to retry from.
+
+### What a device credential may do
+
+`miner:route`, `miner:config`, `miner:heartbeat`, `miner:rotate` — the whole
+list, checked on every request and constrained by a database check so an unknown
+scope cannot even be stored.
+
+There is no scope for changing account settings, retrieving a provider secret,
+creating a proof, altering a reward, settling points, or reaching another user's
+data. Those abilities are not disabled for miners; they are not expressible.
 
 Uninstall offers to restore each AI tool's original settings **first**, by calling
 the miner's own tested `disable` path rather than a second copy of that logic in
@@ -121,8 +176,11 @@ account is a separate, deliberate act at `/miners`.
    through a copy-paste.
 3. **Connect a provider,** if you have not. The app links to `/providers/add`;
    OpenRouter is one click.
-4. **Enable mining** for each tool it found. If a tool already points somewhere
-   custom, it says so and asks before replacing it — and backs up what was there.
+4. **Start Claude Code with USAGE** — the button in the app, or the Start Menu
+   entry the installer adds. Routing lives in that session and nothing is
+   written to disk. For Codex, enable mining instead: its config can name the
+   credential. If a tool already points somewhere custom, the app says so and
+   asks before replacing it — and backs up what was there.
 5. **Use your AI tool normally.**
 
 ### Error states, and what the user actually sees
@@ -134,7 +192,9 @@ account is a separate, deliberate act at `/miners`.
 | Device revoked at `/miners` | The account panel shows the server's rejection; mining stops working because the token no longer authenticates. |
 | Offline | "Could not reach USAGE. Check your connection." Local state still renders. |
 | Tool not installed | Listed, greyed, no action. |
-| Tool points at a foreign endpoint | Shown as a conflict; Enable becomes Replace, behind a confirmation naming the current endpoint. |
+| Tool points at a foreign endpoint | Shown as a conflict; for Codex, Enable becomes Replace behind a confirmation naming the current endpoint. Claude Code is launched, so a foreign endpoint is simply reported and left alone. |
+| Asked to configure Claude Code persistently | Refused, at every surface, with the launcher named. There is no override flag. |
+| Upgrading from 0.2.x | The stored credential is removed, the previous settings restored, and the credential rotated. Reported in the window and in the CLI. |
 | Tool config unreadable | Reported as-is. Nothing is written over something we could not parse. |
 | Credential unreadable (different Windows account, restored file) | "Sign in again." No attempt to guess. |
 | Build older than the server's minimum | "A newer USAGE Miner is available." Nothing auto-downloads. |
@@ -154,6 +214,12 @@ Note that a *broken* signature is worse than none: injecting the SEA blob
 invalidates the signature Node.js ships on `node.exe`, so the build strips the
 certificate table entirely rather than leaving Windows to report a tampered
 binary.
+
+**A signature is identity, not silence.** When signing lands, this page will be
+able to say *Signed by: <publisher>*. It will not say Windows has stopped
+warning: SmartScreen weighs a publisher's reputation as well as its identity,
+and a new certificate starts with none. Claiming otherwise would set up exactly
+the disappointment that makes people ignore the next warning.
 
 ### Options, assessed
 

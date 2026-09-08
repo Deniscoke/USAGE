@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credentials";
+import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { checkRateLimit } from "@/lib/gateway/observability";
@@ -25,6 +25,11 @@ export async function POST(request: NextRequest) {
     createSupabaseMinerStore(admin),
   );
   if (!auth.ok) return Response.json({ error: auth.reason }, { status: 401 });
+  // Scope checked even though every device currently has it: the check is
+  // what makes a narrower credential possible later without auditing routes.
+  if (!hasScope(auth.identity, "miner:heartbeat")) {
+    return Response.json({ error: "insufficient_scope" }, { status: 403 });
+  }
 
   // One heartbeat a minute is plenty; this is not a telemetry stream.
   if (!checkRateLimit(`heartbeat:${auth.identity.credentialId}`, 10).allowed) {

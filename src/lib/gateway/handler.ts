@@ -6,7 +6,7 @@ import {
   logGatewayRequest,
   scheduleAfterResponse,
 } from "@/lib/gateway/observability";
-import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credentials";
+import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { ComputeGateway } from "@/lib/compute/gateway";
@@ -142,6 +142,19 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       });
       // A rejected miner never reaches upstream, so it can never spend.
       return error(401, "authentication_error", `Invalid USAGE miner credential (${auth.reason}).`);
+    }
+
+    // Routing is the one ability that spends money, so it is the one most worth
+    // being able to withhold from a credential without withdrawing the rest.
+    if (!hasScope(auth.identity, "miner:route")) {
+      logGatewayRequest({
+        requestId,
+        path: upstreamPath,
+        status: 403,
+        latencyMs: Date.now() - startedAt,
+        outcome: "miner_insufficient_scope",
+      });
+      return error(403, "permission_error", "This credential may not route requests.");
     }
 
     const limit = checkRateLimit(auth.identity.credentialId);

@@ -37,6 +37,13 @@ export type EconomicStatusRow =
   | "ineligible";
 export type ProofStatusRow = "observed" | "confirmed" | "rejected";
 
+/**
+ * What a device credential may do. There is deliberately no scope for account
+ * settings, provider secrets, proof creation, reward changes, settlement, or
+ * another user's data -- those abilities are not expressible here at all.
+ */
+export type MinerScope = "miner:route" | "miner:config" | "miner:heartbeat" | "miner:rotate";
+
 export type MinerCredentialRow = {
   device_id?: string | null;
   id: string;
@@ -44,6 +51,9 @@ export type MinerCredentialRow = {
   name: string;
   token_hash: string;
   token_prefix: string;
+  scopes: MinerScope[];
+  rotated_to: string | null;
+  rotated_at: string | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -54,6 +64,7 @@ export type MinerCredentialInsertRow = {
   name?: string;
   token_hash: string;
   token_prefix: string;
+  scopes?: MinerScope[];
 };
 
 export type ProfileRow = {
@@ -96,6 +107,12 @@ export type ProviderConnectionRow = {
   created_at: string;
 }
 
+/**
+ * Whether `protocol_compute_micros` is a price, the absence of one, or a record
+ * too old to tell the two apart.
+ */
+export type PricingStatusRow = "priced" | "pending_pricing" | "unknown_legacy";
+
 export type UsageEventRow = {
   id: string;
   user_id: string;
@@ -115,7 +132,9 @@ export type UsageEventRow = {
   verification_type: VerificationTypeRow;
   verification_status: VerificationStatusRow;
   economic_status: EconomicStatusRow;
-  protocol_compute_micros: number;
+  /** NULL means no approved price exists. A real 0 means priced at zero. */
+  protocol_compute_micros: number | null;
+  pricing_status: PricingStatusRow;
   protocol_pricing_version: string | null;
   protocol_pricing_basis: string | null;
   epoch_id: string | null;
@@ -485,6 +504,7 @@ export type RewardAllocationRow = {
  * to `never`, which silently turns every insert into a type error.
  */
 export type UsageEventInsertRow = {
+  pricing_status?: PricingStatusRow;
   id?: string;
   user_id: string;
   connection_id?: string | null;
@@ -503,7 +523,7 @@ export type UsageEventInsertRow = {
   verification_type: VerificationTypeRow;
   verification_status?: VerificationStatusRow;
   economic_status?: EconomicStatusRow;
-  protocol_compute_micros?: number;
+  protocol_compute_micros?: number | null;
   protocol_pricing_version?: string | null;
   protocol_pricing_basis?: string | null;
   epoch_id?: string | null;
