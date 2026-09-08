@@ -6,6 +6,7 @@
  */
 
 import type { CostBasis } from "./receipt";
+import type { EconomicSourceClass, RewardStatus } from "@/lib/protocol/reward-policy";
 
 /** How strongly USAGE can vouch for a usage record. */
 export type VerificationType = "verified" | "routed" | "reported";
@@ -116,6 +117,22 @@ export interface NormalizedUsageRecord {
    * own record of work that already happened.
    */
   gatewayId?: string | null;
+
+  /**
+   * ECONOMIC provenance, independent of how the compute was proved. Derived
+   * server-side from trusted evidence; a client never chooses it.
+   */
+  economicSourceClass?: EconomicSourceClass;
+  /**
+   * Compute that actually counts toward mining, in micro-USD. Zero whenever the
+   * reward policy did not make this eligible -- so a held record still says what
+   * it would be worth.
+   */
+  eligibleComputeMicros?: number;
+  rewardStatus?: RewardStatus;
+  rewardReason?: string | null;
+  /** The policy version that made the decision, so it stays reproducible. */
+  rewardPolicyVersion?: string | null;
 
   /**
    * Whether this record might double-count compute USAGE already counted from

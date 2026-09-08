@@ -43,6 +43,11 @@ function observation(overrides: Partial<GatewayObservation> = {}): GatewayObserv
     model: "anthropic/claude-haiku-4.5",
     clientType: "claude-code",
     servedByProvider: "anthropic",
+    // A user's own provider account, billed at a real rate. Under
+    // usage-reward-policy-v1 that is the case that earns; USAGE-funded gateway
+    // traffic is proven and held.
+    gatewayId: "connection:11111111-1111-4111-8111-111111111111",
+    endpointTrusted: true,
     occurredAt: `${DAY}T10:00:00.000Z`,
     usage: { inputTokens: 1_000, outputTokens: 200 },
     cost: { value: "4.00", currency: "USD" },
@@ -136,7 +141,7 @@ describe("only trusted, priced evidence earns", () => {
     expect(score.pending).toBe(EXPECTED_PROTOCOL_MICROS);
   });
 
-  it("still mines when the gateway reported no cost at all", async () => {
+  it("proves compute with no reported cost, and holds the reward", async () => {
     const user = await db.createUser("nocost@example.com");
     await ingestGatewayObservations(
       store,
@@ -147,19 +152,35 @@ describe("only trusted, priced evidence earns", () => {
 
     const [event] = await db.asServiceRole<{
       economic_status: string;
+      reward_status: string;
+      reward_reason: string;
       protocol_compute_micros: string;
+      eligible_compute_micros: string;
       actual_cost_micros: string | null;
     }>(
-      `select economic_status, protocol_compute_micros::text, actual_cost_micros::text
+      `select economic_status, reward_status, reward_reason,
+              protocol_compute_micros::text, eligible_compute_micros::text,
+              actual_cost_micros::text
        from usage_events where user_id = $1`,
       [user],
     );
 
-    // No invoice, real compute: the protocol values the compute.
+    // The proof is untouched: real compute, really observed, really priced.
     expect(event.actual_cost_micros).toBeNull();
     expect(event.economic_status).toBe("eligible");
     expect(event.protocol_compute_micros).toBe(String(EXPECTED_PROTOCOL_MICROS));
-    expect((await scoreFor(user)).weighted).toBe(EXPECTED_PROTOCOL_MICROS);
+
+    // But nobody said who paid, so the reward waits rather than being guessed.
+    // This is the M9 separation: proof truth and reward eligibility are
+    // different questions with different answers.
+    expect(event.reward_status).toBe("held");
+    expect(event.reward_reason).toBe("source_unknown");
+    expect(event.eligible_compute_micros).toBe("0");
+
+    const score = await scoreFor(user);
+    expect(score.weighted).toBe(0);
+    // Held compute is reported, not discarded.
+    expect(score.pending).toBe(EXPECTED_PROTOCOL_MICROS);
   });
 
   it("waits instead of guessing when the model has no approved price", async () => {

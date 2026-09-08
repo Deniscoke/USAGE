@@ -566,6 +566,86 @@ credential. Rerouting it through another provider would silently turn a BYOK
 request into a USAGE-paid one, so it never happens. Gateway fallback stays only
 where semantics are known equivalent.
 
+## Reward eligibility and production trust (M9)
+
+```
+src/lib/protocol/reward-policy.ts   proof truth vs reward eligibility
+src/lib/secrets/store.ts            SecretStore: vault | aes
+src/lib/net/ssrf.ts                 now pins the connection to the validated IP
+```
+
+### Two different questions
+
+```
+did this compute happen?  -> proof_status    (evidence)
+should it earn USAGE?     -> reward_status   (policy)
+```
+
+A CONFIRMED proof does not imply a reward, and nothing in the reward layer ever
+downgrades or deletes proof evidence. Free hosted inference is real compute,
+really observed and really provable -- and paying for it would make bot farming
+the cheapest way to mine the moment Usage Points have value.
+
+```
+proof -> protocol compute value -> REWARD POLICY -> eligible_compute_micros
+      -> mining score -> epoch reward
+```
+
+`protocol_compute_micros` still ignores what anyone paid, so two identical
+requests measure identically. `eligible_compute_micros` is what survives policy,
+and scoring reads that. A held record still says what it *would* be worth, so
+releasing a hold is a policy decision rather than a re-measurement.
+
+### Economic source is derived, never declared
+
+| Source | v1 | Why |
+| --- | --- | --- |
+| `metered_paid` | eligible | a source the user does not control billed them |
+| `byok` | held | their own key, cost not established |
+| `subscription` | held | flat rate has no per-request cost |
+| `free` | **ineligible** | the one hard no |
+| `promotional` | held | USAGE's own gateway budget paid |
+| `unknown` | held | no trustworthy evidence |
+
+The ordering in `deriveEconomicSource` matters:
+
+1. **A stated zero is always accepted.** It can only reduce a reward, so nobody
+   has a motive to lie in that direction, and refusing it would let free compute
+   quietly earn.
+2. **A stated positive cost is evidence only from a source the user does not
+   control.** A custom endpoint saying "this cost $500" is a claim: the same
+   person may own the endpoint and the USAGE account. `endpointTrusted` is set
+   server-side from the connection's definition origin, never by a client.
+3. **USAGE-funded traffic is `promotional`,** whatever it cost. Rewarding it
+   would be USAGE paying twice for the same dollar.
+
+Every decision stores its `reward_policy_version`. `usage-reward-policy-v0` is
+the grandfather for rows written before the layer existed, so settled epochs
+stay reproducible and are never silently re-judged.
+
+### SecretStore
+
+`SecretStore` has two backends and the application never learns which answered.
+Production uses **Supabase Vault** through four SECURITY DEFINER functions with
+`search_path = ''`, every object schema-qualified, EXECUTE revoked from
+public/anon/authenticated and granted only to `service_role`. They are not a
+general secret-reading RPC: the owning user id is a required argument and is
+checked against the row, so even service_role cannot enumerate another user's
+credentials. `vault.decrypted_secrets` is never exposed to a client role.
+
+The AES backend remains for local development and the in-process Postgres the
+integration tests run against.
+
+### DNS rebinding is actually fixed
+
+M8 validated the hostname and then let the HTTP client resolve it again, which
+is a TOCTOU window: an attacker's resolver can answer publicly on the first
+lookup and `127.0.0.1` on the second. `safeFetch` now connects through an undici
+dispatcher whose DNS lookup can only return the addresses `assertSafeUrl`
+validated. TLS servername and Host still use the hostname, so certificates are
+unaffected. Tested against a real loopback server: the flipped answer is never
+even requested, and the local service records zero connections.
+
 ## Database
 
 `supabase/migrations/`:

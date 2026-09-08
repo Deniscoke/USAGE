@@ -62,6 +62,14 @@ export interface GatewayObservation {
    * gateway that actually ran it -- never from anything a client sent.
    */
   gatewayId?: string;
+  /**
+   * True when the endpoint is one USAGE recognises rather than an arbitrary URL
+   * the user supplied. A well-known provider billing a user's own key is
+   * evidence; a user's own server saying it charged them is a claim.
+   *
+   * Set by the server from the connection's definition, never by a client.
+   */
+  endpointTrusted?: boolean;
   /** What produced the traffic: "probe", "claude-code", ... Non-PII. */
   clientType?: string;
   /** How the identity was obtained, for provenance. */

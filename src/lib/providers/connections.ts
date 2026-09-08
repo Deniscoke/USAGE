@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertSafeUrl } from "@/lib/net/ssrf";
-import { decryptSecret, encryptSecret, secretHint } from "@/lib/secrets/crypto";
+import { resolveSecretStore, storeForBackend } from "@/lib/secrets/store";
 import { getProtocol } from "@/lib/protocols/registry";
 import {
   deriveMiningEligibility,
@@ -173,20 +173,16 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
         fetchImpl: input.fetchImpl,
       });
 
-      // The credential is encrypted before it touches the database, always,
-      // even when the probe failed: a wrong-looking key may simply be a
-      // provider that was down, and re-entry should not be required.
-      const { data: secret, error: secretError } = await admin
-        .from("provider_secrets")
-        .insert({
-          user_id: input.userId,
-          ciphertext: encryptSecret(input.credential),
-          hint: secretHint(input.credential),
-        })
-        .select("id")
-        .single();
-      fail("storeSecret", secretError);
-      if (!secret) throw new Error("storeSecret: no row returned");
+      // The credential goes straight into the secret store -- Vault in
+      // production, application AES elsewhere -- and this module never learns
+      // which. It is stored even when the probe failed: a wrong-looking key may
+      // simply be a provider that was down, and re-entry should not be required.
+      const secretStore = await resolveSecretStore(admin);
+      const secret = await secretStore.create({
+        userId: input.userId,
+        secret: input.credential,
+        label: `${input.displayName} API key`,
+      });
 
       const definitionId =
         input.definitionId ??
@@ -330,6 +326,11 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
       protocol: ProviderProtocol;
       credential: string;
       baseUrl: string;
+      /**
+       * Whether the endpoint is one USAGE recognises rather than an arbitrary
+       * URL the user typed. Only the former can be economic evidence.
+       */
+      endpointTrusted: boolean;
     }> {
       const { data, error } = await admin
         .from("provider_connections")
@@ -354,20 +355,35 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
       // Re-validated every time: DNS is not a constant.
       await assertSafeUrl(connection.base_url);
 
-      const { data: secret, error: secretError } = await admin
+      // Read from whichever backend actually holds it, scoped to this user.
+      const { data: secretRow, error: secretError } = await admin
         .from("provider_secrets")
-        .select("ciphertext")
+        .select("backend")
         .eq("id", connection.secret_id)
         .eq("user_id", userId)
         .maybeSingle();
-      fail("readSecret", secretError);
-      if (!secret) throw new ConnectionError("no_credential", "That connection has no credential.");
+      fail("readSecretRef", secretError);
+      if (!secretRow) throw new ConnectionError("no_credential", "That connection has no credential.");
+
+      const credential = await storeForBackend(admin, secretRow.backend).read({
+        id: connection.secret_id,
+        userId,
+      });
+
+      // A custom definition is an endpoint the user chose; an official or
+      // community-supported one is a provider USAGE knows.
+      const { data: definition } = await admin
+        .from("provider_definitions")
+        .select("origin")
+        .eq("id", connection.definition_id ?? "")
+        .maybeSingle();
 
       return {
         connection,
         protocol,
-        credential: decryptSecret(secret.ciphertext),
+        credential,
         baseUrl: connection.base_url,
+        endpointTrusted: definition?.origin === "official" || definition?.origin === "community_supported",
       };
     },
 

@@ -1,4 +1,5 @@
 import { providerForModel } from "@/lib/providers/catalog";
+import { REWARD_STATUS_COPY } from "@/lib/protocol/reward-policy";
 import type { EconomicStatus, NormalizedUsageRecord, ProofStatus, VerificationType } from "@/lib/domain/types";
 
 /**
@@ -29,6 +30,8 @@ export interface ActivityItem {
   protocolComputeMicros: number | null;
   /** True when this usage carries economic weight right now. */
   contributesToMining: boolean;
+  /** Why it does or does not earn, in one phrase. */
+  rewardLabel: string;
 }
 
 export interface ActivityInput {
@@ -93,9 +96,13 @@ export function buildActivityFeed({ events, proofStatusById }: ActivityInput): A
       economicStatus: event.economicStatus ?? null,
       protocolComputeMicros: event.protocolPricingVersion ? (event.protocolComputeMicros ?? 0) : null,
       // Settled usage counted; it is not counting again. Both are "it worked",
-      // which is what the feed is telling you.
+      // which is what the feed is telling you. The reward policy has the final
+      // say: a confirmed proof that did not earn says so here.
       contributesToMining:
-        event.economicStatus === "eligible" || event.economicStatus === "settled",
+        event.rewardStatus === "eligible" ||
+        (event.rewardStatus === undefined &&
+          (event.economicStatus === "eligible" || event.economicStatus === "settled")),
+      rewardLabel: event.rewardStatus ? REWARD_STATUS_COPY[event.rewardStatus] : "Counted",
     };
   });
 }

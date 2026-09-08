@@ -44,6 +44,10 @@ function liveObservation(overrides: Partial<GatewayObservation> = {}): GatewayOb
     generationId: "gen_live_1",
     model: "openai/gpt-5.4",
     servedByProvider: "openai",
+    // The user's own provider account, billed at a real rate: what
+    // usage-reward-policy-v1 makes eligible.
+    gatewayId: "connection:11111111-1111-4111-8111-111111111111",
+    endpointTrusted: true,
     occurredAt: `${DAY}T10:00:00.000Z`,
     usage: {
       inputTokens: 1_000,

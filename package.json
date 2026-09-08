@@ -24,6 +24,7 @@
     "usage:pricing:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/generate-pricing-snapshot.ts",
     "usage:pricing:publish": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/publish-pricing.ts",
     "usage:providers:publish": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/publish-providers.ts",
+    "usage:secrets:migrate": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/migrate-secrets-to-vault.ts",
     "usage:settle-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/settle-epoch.ts"
   },
   "dependencies": {
@@ -34,7 +35,8 @@
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "undici": "^8.10.2"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

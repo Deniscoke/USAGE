@@ -52,6 +52,7 @@ export const { POST, GET } = createGatewayRoute({
           connectionId,
           baseUrl: resolved.baseUrl,
           providerSlug: resolved.connection.provider,
+          endpointTrusted: resolved.endpointTrusted,
         }),
         credential: resolved.credential,
         onOutcome: (outcome) => {

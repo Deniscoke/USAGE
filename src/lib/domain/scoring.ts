@@ -96,6 +96,11 @@ export function isEconomicallyEligible(record: NormalizedUsageRecord): boolean {
   // than paying late -- so the proof stays valid and the credit waits.
   if (record.rewardHold) return false;
 
+  // The reward policy decides economics; proof status decides truth. A
+  // CONFIRMED proof that the policy did not make eligible earns nothing, and
+  // keeps its evidence.
+  if (record.rewardStatus) return record.rewardStatus === "eligible";
+
   // Records written since signed issuance carry an explicit economic status.
   // Older ones fall back to the verification status they were stored with.
   if (record.economicStatus) return record.economicStatus === "eligible";
@@ -115,15 +120,23 @@ export function scoreRecords(
 
   for (const record of records) {
     const weight = algorithm.weights[record.verificationType];
-    // Mining values verified compute, so the economic quantity is the protocol
-    // compute value. Records from before mining v1 fall back to their stored
-    // cost, which is what they were scored on at the time.
-    const cost = record.protocolComputeMicros ?? record.normalizedCostMicros;
+    // Mining values ELIGIBLE compute. `eligibleComputeMicros` is the protocol
+    // compute value after the reward policy has had its say, so free and held
+    // compute contributes nothing without any special case here. Records from
+    // before the policy existed fall back to what they were scored on.
+    const cost =
+      record.eligibleComputeMicros ??
+      record.protocolComputeMicros ??
+      record.normalizedCostMicros;
+    // What the compute would be worth if it were eligible, for reporting.
+    const measured = record.protocolComputeMicros ?? record.normalizedCostMicros;
 
     if (weight === 0) {
-      excluded += cost;
+      excluded += measured;
     } else if (!isEconomicallyEligible(record)) {
-      pending += cost;
+      // Held and ineligible compute is reported, never scored. Saying "pending"
+      // rather than dropping it keeps the number visible to the user.
+      pending += measured;
     } else {
       weighted += Math.round(cost * weight);
     }

@@ -16,6 +16,7 @@ import { ingestGatewayObservations } from "../src/lib/db/ingest";
 import type { Database } from "../src/lib/supabase/database.types";
 import type { GatewayObservation } from "../src/lib/providers/vercel-gateway/observation";
 import { CURRENT_PRICING_VERSION } from "../src/lib/pricing/compute";
+import { createVaultSecretStore, vaultAvailable } from "../src/lib/secrets/store";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const publishable =
@@ -311,6 +312,119 @@ async function main(): Promise<number> {
       .from("usage_miner_credentials")
       .select("id, name, token_prefix");
     check("a user cannot see another user's credentials", (readOthers.data?.length ?? 0) === 0);
+
+    // ---------------------------------------------------------------- Vault
+    section("Provider credential vault");
+
+    const vaultStore = createVaultSecretStore(admin);
+    const vaultUsable = await vaultAvailable(admin);
+    check("vault is available on this database", vaultUsable);
+
+    if (vaultUsable) {
+      const stored = await vaultStore.create({
+        userId: aliceId,
+        secret: "sk-verify-do-not-use",
+        label: "verification",
+      });
+      check("service role can store a credential in vault", Boolean(stored.id));
+
+      const readBack = await vaultStore.read({ id: stored.id, userId: aliceId });
+      check("a stored credential reads back intact", readBack === "sk-verify-do-not-use");
+
+      // The row exists, but the value is not in it.
+      const row = await admin
+        .from("provider_secrets")
+        .select("ciphertext, backend")
+        .eq("id", stored.id)
+        .maybeSingle();
+      check(
+        "no plaintext or ciphertext is kept outside vault",
+        row.data?.ciphertext === null && row.data?.backend === "vault",
+      );
+
+      // Ownership is enforced inside the definer, so even service_role cannot
+      // use it to read somebody else's credential.
+      const crossRead = await vaultStore
+        .read({ id: stored.id, userId: bobId })
+        .then(() => "returned", () => "refused");
+      check("vault read refuses a secret belonging to another user", crossRead === "refused");
+
+      // A browser client must not be able to call these at all.
+      const clientCreate = await aliceClient.rpc("usage_vault_create_secret" as never, {
+        p_user_id: aliceId,
+        p_secret: "sk-forged",
+        p_label: "forged",
+      } as never);
+      check(
+        "a signed-in user cannot execute the vault functions",
+        Boolean(clientCreate.error),
+        clientCreate.error?.code ?? "no error",
+      );
+
+      const clientDecrypted = await aliceClient
+        .from("provider_secrets" as never)
+        .select("ciphertext");
+      check(
+        "a signed-in user cannot read provider_secrets at all",
+        Boolean(clientDecrypted.error),
+        clientDecrypted.error?.code ?? "no error",
+      );
+
+      await vaultStore.delete({ id: stored.id, userId: aliceId });
+      const afterDelete = await admin
+        .from("provider_secrets")
+        .select("id")
+        .eq("id", stored.id)
+        .maybeSingle();
+      check("deleting a credential removes it", afterDelete.data === null);
+    }
+
+    // -------------------------------------------------- reward policy forgery
+    section("Reward eligibility is server-decided");
+
+    const policies = await aliceClient.from("reward_policy_versions").select("version");
+    check(
+      "reward policies are readable",
+      (policies.data?.length ?? 0) >= 2,
+      `${policies.data?.length ?? 0} version(s)`,
+    );
+
+    const forgePolicy = await aliceClient
+      .from("reward_policy_versions")
+      .insert({
+        version: "usage-reward-policy-forged",
+        effective_from: "2026-01-01",
+        status: "active",
+        description: "forged",
+        created_at: new Date().toISOString(),
+      });
+    check(
+      "client cannot publish a reward policy",
+      Boolean(forgePolicy.error),
+      forgePolicy.error?.code ?? "no error",
+    );
+
+    const forgeReward = await aliceClient
+      .from("usage_events")
+      .update({ reward_status: "eligible", eligible_compute_micros: 999_999_999 })
+      .eq("user_id", aliceId);
+    check(
+      "client cannot declare its own reward eligibility",
+      Boolean(forgeReward.error),
+      forgeReward.error?.code ?? "no error",
+    );
+
+    const forgeConnection = await aliceClient.from("provider_connections").insert({
+      user_id: aliceId,
+      provider: "forged",
+      account_label: "forged",
+      base_url: "https://evil.example.com",
+    });
+    check(
+      "client cannot create a provider connection",
+      Boolean(forgeConnection.error),
+      forgeConnection.error?.code ?? "no error",
+    );
   } finally {
     for (const id of created) await admin.auth.admin.deleteUser(id);
     process.stdout.write(`\nCleaned up ${created.length} test user(s) and their data.\n`);

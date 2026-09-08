@@ -11,6 +11,11 @@ import {
 } from "@/lib/domain/receipt";
 import type { EconomicStatus, ProofStatus } from "@/lib/domain/types";
 import { CURRENT_PRICING_VERSION, protocolComputeValue } from "@/lib/pricing/compute";
+import {
+  decideReward,
+  deriveEconomicSource,
+  type RewardPolicyVersion,
+} from "@/lib/protocol/reward-policy";
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
   ConnectionContext,
@@ -76,6 +81,8 @@ export interface NormalizeOptions {
   receiptId?: string;
   /** Protocol pricing snapshot to value this compute with. */
   pricingVersion?: string;
+  /** Reward policy to decide eligibility with. Defaults to the active one. */
+  rewardPolicy?: RewardPolicyVersion;
   minerCredentialId?: string | null;
   /**
    * Supplying this is what CONFIRMS a proof. It cannot be faked by a caller:
@@ -166,6 +173,26 @@ export function normalizeGatewayObservation(
     pricingVersion: protocol ? pricingVersion : null,
   });
 
+  // Economics, decided separately from proof. Which gateway ran the request is
+  // the trusted evidence of who funded it: a `connection:*` gateway used the
+  // user's own credential, anything else spent USAGE's own budget.
+  const usageFunded = !(observation.gatewayId ?? "").startsWith("connection:");
+  const economicSource = deriveEconomicSource({
+    gatewayId: observation.gatewayId ?? null,
+    actualCostMicros: parsedCost ? parsedCost.micros : null,
+    actualCostBasis: costBasis,
+    usageFunded,
+    // A custom endpoint the user typed is not a source of economic evidence.
+    endpointControlledByUser: !usageFunded && observation.endpointTrusted !== true,
+  });
+  const reward = decideReward({
+    proofStatus,
+    verificationType: verification.verificationType,
+    economicSource,
+    protocolComputeMicros: protocol?.micros ?? null,
+    policy: options.rewardPolicy,
+  });
+
   const metadata: Record<string, string | number | boolean | null> = {
     evidence_class: verification.evidenceClass,
     trust_environment: verification.trustEnvironment,
@@ -176,6 +203,7 @@ export function normalizeGatewayObservation(
     client_type: observation.clientType ?? "unknown",
     // Which gateway executed it. With more than one, this is evidence.
     gateway_id: observation.gatewayId ?? null,
+    endpoint_trusted: observation.endpointTrusted ?? null,
     // The credential ID, never the credential. Signed into the receipt, so it
     // has to be stored for the receipt to be re-derivable and re-verifiable.
     miner_credential_id: options.minerCredentialId ?? null,
@@ -185,6 +213,10 @@ export function normalizeGatewayObservation(
     gateway_model: observation.model,
     served_by_provider: observation.servedByProvider ?? null,
     cost_basis: costBasis,
+    economic_source_class: economicSource,
+    reward_status: reward.status,
+    reward_reason: reward.reason,
+    reward_policy_version: reward.policyVersion,
     cost_rounded: parsedCost?.rounded ?? false,
     // Reasoning tokens are a breakdown of output tokens (already counted, and
     // billed as output), kept for explainability rather than for scoring.
@@ -213,6 +245,11 @@ export function normalizeGatewayObservation(
     protocolPricingVersion: protocol ? pricingVersion : null,
     gatewayId: observation.gatewayId ?? null,
     actualCostBasis: costBasis,
+    economicSourceClass: economicSource,
+    eligibleComputeMicros: reward.eligibleComputeMicros,
+    rewardStatus: reward.status,
+    rewardReason: reward.reason,
+    rewardPolicyVersion: reward.policyVersion,
     rawMetadata: metadata,
   };
 

@@ -30,6 +30,8 @@ export function protocolGateway(input: {
   baseUrl: string;
   /** Registry family when known, else the connection's own slug. */
   providerSlug: string;
+  /** Whether the endpoint is one USAGE recognises. Economic evidence only. */
+  endpointTrusted?: boolean;
 }): ComputeGateway {
   const { protocol, baseUrl } = input;
   const id = connectionGatewayId(input.connectionId);
@@ -73,6 +75,7 @@ export function protocolGateway(input: {
         // and two providers can both serve "llama-3.1-70b".
         model: model.includes("/") ? model : `${input.providerSlug}/${model}`,
         gatewayId: id,
+        endpointTrusted: input.endpointTrusted ?? false,
         clientType,
         servedByProvider: observed.identity.provider ?? input.providerSlug,
         occurredAt: occurredAt.toISOString(),

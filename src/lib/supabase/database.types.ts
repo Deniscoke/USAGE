@@ -116,6 +116,11 @@ export type UsageEventRow = {
   epoch_id: string | null;
   carried_forward: boolean;
   gateway_id: string | null;
+  economic_source_class: EconomicSourceClassRow;
+  eligible_compute_micros: number;
+  reward_status: RewardStatusRow;
+  reward_reason: string | null;
+  reward_policy_version: string | null;
   reconciliation_status: ReconciliationStatusRow;
   fraud_status: string;
   reward_hold: boolean;
@@ -245,8 +250,10 @@ export type ProviderDefinitionRow = {
 export type ProviderSecretRow = {
   id: string;
   user_id: string;
-  ciphertext: string;
+  /** Null when the value lives in Vault rather than in this column. */
+  ciphertext: string | null;
   hint: string | null;
+  backend: "aes" | "vault";
   created_at: string;
   rotated_at: string | null;
 }
@@ -260,6 +267,24 @@ export type ProviderModelRow = {
   enabled: boolean;
   status: "discovered" | "enabled" | "disabled" | "unsupported";
   discovered_at: string;
+}
+
+export type EconomicSourceClassRow =
+  | "metered_paid"
+  | "byok"
+  | "subscription"
+  | "free"
+  | "promotional"
+  | "unknown";
+
+export type RewardStatusRow = "eligible" | "held" | "ineligible";
+
+export type RewardPolicyVersionRow = {
+  version: string;
+  effective_from: string;
+  status: "active" | "superseded";
+  description: string;
+  created_at: string;
 }
 
 export type ReconciliationStatusRow =
@@ -427,6 +452,11 @@ export type UsageEventInsertRow = {
   epoch_id?: string | null;
   carried_forward?: boolean;
   gateway_id?: string | null;
+  economic_source_class?: EconomicSourceClassRow;
+  eligible_compute_micros?: number;
+  reward_status?: RewardStatusRow;
+  reward_reason?: string | null;
+  reward_policy_version?: string | null;
   reconciliation_status?: ReconciliationStatusRow;
   reward_hold?: boolean;
   raw_metadata?: Record<string, string | number | boolean | null>;
@@ -552,6 +582,12 @@ export type Database = {
         Update: Partial<MiningProtocolVersionRow>;
         Relationships: [];
       };
+      reward_policy_versions: {
+        Row: RewardPolicyVersionRow;
+        Insert: RewardPolicyVersionRow;
+        Update: Partial<RewardPolicyVersionRow>;
+        Relationships: [];
+      };
       provider_definitions: {
         Row: ProviderDefinitionRow;
         Insert: Partial<ProviderDefinitionRow> & { slug: string; display_name: string; protocol: ProviderProtocolRow };
@@ -592,7 +628,25 @@ export type Database = {
         Relationships: [];
       };
     };
-    Functions: { [_ in never]: never };
+    Functions: {
+      usage_vault_available: { Args: Record<string, never>; Returns: boolean };
+      usage_vault_create_secret: {
+        Args: { p_user_id: string; p_secret: string; p_label: string };
+        Returns: string;
+      };
+      usage_vault_read_secret: {
+        Args: { p_user_id: string; p_secret_id: string };
+        Returns: string | null;
+      };
+      usage_vault_update_secret: {
+        Args: { p_user_id: string; p_secret_id: string; p_secret: string };
+        Returns: undefined;
+      };
+      usage_vault_delete_secret: {
+        Args: { p_user_id: string; p_secret_id: string };
+        Returns: undefined;
+      };
+    };
     Enums: {
       verification_type: VerificationTypeRow;
       verification_status: VerificationStatusRow;

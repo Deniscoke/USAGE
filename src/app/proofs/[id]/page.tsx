@@ -5,6 +5,12 @@ import { Panel, VerificationBadge } from "@/components/ui";
 import { formatNumber, formatUsd } from "@/lib/domain/money";
 import { rowToUsageRecord } from "@/lib/db/rows";
 import { checkStoredSignature, receiptFromStoredProof } from "@/lib/product/proof";
+import {
+  ECONOMIC_SOURCE_COPY,
+  REWARD_REASON_COPY,
+  REWARD_STATUS_COPY,
+  type RewardStatus,
+} from "@/lib/protocol/reward-policy";
 import { providerForModel } from "@/lib/providers/catalog";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -162,10 +168,35 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         </Panel>
 
         <Panel title="Mining">
-          <p className="text-lg tracking-tight" style={{ color: economic.tone }}>
-            {economic.label}
+          <p className="text-lg tracking-tight" style={{ color: rewardTone(event.rewardStatus) }}>
+            {event.rewardStatus
+              ? REWARD_STATUS_COPY[event.rewardStatus]
+              : economic.label}
           </p>
-          <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">{economic.detail}</p>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            {event.rewardReason
+              ? REWARD_REASON_COPY[event.rewardReason as keyof typeof REWARD_REASON_COPY]
+              : economic.detail}
+          </p>
+          <dl className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3 text-[11px]">
+            <Row
+              label="Economic source"
+              value={
+                event.economicSourceClass
+                  ? ECONOMIC_SOURCE_COPY[event.economicSourceClass]
+                  : "—"
+              }
+            />
+            <Row
+              label="Counts toward mining"
+              value={
+                event.eligibleComputeMicros === undefined
+                  ? "—"
+                  : formatUsd(event.eligibleComputeMicros, { maximumFractionDigits: 6 })
+              }
+            />
+            <Row label="Reward policy" value={event.rewardPolicyVersion ?? "—"} />
+          </dl>
           <div className="mt-3 border-t border-[var(--border)] pt-3 text-xs">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[var(--muted)]">Signature</span>
@@ -219,6 +250,13 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
       </div>
     </main>
   );
+}
+
+/** Held is a warning, not a failure: the proof stands and the reward waits. */
+function rewardTone(status: RewardStatus | undefined): string {
+  if (status === "eligible") return "var(--verified)";
+  if (status === "held") return "var(--warn)";
+  return "var(--reported)";
 }
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

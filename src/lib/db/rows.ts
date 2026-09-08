@@ -65,6 +65,14 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     epochId: row.epoch_id ?? null,
     carriedForward: row.carried_forward ?? false,
     gatewayId: row.gateway_id ?? null,
+    economicSourceClass: row.economic_source_class ?? undefined,
+    eligibleComputeMicros:
+      row.reward_policy_version === null || row.reward_policy_version === undefined
+        ? undefined
+        : toSafeInteger(row.eligible_compute_micros ?? 0, "eligible_compute_micros"),
+    rewardStatus: row.reward_status ?? undefined,
+    rewardReason: row.reward_reason ?? null,
+    rewardPolicyVersion: row.reward_policy_version ?? null,
     reconciliationStatus: row.reconciliation_status ?? "clear",
     rewardHold: row.reward_hold ?? false,
     rawMetadata: row.raw_metadata ?? {},
@@ -95,6 +103,11 @@ export interface UsageEventInsert {
   epoch_id: string | null;
   carried_forward: boolean;
   gateway_id: string | null;
+  economic_source_class: NonNullable<NormalizedUsageRecord["economicSourceClass"]>;
+  eligible_compute_micros: number;
+  reward_status: NonNullable<NormalizedUsageRecord["rewardStatus"]>;
+  reward_reason: string | null;
+  reward_policy_version: string | null;
   reconciliation_status: NonNullable<NormalizedUsageRecord["reconciliationStatus"]>;
   reward_hold: boolean;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
@@ -132,6 +145,17 @@ export function usageRecordToInsert(
     carried_forward: record.carriedForward ?? false,
     // Which gateway executed it. Null for imports: nobody executed those.
     gateway_id: record.gatewayId ?? null,
+    // The reward policy decides these, server-side. A client cannot write this
+    // table at all, so there is no path by which it could choose them.
+    economic_source_class: record.economicSourceClass ?? "unknown",
+    // A record produced by an adapter that predates reward policy keeps the
+    // decision it would have had. Defaulting it to "held" would silently strand
+    // every demo and pull-adapter record.
+    eligible_compute_micros:
+      record.eligibleComputeMicros ?? legacyEligibleCompute(record),
+    reward_status: record.rewardStatus ?? legacyRewardStatus(record),
+    reward_reason: record.rewardReason ?? (record.rewardStatus ? null : "legacy_pre_policy"),
+    reward_policy_version: record.rewardPolicyVersion ?? null,
     // Reconciliation is decided by trusted ingestion, never by input.
     reconciliation_status: record.reconciliationStatus ?? "clear",
     reward_hold: record.rewardHold ?? false,
@@ -150,6 +174,25 @@ function legacyEconomicStatus(
 ): NonNullable<NormalizedUsageRecord["economicStatus"]> {
   if (record.verificationType === "reported") return "ineligible";
   return record.verificationStatus === "confirmed" ? "eligible" : "pending_cost";
+}
+
+/**
+ * Pre-policy grandfather, matching migration 0011's backfill exactly.
+ *
+ * Historical decisions must stay reproducible, so a record with no policy
+ * attached is judged the way it was judged before policy existed -- and says so
+ * via `legacy_pre_policy`, so nobody mistakes it for a v1 judgement.
+ */
+function legacyRewardStatus(record: NormalizedUsageRecord): "eligible" | "held" | "ineligible" {
+  const economic = record.economicStatus ?? legacyEconomicStatus(record);
+  if (economic === "eligible" || economic === "settled") return "eligible";
+  if (economic === "ineligible") return "ineligible";
+  return "held";
+}
+
+function legacyEligibleCompute(record: NormalizedUsageRecord): number {
+  if (legacyRewardStatus(record) !== "eligible") return 0;
+  return record.protocolComputeMicros ?? record.normalizedCostMicros;
 }
 
 export function rowToDailyAggregate(row: UsageDailyAggregateRow): DailyAggregate {

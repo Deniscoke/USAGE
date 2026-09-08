@@ -8,6 +8,7 @@ import {
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type { ProofIssuance } from "@/lib/providers/vercel-gateway/adapter";
 import type { ProofDraft } from "@/lib/db/ingest";
+import { decideReward, deriveEconomicSource } from "@/lib/protocol/reward-policy";
 
 /**
  * Issuing a proof for imported usage.
@@ -72,6 +73,24 @@ export function issueImportProof(
   const economicStatus =
     proofStatus === "confirmed" ? (record.economicStatus ?? "pending_pricing") : "ineligible";
 
+  // An import is the provider's own record of the user's own account, so the
+  // user funded it. Whether it was PAID depends on what the provider stated,
+  // and a share of a bucket total is not an authoritative per-request cost.
+  const economicSource = deriveEconomicSource({
+    gatewayId: null,
+    actualCostMicros: record.actualCostMicros,
+    actualCostBasis: record.actualCostBasis ?? null,
+    usageFunded: false,
+  });
+  const reward = decideReward({
+    proofStatus,
+    verificationType: record.verificationType,
+    economicSource,
+    protocolComputeMicros: record.protocolPricingVersion
+      ? (record.protocolComputeMicros ?? 0)
+      : null,
+  });
+
   const receipt: ProofReceipt = {
     receiptVersion: RECEIPT_VERSION,
     receiptId: options.receiptId ?? newReceiptId(),
@@ -115,7 +134,15 @@ export function issueImportProof(
   const signed = issuance ? signReceipt(receipt, issuance.privateKeyBase64) : null;
 
   return {
-    record: { ...record, economicStatus },
+    record: {
+      ...record,
+      economicStatus,
+      economicSourceClass: economicSource,
+      eligibleComputeMicros: reward.eligibleComputeMicros,
+      rewardStatus: reward.status,
+      rewardReason: reward.reason,
+      rewardPolicyVersion: reward.policyVersion,
+    },
     receipt,
     proof: {
       proofKind: "provider_usage_import",
@@ -136,6 +163,10 @@ export function issueImportProof(
         ...record.rawMetadata,
         proof_status: proofStatus,
         economic_status: economicStatus,
+        economic_source_class: economicSource,
+        reward_status: reward.status,
+        reward_reason: reward.reason,
+        reward_policy_version: reward.policyVersion,
         gateway_id: null,
         client_type: "import",
         generation_id_source: "import_identity",

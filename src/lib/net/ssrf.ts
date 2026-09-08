@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
 
 /**
  * Outbound request guard.
@@ -14,10 +15,17 @@ import { isIP } from "node:net";
  * "does not look private" -- resolved and checked, because a hostname the
  * attacker controls can point anywhere, and a regex cannot see DNS.
  *
- * DNS rebinding is handled by pinning: `assertSafeUrl` returns the addresses it
- * validated, and the caller connects to a *pinned* address rather than
- * re-resolving. Re-resolving would let the second lookup return 127.0.0.1 after
- * the first returned a public address.
+ * DNS REBINDING is the subtle one. Validating a hostname and then handing it to
+ * an HTTP client that resolves it AGAIN is not protection: an attacker's
+ * resolver can answer publicly on the first lookup and 127.0.0.1 on the second,
+ * and the connection goes wherever the second answer points. A preflight lookup
+ * alone would be security theatre.
+ *
+ * So the connection is PINNED. `assertSafeUrl` returns the addresses it
+ * validated, and `safeFetch` connects through a dispatcher whose DNS lookup can
+ * only ever return those addresses. The TLS handshake and Host header still use
+ * the hostname, so certificate validation is unaffected -- only the destination
+ * IP is fixed, to the one that was actually checked.
  *
  * Redirects are re-checked, because a public URL that 302s to
  * http://169.254.169.254/ is exactly as dangerous as pointing there directly.
@@ -185,8 +193,11 @@ export async function assertSafeUrl(
     throw new SsrfError("credentials_in_url", "Put credentials in the API key field, not the URL.");
   }
 
+  // Standard ports only: an arbitrary port is how an SSRF reaches Redis,
+  // Postgres or an internal admin service. The dev exception exists so a fake
+  // provider on a random loopback port can be used locally.
   const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
-  if (!ALLOWED_PORTS.has(port)) {
+  if (!allowInsecure && !ALLOWED_PORTS.has(port)) {
     throw new SsrfError("port_not_allowed", "Only the standard http(s) ports are allowed.");
   }
 
@@ -236,7 +247,38 @@ export async function assertSafeUrl(
 const MAX_REDIRECTS = 3;
 
 export interface SafeFetchOptions extends SafeUrlOptions {
+  /** Injectable transport, for tests. Production uses the pinned dispatcher. */
   fetchImpl?: typeof fetch;
+}
+
+/**
+ * A transport that can only connect to `addresses`.
+ *
+ * The lookup hook is the whole point: undici asks it instead of the system
+ * resolver, so there is no second resolution to poison. A fresh agent per
+ * request keeps one destination's pin from leaking into another's.
+ */
+function pinnedFetch(addresses: readonly string[]): typeof fetch {
+  const agent = new Agent({
+    connect: {
+      lookup(_hostname, options, callback) {
+        const family = options?.family;
+        const candidates = addresses
+          .map((address) => ({ address, family: isIP(address) }))
+          .filter((entry) => entry.family === 4 || entry.family === 6)
+          .filter((entry) => !family || family === 0 || entry.family === family);
+
+        if (candidates.length === 0) {
+          callback(new Error("No validated address available"), "", 4);
+          return;
+        }
+        callback(null, candidates);
+      },
+    },
+  });
+
+  return ((input: string | URL | Request, init?: RequestInit) =>
+    undiciFetch(input as string, { ...init, dispatcher: agent } as never)) as unknown as typeof fetch;
 }
 
 /**
@@ -251,18 +293,21 @@ export async function safeFetch(
   init: RequestInit,
   options: SafeFetchOptions = {},
 ): Promise<Response> {
-  const doFetch = options.fetchImpl ?? fetch;
   let current = target;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const safe = await assertSafeUrl(current, options);
 
-    const response = await doFetch(safe.url.toString(), { ...init, redirect: "manual" });
+    // Connect to the address that was validated, not to whatever a second
+    // resolution would return. Every hop is pinned to its own answer.
+    const transport = options.fetchImpl ?? pinnedFetch(safe.addresses);
+    const response = await transport(safe.url.toString(), { ...init, redirect: "manual" });
     if (response.status < 300 || response.status >= 400) return response;
 
     const location = response.headers.get("location");
     if (!location) return response;
 
+    // Re-enter the loop, so the next hop is validated and pinned from scratch.
     current = new URL(location, safe.url).toString();
     // A redirect chain that keeps going is a chain designed to exhaust checks.
   }

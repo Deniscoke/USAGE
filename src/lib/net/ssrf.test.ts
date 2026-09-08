@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assertSafeUrl, isPublicAddress, safeFetch, SsrfError } from "./ssrf";
 
 /**
@@ -224,5 +225,106 @@ describe("redirect handling", () => {
         { resolve: publicDns, allowInsecure: false, fetchImpl: looping },
       ),
     ).rejects.toMatchObject({ code: "too_many_redirects" });
+  });
+});
+
+/**
+ * The hostile case a preflight lookup alone cannot stop.
+ *
+ * An attacker's resolver answers with a public address when USAGE validates,
+ * then with 127.0.0.1 when the HTTP client resolves again. If the request ever
+ * reaches the second address, every check above was theatre.
+ *
+ * These tests run against a real HTTP server on loopback, so "did the packet
+ * arrive" is answered by the server itself rather than by a mock.
+ */
+describe("DNS rebinding", () => {
+  let server: Server;
+  let port = 0;
+  let reached = 0;
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      reached += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ host: request.headers.host, secret: "internal-service-data" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("uses the answer it validated, not a later one", async () => {
+    reached = 0;
+    let call = 0;
+    // Validation sees loopback (allowed here by the dev exception); every later
+    // lookup answers with a different address. A client that re-resolved would
+    // connect somewhere else and never reach this server.
+    const flipping = async () => {
+      call += 1;
+      return call === 1 ? ["127.0.0.1"] : ["93.184.216.34"];
+    };
+
+    const response = await safeFetch(
+      `http://api.pretend-provider.test:${port}/v1/models`,
+      {},
+      { resolve: flipping, allowInsecure: true },
+    );
+
+    expect(response.status).toBe(200);
+    expect(reached).toBe(1);
+    // The Host header keeps the hostname, so TLS and vhosts still work.
+    const body = (await response.json()) as { host: string };
+    expect(body.host).toContain("api.pretend-provider.test");
+  });
+
+  it("never reaches a private service when the second answer flips inward", async () => {
+    reached = 0;
+    let call = 0;
+    // The classic rebinding attack: public when checked, loopback afterwards.
+    const rebinding = async () => {
+      call += 1;
+      return call === 1 ? ["93.184.216.34"] : ["127.0.0.1"];
+    };
+
+    await expect(
+      safeFetch(
+        `http://rebind.example.com:${port}/v1/models`,
+        { signal: AbortSignal.timeout(1_500) },
+        { resolve: rebinding, allowInsecure: true },
+      ),
+    ).rejects.toThrow();
+
+    // The only thing that actually matters: the local service saw nothing.
+    expect(reached).toBe(0);
+    // And the flipped answer was never even asked for.
+    expect(call).toBe(1);
+  });
+
+  it("refuses to connect at all when the validated answer is private", async () => {
+    reached = 0;
+    await expect(
+      safeFetch(
+        `http://api.pretend-provider.test:${port}/v1/models`,
+        {},
+        { resolve: async () => ["127.0.0.1"], allowInsecure: false },
+      ),
+    ).rejects.toMatchObject({ code: "protocol_not_allowed" });
+    expect(reached).toBe(0);
+  });
+
+  it("refuses an https destination whose only answer is private", async () => {
+    reached = 0;
+    await expect(
+      safeFetch(
+        "https://api.pretend-provider.test/v1/models",
+        {},
+        { resolve: async () => ["127.0.0.1"], allowInsecure: false },
+      ),
+    ).rejects.toMatchObject({ code: "private_address" });
+    expect(reached).toBe(0);
   });
 });

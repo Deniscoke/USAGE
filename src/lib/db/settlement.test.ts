@@ -46,9 +46,13 @@ function observation(generationId: string, outputTokens: number): GatewayObserva
     model: "anthropic/claude-haiku-4.5",
     clientType: "claude-code",
     servedByProvider: "anthropic",
+    // A user's own provider account, billed at a real rate: the one thing that
+    // earns under usage-reward-policy-v1.
+    gatewayId: "connection:11111111-1111-4111-8111-111111111111",
+    endpointTrusted: true,
     occurredAt: `${DAY}T10:00:00.000Z`,
     usage: { inputTokens: 10_000, outputTokens },
-    cost: null,
+    cost: { value: "0.05", currency: "USD" },
     finishReason: "end_turn",
   };
 }
@@ -175,9 +179,11 @@ describe("epoch lifecycle", () => {
       model: "anthropic/claude-haiku-4.5",
       clientType: "claude-code",
       servedByProvider: "anthropic",
+      gatewayId: "connection:11111111-1111-4111-8111-111111111111",
+    endpointTrusted: true,
       occurredAt,
       usage: { inputTokens: 5_000, outputTokens: 5_000 },
-      cost: null,
+      cost: { value: "0.05", currency: "USD" },
       finishReason: "end_turn",
     };
   }
