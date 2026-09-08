@@ -219,6 +219,19 @@ describe("Anthropic-compatible protocol", () => {
     expect(call.url).toBe(`${BASE}/v1/messages`);
   });
 
+  it("accepts a path that already carries the API version", () => {
+    const call = anthropicCompatibleProtocol.buildUpstreamCall({
+      baseUrl: BASE,
+      credential: "sk-ant-secret",
+      path: ["v1", "messages"],
+      headers: new Headers(),
+      body: { model: "m" },
+      rawBody: '{"model":"m"}',
+      attributionUser: "user-1",
+    });
+    expect(call.url).toBe(`${BASE}/v1/messages`);
+  });
+
   it("reads Anthropic usage with the same code the production path uses", () => {
     const observed = anthropicCompatibleProtocol.observe(
       {
@@ -421,6 +434,38 @@ describe("a connection behaves like any other gateway", () => {
     expect(JSON.stringify([...call.headers])).not.toContain("sk-client");
     // Server-side attribution overwrites anything the caller sent.
     expect(JSON.parse(call.body).user).toBe("00000000-0000-4000-8000-000000000001");
+  });
+
+  it("does not double the API version when the client already sent one", () => {
+    // The bug this covers reached production and cost a real end-to-end run:
+    // Codex is configured with a base ending in /v1 and so sends /v1/... , the
+    // protocol prepended another /v1, and OpenRouter answered with its own 404
+    // page -- which reads like USAGE being broken rather than a path being
+    // wrong. Both client conventions must resolve to the same upstream URL.
+    const withVersion = gateway.buildUpstreamCall(
+      {
+        path: ["v1", "chat", "completions"],
+        headers: new Headers(),
+        body: { model: "m" },
+        rawBody: "{}",
+        attribution: { user: "u1", tags: [] },
+      },
+      "sk",
+    );
+    const withoutVersion = gateway.buildUpstreamCall(
+      {
+        path: ["chat", "completions"],
+        headers: new Headers(),
+        body: { model: "m" },
+        rawBody: "{}",
+        attribution: { user: "u1", tags: [] },
+      },
+      "sk",
+    );
+
+    expect(withVersion.url).toBe(`${BASE}/v1/chat/completions`);
+    expect(withVersion.url).toBe(withoutVersion.url);
+    expect(withVersion.url).not.toContain("/v1/v1/");
   });
 
   it("sends requests only to the connection's stored base URL", () => {

@@ -94,6 +94,25 @@ export interface ProtocolRequestContext {
   attributionUser: string;
 }
 
+/**
+ * Build an upstream path without doubling the API version segment.
+ *
+ * Clients disagree about who owns the `/v1`. Codex is configured with a base
+ * URL and appends `/chat/completions` to whatever it was given, so it is handed
+ * a base ending in `/v1`; a plain OpenAI SDK is handed a bare base and appends
+ * `/v1/chat/completions` itself. Both are correct, and USAGE sees the
+ * difference as a leading `v1` segment that is either present or not.
+ *
+ * Prepending unconditionally produced `/v1/v1/chat/completions`, which the
+ * provider answers with its own 404 page -- an error that looks like USAGE
+ * being down rather than a path being wrong. Accept both shapes instead of
+ * making a user work out which kind of client they have.
+ */
+export function upstreamPath(segments: readonly string[]): string {
+  const rest = segments[0] === "v1" ? segments.slice(1) : segments;
+  return `v1/${rest.join("/")}`;
+}
+
 export interface ProbeInput {
   baseUrl: string;
   credential: string;

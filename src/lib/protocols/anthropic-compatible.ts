@@ -7,6 +7,7 @@ import {
 import type { ObservedGeneration, StreamObserver } from "@/lib/compute/gateway";
 import {
   UNKNOWN_CAPABILITIES,
+  upstreamPath,
   type ProbeResult,
   type ProtocolCapabilities,
   type ProtocolRequestContext,
@@ -223,7 +224,7 @@ export const anthropicCompatibleProtocol: ProviderProtocol = {
     // The Anthropic messages API has no attribution field, so the body is
     // forwarded unchanged rather than having one invented into it.
     return {
-      url: `${normalizeBase(context.baseUrl)}/v1/${context.path.join("/")}`,
+      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path)}`,
       headers,
       body: context.rawBody,
     };

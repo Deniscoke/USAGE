@@ -3,6 +3,7 @@ import type { ObservedGeneration, StreamObserver } from "@/lib/compute/gateway";
 import type { GatewayCost, GatewayTokenUsage } from "@/lib/providers/vercel-gateway/observation";
 import {
   UNKNOWN_CAPABILITIES,
+  upstreamPath,
   type DiscoveredModel,
   type ProbeResult,
   type ProtocolCapabilities,
@@ -298,7 +299,7 @@ export const openAiCompatibleProtocol: ProviderProtocol = {
         : context.rawBody;
 
     return {
-      url: `${normalizeBase(context.baseUrl)}/v1/${context.path.join("/")}`,
+      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path)}`,
       headers,
       body,
     };
