@@ -474,6 +474,98 @@ the Anthropic-compatible Vercel surface does not. Mining has never used it and
 still does not -- `protocol_compute_micros` is the economic basis, so a route
 that happens to report its bill earns exactly the same as one that does not.
 
+## Universal providers (M8)
+
+Any provider speaking a supported protocol can be connected by a user, without
+a code change and without touching the mining engine.
+
+```
+src/lib/net/ssrf.ts                    outbound request guard
+src/lib/secrets/crypto.ts              AES-256-GCM credential encryption
+src/lib/protocols/protocol.ts          the protocol boundary
+src/lib/protocols/openai-compatible.ts most of the industry
+src/lib/protocols/anthropic-compatible.ts
+src/lib/providers/connections.ts       create, validate, resolve, revoke
+src/lib/compute/protocol-gateway.ts    a connection, as a ComputeGateway
+src/app/api/gateway/provider/[connectionId]/[...path]
+```
+
+### Provider, protocol, connection
+
+Three separate things, and conflating any two of them breaks something:
+
+| | What it is | Scope |
+| --- | --- | --- |
+| Definition | what a provider IS | official (shared) or custom (one user) |
+| Protocol | the wire format it speaks | `openai_compatible`, `anthropic_compatible` |
+| Connection | what a user connected | one user, one credential |
+
+A provider is not its protocol: an Anthropic-compatible endpoint is not
+necessarily Anthropic. A connection is not a definition: one person adding
+"DeepSeek" must not publish a provider for everybody.
+
+### Connectable is not mining eligible
+
+`deriveMiningEligibility` is the whole rule:
+
+```
+not routable / not authenticated        -> unsupported
+no token usage OR no request identity   -> analytics_only
+no approved protocol price for a model  -> pending_pricing
+otherwise                               -> eligible_route
+```
+
+Request identity is non-negotiable. Without a stable per-request id there is no
+dedupe key, and a synthetic one would make duplicates invisible rather than
+impossible -- so there is simply no proof.
+
+`pending_pricing` is the anti-fraud property: a custom provider cannot declare
+its own prices and mine against them. `protocol_model_key` is set only by
+server-side mapping onto an approved immutable snapshot, exact matches only, and
+no client role can write it.
+
+### The SSRF guard
+
+Accepting user-supplied URLs turns the server into a request proxy, and a
+request proxy inside a cloud network reaches instance metadata and internal
+services. `assertSafeUrl` resolves the hostname and requires EVERY answer to be
+a public unicast address, over https, on a normal port. Redirects are followed
+manually and re-checked, because a public URL that 302s to 169.254.169.254 is
+exactly as dangerous as pointing there directly. A stored base URL is
+re-validated on every request, because DNS is not a constant.
+
+Twenty-one tests cover it, including IPv4-mapped IPv6 loopback and a hostname
+that resolves publicly on the first lookup and privately on the second.
+
+### Credentials
+
+AES-256-GCM under a server-held key. `provider_secrets` has no client grant at
+all -- not select, not insert, not for the user who supplied the secret. They
+supplied it; they do not need it back, and a read path is a leak waiting for a
+bug. `provider_connections` carries only a handle.
+
+Supabase Vault is the right long-term home and the schema is shaped for it:
+`secret_id` is opaque, so swapping the store changes one module. Vault is not
+available in the in-process Postgres the integration tests run against, and a
+credential path that cannot be tested is worse than one that can.
+
+### The client never chooses an upstream
+
+A request names a connection id. The server resolves it, scoped to the
+authenticated user, checks revocation, re-validates the URL, and decrypts the
+credential for that one call. A caller can pick *which of its own validated
+connections* to use and nothing else. `provider_connections` is server-written
+as of this milestone: 0002 had granted clients full write access, which was
+harmless when a connection was a label and is not harmless now that it carries
+a base URL and a mining eligibility.
+
+### Failover does not apply here
+
+A custom connection is an explicit billing relationship with the user's own
+credential. Rerouting it through another provider would silently turn a BYOK
+request into a USAGE-paid one, so it never happens. Gateway fallback stays only
+where semantics are known equivalent.
+
 ## Database
 
 `supabase/migrations/`:

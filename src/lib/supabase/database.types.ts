@@ -74,6 +74,18 @@ export type ProviderConnectionRow = {
   config: Record<string, unknown>;
   secret_ref: string | null;
   method: "routed_mining" | "verified_import" | "byok" | "subscription";
+  definition_id: string | null;
+  protocol: ProviderProtocolRow | null;
+  base_url: string | null;
+  /** Handle into provider_secrets. Never a credential. */
+  secret_id: string | null;
+  connection_status: ConnectionStatusDetailRow;
+  capabilities: Record<string, boolean>;
+  mining_eligibility: MiningEligibilityRow;
+  validated_at: string | null;
+  revoked_at: string | null;
+  last_success_at: string | null;
+  last_error_code: string | null;
   last_synced_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -184,6 +196,71 @@ export type ScoreRecordRow = {
 }
 
 export type EpochStateRow = "open" | "finalizing" | "settled";
+
+export type ProviderProtocolRow =
+  | "openai_compatible"
+  | "anthropic_compatible"
+  | "usage_import"
+  | "custom_unsupported";
+
+export type ConnectionStatusDetailRow =
+  | "validating"
+  | "active"
+  | "limited"
+  | "invalid_credentials"
+  | "unsupported_usage"
+  | "pending_pricing"
+  | "error"
+  | "revoked";
+
+export type MiningEligibilityRow =
+  | "eligible_route"
+  | "pending_pricing"
+  | "analytics_only"
+  | "unsupported";
+
+export type ProviderDefinitionRow = {
+  id: string;
+  slug: string;
+  display_name: string;
+  provider_family: string | null;
+  protocol: ProviderProtocolRow;
+  origin: "official" | "community_supported" | "custom";
+  default_base_url: string | null;
+  owner_user_id: string | null;
+  supports_models: boolean;
+  supports_streaming: boolean;
+  supports_usage: boolean;
+  supports_request_identity: boolean;
+  supports_cost: boolean;
+  supports_cache_usage: boolean;
+  supports_reasoning_usage: boolean;
+  verification_capability: VerificationTypeRow;
+  status: "active" | "deprecated" | "blocked";
+  created_at: string;
+  updated_at: string;
+}
+
+/** Ciphertext only. No client role can select from this table. */
+export type ProviderSecretRow = {
+  id: string;
+  user_id: string;
+  ciphertext: string;
+  hint: string | null;
+  created_at: string;
+  rotated_at: string | null;
+}
+
+export type ProviderModelRow = {
+  id: string;
+  definition_id: string;
+  upstream_model_id: string;
+  display_name: string | null;
+  protocol_model_key: string | null;
+  enabled: boolean;
+  status: "discovered" | "enabled" | "disabled" | "unsupported";
+  discovered_at: string;
+}
 
 export type ReconciliationStatusRow =
   | "clear"
@@ -473,6 +550,24 @@ export type Database = {
         Row: MiningProtocolVersionRow;
         Insert: MiningProtocolVersionRow;
         Update: Partial<MiningProtocolVersionRow>;
+        Relationships: [];
+      };
+      provider_definitions: {
+        Row: ProviderDefinitionRow;
+        Insert: Partial<ProviderDefinitionRow> & { slug: string; display_name: string; protocol: ProviderProtocolRow };
+        Update: Partial<ProviderDefinitionRow>;
+        Relationships: [];
+      };
+      provider_secrets: {
+        Row: ProviderSecretRow;
+        Insert: Partial<ProviderSecretRow> & { user_id: string; ciphertext: string };
+        Update: Partial<ProviderSecretRow>;
+        Relationships: [];
+      };
+      provider_models: {
+        Row: ProviderModelRow;
+        Insert: Partial<ProviderModelRow> & { definition_id: string; upstream_model_id: string };
+        Update: Partial<ProviderModelRow>;
         Relationships: [];
       };
       provider_routes: {

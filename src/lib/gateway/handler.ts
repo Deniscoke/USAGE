@@ -28,10 +28,34 @@ import { assessTrust, type TrustAssessment } from "@/lib/trust/production";
  * gateway identity or the identity of the resulting proof.
  */
 
-export interface GatewayRouteOptions {
+/**
+ * What carries this request, resolved per request.
+ *
+ * A static gateway for the built-in routes; a user's validated connection for
+ * the universal route. Resolution happens AFTER miner authentication, so an
+ * unauthenticated caller can never cause a connection lookup, and the resolved
+ * user id is what the lookup is scoped to.
+ */
+export interface ResolvedGateway {
   gateway: ComputeGateway;
+  credential: string;
+  /** Called after the request completes, for connection health. */
+  onOutcome?(outcome: { ok: boolean; errorCode?: string }): void;
+}
+
+export interface GatewayRouteOptions {
+  /** The gateway, when it is fixed for the route. */
+  gateway?: ComputeGateway;
   /** Server-side credential for that gateway. Never reaches a client. */
-  credential(): string | null;
+  credential?(): string | null;
+  /**
+   * Dynamic resolution, for routes where the gateway depends on the caller.
+   * Returning a Response rejects the request without touching upstream.
+   */
+  resolve?(input: {
+    userId: string;
+    params: Record<string, string | string[]>;
+  }): Promise<ResolvedGateway | Response>;
   /** What produced the traffic, e.g. "claude-code". Non-PII. */
   clientType: string;
   /** Protocol-shaped error body, so a client sees something it understands. */
@@ -76,12 +100,32 @@ async function recordObservation(
 }
 
 export function createGatewayRoute(options: GatewayRouteOptions) {
-  const { gateway, clientType, error } = options;
+  const { clientType, error } = options;
 
-  async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  /** The gateway and credential for this request, or a Response refusing it. */
+  async function resolveGateway(
+    userId: string,
+    params: Record<string, string | string[]>,
+  ): Promise<ResolvedGateway | Response> {
+    if (options.resolve) return options.resolve({ userId, params });
+
+    const gateway = options.gateway;
+    const credential = options.credential?.() ?? null;
+    if (!gateway) return error(503, "api_error", "USAGE Gateway is not configured.");
+    if (!credential) {
+      return error(503, "api_error", `USAGE Gateway upstream (${gateway.id}) is not configured.`);
+    }
+    return { gateway, credential };
+  }
+
+  async function POST(
+    request: NextRequest,
+    context: { params: Promise<Record<string, string | string[]>> },
+  ) {
     const requestId = randomUUID();
     const startedAt = Date.now();
-    const { path } = await context.params;
+    const params = await context.params;
+    const path = (params.path ?? []) as string[];
     const upstreamPath = path.join("/");
 
     const auth = await authenticateMiner(
@@ -113,18 +157,20 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       return error(429, "rate_limit_error", "Miner rate limit exceeded.");
     }
 
-    const credential = options.credential();
-    if (!credential) {
+    // Resolved only after authentication, and scoped to the authenticated user.
+    const resolved = await resolveGateway(auth.identity.userId, params);
+    if (resolved instanceof Response) {
       logGatewayRequest({
         requestId,
         userId: auth.identity.userId,
         path: upstreamPath,
-        status: 503,
+        status: resolved.status,
         latencyMs: Date.now() - startedAt,
-        outcome: "upstream_not_configured",
+        outcome: "gateway_unavailable",
       });
-      return error(503, "api_error", `USAGE Gateway upstream (${gateway.id}) is not configured.`);
+      return resolved;
     }
+    const { gateway, credential } = resolved;
 
     // Trust is assessed per request: the signing key must be present AND, when
     // configured, Vercel must confirm cryptographically which deployment this is.
@@ -184,6 +230,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       });
       // The message is ours, not the raw error: upstream errors can echo config.
       void caught;
+      resolved.onOutcome?.({ ok: false, errorCode: "unreachable" });
       return error(502, "api_error", "USAGE Gateway could not reach the upstream provider.");
     }
 
@@ -201,6 +248,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
         model: requestedModel,
         outcome: "upstream_error",
       });
+      resolved.onOutcome?.({ ok: false, errorCode: `http_${upstream.status}` });
       return new Response(body, { status: upstream.status, headers: responseHeaders });
     }
 
@@ -221,6 +269,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
         outcome: observation ? "usage_recorded" : "usage_unavailable",
       });
 
+      resolved.onOutcome?.({ ok: true });
       if (!observation) return;
       // Recording must not delay the client's response -- but a serverless
       // function is frozen the moment the response completes, so a plain
@@ -300,8 +349,12 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
   }
 
   /** Model discovery and other reads. Transparent; produces no usage evidence. */
-  async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-    const { path } = await context.params;
+  async function GET(
+    request: NextRequest,
+    context: { params: Promise<Record<string, string | string[]>> },
+  ) {
+    const params = await context.params;
+    const path = (params.path ?? []) as string[];
     const auth = await authenticateMiner(
       readPresentedToken(request.headers),
       await resolveMinerStore(),
@@ -310,10 +363,9 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       return error(401, "authentication_error", "Invalid USAGE miner credential.");
     }
 
-    const credential = options.credential();
-    if (!credential) {
-      return error(503, "api_error", `USAGE Gateway upstream (${gateway.id}) is not configured.`);
-    }
+    const resolved = await resolveGateway(auth.identity.userId, params);
+    if (resolved instanceof Response) return resolved;
+    const { gateway, credential } = resolved;
 
     const call = gateway.buildUpstreamCall(
       {

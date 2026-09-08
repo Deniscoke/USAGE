@@ -74,7 +74,10 @@ describe("row level security", () => {
     expect(rows[0].display_name).toBe("alice");
   });
 
-  it("does not let a user create a connection owned by someone else", async () => {
+  it("does not let a user create a connection at all, for anyone", async () => {
+    // Tightened in M8: a connection now carries a base URL, a credential handle
+    // and a mining eligibility, so it is written only by trusted server code.
+    // A client-written row could route to an endpoint that was never validated.
     await expect(
       db.asUser(
         bob,
@@ -82,7 +85,39 @@ describe("row level security", () => {
          values ($1, 'demo-provider', 'stolen')`,
         [alice],
       ),
-    ).rejects.toThrow(/row-level security/i);
+    ).rejects.toThrow(/permission denied/i);
+
+    await expect(
+      db.asUser(
+        bob,
+        `insert into provider_connections (user_id, provider, account_label)
+         values ($1, 'demo-provider', 'mine')`,
+        [bob],
+      ),
+    ).rejects.toThrow(/permission denied/i);
+  });
+
+  it("lets a user rename their own connection, and nothing else", async () => {
+    const [connection] = await db.asServiceRole<{ id: string }>(
+      `insert into provider_connections (user_id, provider, account_label, base_url)
+       values ($1, 'renamable', 'before', 'https://api.example.com') returning id`,
+      [alice],
+    );
+
+    await db.asUser(
+      alice,
+      `update provider_connections set account_label = 'after' where id = $1`,
+      [connection.id],
+    );
+
+    // The endpoint a request would be sent to is not the user's to change.
+    await expect(
+      db.asUser(
+        alice,
+        `update provider_connections set base_url = 'https://evil.example.com' where id = $1`,
+        [connection.id],
+      ),
+    ).rejects.toThrow(/permission denied/i);
   });
 });
 
