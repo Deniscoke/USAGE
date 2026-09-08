@@ -7,8 +7,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 /**
  * Device pairing, from the miner's side.
  *
- *   POST  start an attempt, get a code to show the user and a poll token
- *   GET   poll with that token until the user approves
+ *   POST                  start an attempt, get a code and a poll token
+ *   POST /api/miner/pair/poll  collect the credential once approved
  *
  * Deliberately unauthenticated: nothing owns a pairing request until a
  * signed-in user approves it in a browser. What stops abuse is that an
@@ -57,30 +57,5 @@ export async function POST(request: NextRequest) {
     // Where to send the user. Includes the code so approving is one click.
     verificationUrl: `${origin}/pair?code=${encodeURIComponent(started.userCode)}`,
     verificationUrlPlain: `${origin}/pair`,
-  });
-}
-
-export async function GET(request: NextRequest) {
-  if (!isSupabaseConfigured()) return json({ error: "unavailable" }, 503);
-
-  const pollToken = request.nextUrl.searchParams.get("poll_token");
-  if (!pollToken) return json({ error: "invalid_request" }, 400);
-
-  // Polling is bounded so a miner cannot hammer this while it waits.
-  if (!checkRateLimit(`pair-poll:${pollToken.slice(0, 16)}`, 60).allowed) {
-    return json({ error: "rate_limited" }, 429);
-  }
-
-  const store = createPairingStore(createAdminSupabase());
-  const state = await store.collect(pollToken);
-
-  if (state.status !== "approved") return json({ status: state.status });
-
-  // The credential is returned exactly once, to the holder of the poll token.
-  return json({
-    status: "approved",
-    token: state.token,
-    deviceId: state.deviceId,
-    deviceName: state.deviceName,
   });
 }
