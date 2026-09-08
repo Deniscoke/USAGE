@@ -38,6 +38,7 @@ export type EconomicStatusRow =
 export type ProofStatusRow = "observed" | "confirmed" | "rejected";
 
 export type MinerCredentialRow = {
+  device_id?: string | null;
   id: string;
   user_id: string;
   name: string;
@@ -260,6 +261,46 @@ export type ProviderSecretRow = {
   backend: "aes" | "vault";
   created_at: string;
   rotated_at: string | null;
+}
+
+export type MinerDeviceRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  platform: string;
+  app_version: string;
+  credential_id: string | null;
+  enabled_tools: string[];
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+}
+
+export type MinerPairingRequestRow = {
+  id: string;
+  user_code: string;
+  poll_token_hash: string;
+  device_name: string;
+  platform: string;
+  app_version: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  credential_id: string | null;
+  device_id: string | null;
+  /** Held for one collection only. Never returned to a browser. */
+  pending_token: string | null;
+  collected_at: string | null;
+  denied_at: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+export type MinerProtocolVersionRow = {
+  version: string;
+  minimum_supported: string;
+  released_at: string;
+  notes: string | null;
+  created_at: string;
 }
 
 export type ProviderOAuthRequestRow = {
@@ -614,6 +655,24 @@ export type Database = {
         Row: ProviderSecretRow;
         Insert: Partial<ProviderSecretRow> & { user_id: string; ciphertext: string };
         Update: Partial<ProviderSecretRow>;
+        Relationships: [];
+      };
+      miner_devices: {
+        Row: MinerDeviceRow;
+        Insert: Partial<MinerDeviceRow> & { user_id: string; name: string; platform: string; app_version: string };
+        Update: Partial<MinerDeviceRow>;
+        Relationships: [];
+      };
+      miner_pairing_requests: {
+        Row: MinerPairingRequestRow;
+        Insert: Partial<MinerPairingRequestRow> & { user_code: string; poll_token_hash: string; device_name: string; platform: string; app_version: string };
+        Update: Partial<MinerPairingRequestRow>;
+        Relationships: [];
+      };
+      miner_protocol_versions: {
+        Row: MinerProtocolVersionRow;
+        Insert: MinerProtocolVersionRow;
+        Update: Partial<MinerProtocolVersionRow>;
         Relationships: [];
       };
       provider_oauth_requests: {
