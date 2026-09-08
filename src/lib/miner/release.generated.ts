@@ -6,7 +6,7 @@ export const GENERATED_MINER_RELEASE: MinerReleaseManifest = {
   "version": "0.2.0",
   "channel": "beta",
   "platform": "win32-x64",
-  "builtAt": "2026-09-08T15:34:40.022Z",
+  "builtAt": "2026-09-08T16:46:08.178Z",
   "nodeVersion": "v24.13.1",
   "signed": false,
   "signingNote": "Not code-signed. Windows SmartScreen will warn about an unrecognised publisher. Verify the SHA-256 below before running.",
@@ -20,7 +20,7 @@ export const GENERATED_MINER_RELEASE: MinerReleaseManifest = {
     {
       "name": "USAGE-Miner-0.2.0-Setup.exe",
       "bytes": 91593728,
-      "sha256": "4fe610e3ea16280b78a8cd84fdbe4e750698128a9bcb2ac2b9e1cd558c74ab04",
+      "sha256": "61c2a1056645b9dc0fd6d2fa36e18eb44b86e6027ccfea9bfcd7b6991d18c278",
       "reproducible": false
     }
   ]

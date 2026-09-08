@@ -93,7 +93,7 @@ that downloads and executes anything.
 | `%APPDATA%\USAGE\credential.dpapi` | This device's token, DPAPI-encrypted | Only if you say yes |
 | `%APPDATA%\USAGE\miner.log` | Local event log, no secrets | Only if you say yes |
 | `%TEMP%\usage-miner-setup.log` | One line, only if install or uninstall failed | No |
-| `~/.claude/settings.json`, `~/.codex/config.toml` | Two routing settings, when mining is on | Restored, if you say yes |
+| `~/.claude/settings.json`, `~/.codex/config.toml` | Routing settings, when mining is on | Restored, if you say yes |
 
 No service. No scheduled task. No autostart. No administrator rights, ever —
 per-user install, `HKCU` only.

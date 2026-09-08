@@ -42,6 +42,16 @@ export const MINER_PROTOCOL_VERSION = "miner-protocol-v1";
 export const MINIMUM_MINER_VERSION = "0.1.0";
 
 /**
+ * The git tag these artifacts were published under.
+ *
+ * Set by hand when a release is cut, because the iteration suffix is a human
+ * decision that no version string implies: 0.2.0 can be published more than
+ * once as beta.1, beta.2, and the binaries differ each time. A test asserts it
+ * still contains the manifest's version, so the two cannot drift.
+ */
+export const MINER_RELEASE_TAG = "v0.2.0-beta.1";
+
+/**
  * Where the artifacts live.
  *
  * Not in this repository and not on this deployment: an 87 MB executable does
@@ -49,13 +59,17 @@ export const MINIMUM_MINER_VERSION = "0.1.0";
  * release asset, and the base is configurable so a fork or a staging build can
  * point somewhere else without editing code.
  */
-const DEFAULT_DOWNLOAD_BASE =
-  "https://github.com/Deniscoke/USAGE/releases/download/miner-v";
+const REPOSITORY = "https://github.com/Deniscoke/USAGE";
 
 export function downloadUrl(file: MinerReleaseFile): string {
   const base = process.env.USAGE_MINER_DOWNLOAD_BASE;
   if (base) return new URL(file.name, base.endsWith("/") ? base : `${base}/`).toString();
-  return `${DEFAULT_DOWNLOAD_BASE}${MINER_RELEASE.version}/${file.name}`;
+  return `${REPOSITORY}/releases/download/${MINER_RELEASE_TAG}/${file.name}`;
+}
+
+/** The release page itself, for anyone who wants the notes and every asset. */
+export function releaseUrl(): string {
+  return `${REPOSITORY}/releases/tag/${MINER_RELEASE_TAG}`;
 }
 
 /** The installer if there is one, else the bare executable. */

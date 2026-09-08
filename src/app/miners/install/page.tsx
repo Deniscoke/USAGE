@@ -150,7 +150,15 @@ export default function InstallMinerPage() {
             </li>
             <li>
               Stores this device&apos;s credential encrypted with Windows DPAPI, scoped to your user
-              account. It is never written to a config file, never printed, and never logged.
+              account. It is never printed and never logged.
+            </li>
+            <li>
+              One exception, worth knowing before you install: enabling mining for{" "}
+              <strong>Claude Code</strong> writes this device&apos;s miner token into its{" "}
+              <code>settings.json</code> in plaintext, because that file takes literal values and
+              cannot name a credential held elsewhere. It can spend your own connected provider
+              credit; it cannot reveal a provider key, and you can revoke it at any time. Codex is
+              unaffected — its config names the credential instead of containing it.
             </li>
             <li>
               If a tool already points at a custom endpoint, the app stops and asks rather than

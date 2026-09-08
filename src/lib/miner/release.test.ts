@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   MINER_RELEASE,
+  MINER_RELEASE_TAG,
   MINER_VERSION,
   downloadUrl,
   formatBytes,
@@ -52,6 +53,17 @@ describe("miner release manifest", () => {
     // real certificate and a real signing step, not an edit here.
     expect(MINER_RELEASE.signed).toBe(false);
     expect(MINER_RELEASE.signingNote).toMatch(/not code-signed/i);
+  });
+
+  it("publishes under a tag that names this version", () => {
+    // The tag is set by hand when a release is cut. If it stops matching the
+    // manifest, every download link on the site points at the wrong build --
+    // or at nothing.
+    expect(MINER_RELEASE_TAG).toContain(MINER_VERSION);
+    expect(MINER_RELEASE_TAG.startsWith("v")).toBe(true);
+    // A beta must not be published under a tag that reads like a stable one.
+    expect(MINER_RELEASE.channel).toBe("beta");
+    expect(MINER_RELEASE_TAG).toMatch(/beta/);
   });
 
   it("offers the installer as the primary download", () => {
