@@ -3,7 +3,9 @@ import { AppNav, PrivacyNote } from "@/components/product";
 import { Panel } from "@/components/ui";
 import {
   MINER_RELEASE,
+  MINER_RELEASE_TAG,
   downloadUrl,
+  releaseUrl,
   formatBytes,
   primaryDownload,
   type MinerReleaseFile,
@@ -172,12 +174,37 @@ export default function InstallMinerPage() {
           </ul>
         </Panel>
 
-        <Panel title="Prefer the source?">
-          <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-            The miner is in the repository under <code>miner/</code>, and{" "}
-            <code>npm run package</code> rebuilds this executable. It is byte-for-byte reproducible:
-            a build from the same source on the same Node version hashes to the value above.
-          </p>
+        <Panel title="Advanced">
+          <ul className="space-y-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            {MINER_RELEASE.files
+              .filter((file) => file.name !== primary?.name)
+              .map((file) => (
+                <li key={file.name}>
+                  <a href={downloadUrl(file)} className="text-[var(--routed)] hover:underline">
+                    {file.name}
+                  </a>{" "}
+                  — the standalone executable, {formatBytes(file.bytes)}. No installer, no Start Menu
+                  entry, nothing written outside your profile. Run it and it opens the same window.
+                </li>
+              ))}
+            <li>
+              <a href={releaseUrl()} className="text-[var(--routed)] hover:underline">
+                Release {MINER_RELEASE_TAG}
+              </a>{" "}
+              — notes, every asset, and <code>SHA256SUMS.txt</code>.
+            </li>
+            <li>
+              <a
+                href="https://github.com/Deniscoke/USAGE/tree/main/miner"
+                className="text-[var(--routed)] hover:underline"
+              >
+                Source
+              </a>{" "}
+              — <code>npm run package</code> in <code>miner/</code> rebuilds this. The standalone
+              executable is byte-for-byte reproducible: the same source on Node{" "}
+              {MINER_RELEASE.nodeVersion} hashes to the value above.
+            </li>
+          </ul>
         </Panel>
       </div>
 
