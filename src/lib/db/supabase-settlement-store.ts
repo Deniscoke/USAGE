@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import type { EpochParticipant, RewardEpoch } from "@/lib/domain/epoch";
+import type { EpochParticipant, EpochState, RewardEpoch } from "@/lib/domain/epoch";
 import type { SettlementStore } from "./settlement";
 
 /** SettlementStore over the Supabase service-role client. */
@@ -25,7 +25,18 @@ export function createSupabaseSettlementStore(
       return (data ?? []).map((row) => ({ userId: row.user_id, score: Number(row.points) }));
     },
 
+    async loadEpochState(epochId): Promise<EpochState | null> {
+      const { data, error } = await admin
+        .from("reward_epochs")
+        .select("state")
+        .eq("id", epochId)
+        .maybeSingle();
+      fail("loadEpochState", error);
+      return (data?.state as EpochState | undefined) ?? null;
+    },
+
     async upsertEpoch(epoch: RewardEpoch, networkScore, epochKind) {
+      const now = new Date().toISOString();
       const { error } = await admin.from("reward_epochs").upsert(
         {
           id: epoch.id,
@@ -35,7 +46,13 @@ export function createSupabaseSettlementStore(
           scoring_version: epoch.scoringVersion,
           network_score: networkScore,
           epoch_kind: epochKind,
-          settled_at: new Date().toISOString(),
+          state: epoch.state,
+          // Timestamps record when a phase was entered, so they are only set by
+          // the transition that enters it.
+          ...(epoch.state === "finalizing" || epoch.state === "settled"
+            ? { finalizing_at: now }
+            : {}),
+          ...(epoch.state === "settled" ? { settled_at: now } : {}),
         },
         { onConflict: "id" },
       );
@@ -78,18 +95,16 @@ export function createSupabaseSettlementStore(
       return data?.length ?? 0;
     },
 
-    async markSettled(day, userIds) {
+    async markSettled(epochId, userIds) {
       if (userIds.length === 0) return;
-      const from = `${day}T00:00:00.000Z`;
-      const to = new Date(new Date(from).getTime() + 86_400_000).toISOString();
-
+      // By epoch assignment, not by timestamp: a carried-forward event settles
+      // with the epoch it was actually assigned to.
       const { error } = await admin
         .from("usage_events")
         .update({ economic_status: "settled" })
         .in("user_id", [...userIds])
         .eq("economic_status", "eligible")
-        .gte("occurred_at", from)
-        .lt("occurred_at", to);
+        .eq("epoch_id", epochId);
       fail("markSettled", error);
     },
   };

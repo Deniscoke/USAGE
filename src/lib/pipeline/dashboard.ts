@@ -1,4 +1,10 @@
-import { dailyEpochFor, estimateReward, type RewardEpoch } from "@/lib/domain/epoch";
+import {
+  dailyEpochFor,
+  epochIdForDate,
+  estimateReward,
+  type EpochState,
+  type RewardEpoch,
+} from "@/lib/domain/epoch";
 import { EMPTY_TOTALS, utcDay } from "@/lib/domain/normalize";
 import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
 import type { DailyAggregate, NormalizedUsageRecord, UsageTotals, VerificationType } from "@/lib/domain/types";
@@ -76,12 +82,25 @@ export interface DashboardData {
     networkScore: number;
     networkParticipants: number;
     networkShare: number;
+    /**
+     * What the current OPEN epoch would pay at this instant. A projection from
+     * a live score against a fixed pool -- it moves while the epoch is open and
+     * is never written to the point ledger.
+     */
     estimatedPoints: number;
     excludedCostMicros: number;
     /** Real usage today whose economic weight is not yet established. */
     pendingCostMicros: number;
     networkIsSimulated: true;
+    state: EpochState;
   };
+
+  /**
+   * Usage Points actually credited by settled epochs. Permanent, and strictly
+   * separate from the estimate above: an estimate never becomes a balance
+   * except by settling the epoch that produced it.
+   */
+  settledPoints: number;
 
   recentEvents: NormalizedUsageRecord[];
   connections: ConnectionView[];
@@ -92,6 +111,9 @@ export interface DashboardInput {
   scores: readonly StoredDailyScore[];
   recentEvents: readonly NormalizedUsageRecord[];
   connections: readonly ConnectionSummary[];
+  /** Permanently credited Usage Points. Absent for callers with no ledger. */
+  settledPoints?: number;
+  epochStates?: Readonly<Record<string, EpochState>>;
   now?: Date;
 }
 
@@ -137,6 +159,8 @@ export function buildDashboardView({
   scores,
   recentEvents,
   connections,
+  settledPoints = 0,
+  epochStates = {},
   now = new Date(),
 }: DashboardInput): DashboardData {
   const today = utcDay(now.toISOString());
@@ -166,6 +190,9 @@ export function buildDashboardView({
       points: scoreByDay.get(day)?.points ?? 0,
     };
   });
+
+  // An epoch nobody has closed is open: it only leaves OPEN by an explicit act.
+  const epochState: EpochState = epochStates[epochIdForDate(now)] ?? "open";
 
   const todayScore = scoreByDay.get(today);
   const userScore = todayScore?.points ?? 0;
@@ -214,7 +241,7 @@ export function buildDashboardView({
     },
 
     epoch: {
-      definition: dailyEpochFor(now, DAILY_REWARD_POOL_POINTS),
+      definition: dailyEpochFor(now, DAILY_REWARD_POOL_POINTS, epochState),
       userScore,
       networkScore,
       networkParticipants: network.participants,
@@ -223,7 +250,10 @@ export function buildDashboardView({
       excludedCostMicros: todayScore?.excludedCostMicros ?? 0,
       pendingCostMicros: todayScore?.pendingCostMicros ?? 0,
       networkIsSimulated: true,
+      state: epochState,
     },
+
+    settledPoints,
 
     recentEvents: [...recentEvents],
     connections: connections.map((connection) => {

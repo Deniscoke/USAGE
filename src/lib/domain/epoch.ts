@@ -12,12 +12,124 @@ import { CURRENT_SCORING_VERSION } from "./scoring";
  * USAGE Points are off-chain, non-transferable and carry no monetary value.
  */
 
+/**
+ * Epoch lifecycle.
+ *
+ *   OPEN        accepts economic usage; a live score and an ESTIMATE exist,
+ *               and nothing may be written to the permanent point ledger.
+ *   FINALIZING  no new usage is assigned here; allocations are computed.
+ *   SETTLED     allocations are immutable and the ledger has been credited
+ *               exactly once.
+ *
+ * The states exist because an allocation id is `<epoch>:<user>` and the ledger
+ * has a unique index on it: crediting is therefore permanent and unrepeatable.
+ * Settling an epoch that is still collecting usage would silently strand every
+ * proof that arrived afterwards, so settlement is only legal once collection
+ * has explicitly stopped.
+ */
+export type EpochState = "open" | "finalizing" | "settled";
+
 export interface RewardEpoch {
   id: string;
   startsAt: string; // ISO, inclusive
   endsAt: string; // ISO, exclusive
   rewardPoolPoints: number;
   scoringVersion: string;
+  state: EpochState;
+}
+
+export class EpochLifecycleError extends Error {
+  constructor(
+    message: string,
+    readonly code: "not_open" | "not_finalizing" | "already_settled",
+  ) {
+    super(message);
+    this.name = "EpochLifecycleError";
+  }
+}
+
+/** Deterministic id of the daily epoch containing `at`, in UTC. */
+export function epochIdForDate(at: Date): string {
+  return `epoch-${at.toISOString().slice(0, 10)}`;
+}
+
+/** The UTC day an epoch id refers to. Inverse of `epochIdForDate`. */
+export function epochDay(epochId: string): string {
+  return epochId.slice("epoch-".length);
+}
+
+/** Only an OPEN epoch may be assigned new economic usage. */
+export function acceptsUsage(state: EpochState): boolean {
+  return state === "open";
+}
+
+/** Only a FINALIZING epoch may be settled. */
+export function assertSettleable(epochId: string, state: EpochState): void {
+  if (state === "settled") {
+    throw new EpochLifecycleError(`${epochId} is already settled.`, "already_settled");
+  }
+  if (state !== "finalizing") {
+    throw new EpochLifecycleError(
+      `${epochId} is ${state}; finalize it before settling.`,
+      "not_finalizing",
+    );
+  }
+}
+
+export interface EpochAssignment {
+  epochId: string;
+  /** The epoch the event would have belonged to from its timestamp alone. */
+  occurredEpochId: string;
+  carriedForward: boolean;
+}
+
+/**
+ * Assign an event to exactly one epoch.
+ *
+ * THE RULE (v1), stated once so every implementation agrees:
+ *
+ *   1. An event belongs to the epoch containing its `occurred_at`.
+ *   2. If that epoch is no longer OPEN when the proof is ingested, the event
+ *      carries forward to the first OPEN epoch at or after the ingestion
+ *      instant, and is marked `carriedForward`.
+ *
+ * Late compute is therefore never discarded and never retroactively changes a
+ * settled allocation. Both are deliberate: silently dropping a valid proof
+ * would steal work, and rewriting a settled epoch would break the one guarantee
+ * the ledger makes.
+ *
+ * `stateOf` answers for a given epoch id; an epoch nobody has recorded yet is
+ * OPEN, because an epoch only leaves OPEN by an explicit act.
+ */
+export function assignEpoch(input: {
+  occurredAt: string | Date;
+  ingestedAt: string | Date;
+  stateOf: (epochId: string) => EpochState;
+}): EpochAssignment {
+  const occurred = new Date(input.occurredAt);
+  const ingested = new Date(input.ingestedAt);
+  const occurredEpochId = epochIdForDate(occurred);
+
+  if (acceptsUsage(input.stateOf(occurredEpochId))) {
+    return { epochId: occurredEpochId, occurredEpochId, carriedForward: false };
+  }
+
+  // Walk forward from the ingestion day to the first epoch still accepting
+  // usage. Bounded: an unbroken run of closed future epochs is not a state the
+  // protocol can produce, and looping forever would be worse than failing.
+  const MAX_LOOKAHEAD_DAYS = 400;
+  let cursor = new Date(`${ingested.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  for (let i = 0; i <= MAX_LOOKAHEAD_DAYS; i += 1) {
+    const candidate = epochIdForDate(cursor);
+    if (acceptsUsage(input.stateOf(candidate))) {
+      return { epochId: candidate, occurredEpochId, carriedForward: candidate !== occurredEpochId };
+    }
+    cursor = new Date(cursor.getTime() + 86_400_000);
+  }
+  throw new EpochLifecycleError(
+    `No open epoch found within ${MAX_LOOKAHEAD_DAYS} days of ${ingested.toISOString()}.`,
+    "not_open",
+  );
 }
 
 export interface EpochParticipant {
@@ -35,7 +147,11 @@ export interface EpochAllocation {
 }
 
 /** Daily epoch containing `at`, in UTC. */
-export function dailyEpochFor(at: Date, rewardPoolPoints: number): RewardEpoch {
+export function dailyEpochFor(
+  at: Date,
+  rewardPoolPoints: number,
+  state: EpochState = "open",
+): RewardEpoch {
   const day = at.toISOString().slice(0, 10);
   const start = new Date(`${day}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
@@ -45,6 +161,7 @@ export function dailyEpochFor(at: Date, rewardPoolPoints: number): RewardEpoch {
     endsAt: end.toISOString(),
     rewardPoolPoints,
     scoringVersion: CURRENT_SCORING_VERSION,
+    state,
   };
 }
 

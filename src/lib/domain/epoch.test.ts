@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { allocateEpochRewards, dailyEpochFor, estimateReward, networkShare } from "./epoch";
+import {
+  allocateEpochRewards,
+  assertSettleable,
+  assignEpoch,
+  dailyEpochFor,
+  epochDay,
+  epochIdForDate,
+  EpochLifecycleError,
+  estimateReward,
+  networkShare,
+  type EpochState,
+} from "./epoch";
 
 describe("allocateEpochRewards", () => {
   it("splits the pool by share of network score", () => {
@@ -92,5 +103,85 @@ describe("dailyEpochFor", () => {
     expect(epoch.startsAt).toBe("2026-03-01T00:00:00.000Z");
     expect(epoch.endsAt).toBe("2026-03-02T00:00:00.000Z");
     expect(epoch.scoringVersion).toBe("usage_score_v1");
+  });
+});
+
+describe("epoch lifecycle", () => {
+  it("starts open, because an epoch only closes by an explicit act", () => {
+    expect(dailyEpochFor(new Date("2026-07-01T10:00:00.000Z"), 100).state).toBe("open");
+  });
+
+  it("settles only from finalizing", () => {
+    expect(() => assertSettleable("epoch-2026-07-01", "finalizing")).not.toThrow();
+    // An open epoch is still collecting, so its allocation would be provisional.
+    expect(() => assertSettleable("epoch-2026-07-01", "open")).toThrow(EpochLifecycleError);
+    // A settled allocation is immutable.
+    expect(() => assertSettleable("epoch-2026-07-01", "settled")).toThrow(/already settled/);
+  });
+
+  it("names an epoch deterministically from a UTC instant", () => {
+    expect(epochIdForDate(new Date("2026-07-01T23:59:59.999Z"))).toBe("epoch-2026-07-01");
+    expect(epochIdForDate(new Date("2026-07-02T00:00:00.000Z"))).toBe("epoch-2026-07-02");
+    expect(epochDay("epoch-2026-07-02")).toBe("2026-07-02");
+  });
+});
+
+describe("epoch assignment", () => {
+  const openEverywhere = () => "open" as EpochState;
+
+  it("assigns an event to the epoch containing occurred_at", () => {
+    const assignment = assignEpoch({
+      occurredAt: "2026-07-01T09:00:00.000Z",
+      ingestedAt: "2026-07-01T09:00:01.000Z",
+      stateOf: openEverywhere,
+    });
+    expect(assignment).toEqual({
+      epochId: "epoch-2026-07-01",
+      occurredEpochId: "epoch-2026-07-01",
+      carriedForward: false,
+    });
+  });
+
+  it("still uses occurred_at when the proof arrives on a later day", () => {
+    // Late is not the same as too late: the epoch is open, so it takes the work.
+    const assignment = assignEpoch({
+      occurredAt: "2026-07-01T09:00:00.000Z",
+      ingestedAt: "2026-07-03T09:00:00.000Z",
+      stateOf: openEverywhere,
+    });
+    expect(assignment.epochId).toBe("epoch-2026-07-01");
+    expect(assignment.carriedForward).toBe(false);
+  });
+
+  it("carries forward when the occurrence epoch has stopped accepting usage", () => {
+    const closed = new Set(["epoch-2026-07-01"]);
+    const assignment = assignEpoch({
+      occurredAt: "2026-07-01T23:00:00.000Z",
+      ingestedAt: "2026-07-02T00:30:00.000Z",
+      stateOf: (id) => (closed.has(id) ? "finalizing" : "open"),
+    });
+    expect(assignment.epochId).toBe("epoch-2026-07-02");
+    expect(assignment.occurredEpochId).toBe("epoch-2026-07-01");
+    expect(assignment.carriedForward).toBe(true);
+  });
+
+  it("skips past every closed epoch rather than discarding the compute", () => {
+    const closed = new Set(["epoch-2026-07-01", "epoch-2026-07-02", "epoch-2026-07-03"]);
+    const assignment = assignEpoch({
+      occurredAt: "2026-07-01T12:00:00.000Z",
+      ingestedAt: "2026-07-02T12:00:00.000Z",
+      stateOf: (id) => (closed.has(id) ? "settled" : "open"),
+    });
+    expect(assignment.epochId).toBe("epoch-2026-07-04");
+    expect(assignment.carriedForward).toBe(true);
+  });
+
+  it("is deterministic: the same inputs always name the same epoch", () => {
+    const input = {
+      occurredAt: "2026-07-01T23:00:00.000Z",
+      ingestedAt: "2026-07-02T00:30:00.000Z",
+      stateOf: (id: string) => (id === "epoch-2026-07-01" ? "settled" : "open") as EpochState,
+    };
+    expect(assignEpoch(input)).toEqual(assignEpoch(input));
   });
 });

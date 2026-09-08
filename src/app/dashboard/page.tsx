@@ -369,16 +369,28 @@ export default async function DashboardPage() {
                     <dt className="text-[var(--muted)]">Your share</dt>
                     <dd className="tnum">{(data.epoch.networkShare * 100).toFixed(4)}%</dd>
                   </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--muted)]">Epoch state</dt>
+                    <dd className="uppercase tracking-wide">{data.epoch.state}</dd>
+                  </div>
                   <div className="flex justify-between gap-3 border-t border-[var(--border)] pt-2.5">
-                    <dt className="text-[var(--foreground)]">Estimated reward</dt>
+                    <dt className="text-[var(--foreground)]">Estimated Usage Points</dt>
                     <dd className="tnum text-[var(--warn)]">
                       {formatNumber(data.epoch.estimatedPoints)} pts
                     </dd>
                   </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--foreground)]">Settled Usage Points</dt>
+                    <dd className="tnum">{formatNumber(data.settledPoints)} pts</dd>
+                  </div>
                 </dl>
                 <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-                  No USAGE network exists yet: the network denominator is simulated, so this
-                  estimate is illustrative. Points are non-transferable and carry no monetary value.
+                  {data.epoch.state === "open"
+                    ? "This epoch is OPEN: the estimate moves as usage arrives and nothing has been credited yet."
+                    : "This epoch no longer accepts usage; later proofs carry forward to the next open epoch."}{" "}
+                  Only a settled epoch credits Usage Points, and a settled allocation never changes.
+                  No USAGE network exists yet: the network denominator is simulated, so the estimate
+                  is illustrative. Points are non-transferable and carry no monetary value.
                 </p>
               </Panel>
 

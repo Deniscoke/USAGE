@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Database,
+  EpochStateRow,
   ProviderConnectionRow,
   ScoreRecordRow,
   UsageDailyAggregateRow,
@@ -8,7 +9,13 @@ import type {
 } from "@/lib/supabase/database.types";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
-import { rowToDailyAggregate, rowToScore, rowToUsageRecord, type StoredDailyScore } from "./rows";
+import {
+  rowToDailyAggregate,
+  rowToScore,
+  rowToUsageRecord,
+  toSafeInteger,
+  type StoredDailyScore,
+} from "./rows";
 
 /**
  * Dashboard reads.
@@ -32,6 +39,14 @@ export interface DashboardSnapshot {
   scores: StoredDailyScore[];
   recentEvents: NormalizedUsageRecord[];
   connections: ConnectionSummary[];
+  /**
+   * Usage Points that have actually been credited by a settled epoch. This is
+   * the permanent number; an estimate for an open epoch is derived, never
+   * stored, and never added to it.
+   */
+  settledPoints: number;
+  /** Lifecycle state of the epochs the user has usage in, by epoch id. */
+  epochStates: Record<string, EpochStateRow>;
 }
 
 const PAGE_SIZE = 1000;
@@ -56,7 +71,8 @@ export async function loadDashboardSnapshot(
   userId: string,
   sinceDay: string,
 ): Promise<DashboardSnapshot> {
-  const [aggregateRows, scoreRows, eventRows, connectionRows] = await Promise.all([
+  const [aggregateRows, scoreRows, eventRows, connectionRows, ledgerRows, epochRows] =
+    await Promise.all([
     fetchAllPages<UsageDailyAggregateRow>(
       (from, to) =>
         supabase
@@ -98,6 +114,22 @@ export async function loadDashboardSnapshot(
         if (error) throw new Error(`loadConnections: ${error.message}`);
         return (data ?? []) as ProviderConnectionRow[];
       }),
+    // RLS restricts this to the signed-in user's own ledger rows.
+    supabase
+      .from("usage_point_ledger")
+      .select("amount")
+      .eq("user_id", userId)
+      .then(({ data, error }) => {
+        if (error) throw new Error(`loadLedger: ${error.message}`);
+        return (data ?? []) as { amount: number | string }[];
+      }),
+    supabase
+      .from("reward_epochs")
+      .select("id, state")
+      .then(({ data, error }) => {
+        if (error) throw new Error(`loadEpochs: ${error.message}`);
+        return (data ?? []) as { id: string; state: EpochStateRow }[];
+      }),
   ]);
 
   return {
@@ -111,5 +143,10 @@ export async function loadDashboardSnapshot(
       status: row.status,
       lastSyncedAt: row.last_synced_at,
     })),
+    settledPoints: ledgerRows.reduce(
+      (acc, row) => acc + toSafeInteger(row.amount, "usage_point_ledger.amount"),
+      0,
+    ),
+    epochStates: Object.fromEntries(epochRows.map((row) => [row.id, row.state])),
   };
 }

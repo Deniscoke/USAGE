@@ -174,3 +174,38 @@ describe("dashboardSinceDay", () => {
     );
   });
 });
+
+describe("estimated versus settled Usage Points", () => {
+  it("treats an unrecorded epoch as open and shows an estimate only", () => {
+    const view = buildDashboardView({ ...EMPTY, scores: [score({})] });
+
+    expect(view.epoch.state).toBe("open");
+    expect(view.epoch.estimatedPoints).toBeGreaterThan(0);
+    // Nothing has been credited: an estimate is a projection, not a balance.
+    expect(view.settledPoints).toBe(0);
+  });
+
+  it("moves the estimate as usage arrives during an open epoch", () => {
+    const small = buildDashboardView({ ...EMPTY, scores: [score({ points: 100 })] });
+    const large = buildDashboardView({ ...EMPTY, scores: [score({ points: 10_000 })] });
+
+    expect(large.epoch.estimatedPoints).toBeGreaterThan(small.epoch.estimatedPoints);
+    // ...while the permanent balance stays exactly where it was.
+    expect(large.settledPoints).toBe(small.settledPoints);
+  });
+
+  it("reports the credited balance separately from the estimate", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      scores: [score({})],
+      settledPoints: 100_000,
+      epochStates: { "epoch-2026-03-15": "settled" },
+    });
+
+    expect(view.epoch.state).toBe("settled");
+    expect(view.settledPoints).toBe(100_000);
+    // The two numbers never merge: an estimate becomes a balance only by
+    // settling the epoch that produced it.
+    expect(view.settledPoints).not.toBe(view.epoch.estimatedPoints);
+  });
+});

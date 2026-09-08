@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, UsageEventRow } from "@/lib/supabase/database.types";
+import type { EpochState } from "@/lib/domain/epoch";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import { dailyAggregateToRow, rowToUsageRecord, type StoredDailyScore } from "./rows";
 import type { IngestStore, InsertedEventRef, ProofDraft } from "./ingest";
@@ -111,6 +112,35 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
         if (rows.length < pageSize) break;
       }
       return records;
+    },
+
+    async loadEventsForEpochs(userId, epochIds) {
+      if (epochIds.length === 0) return [];
+      const records: NormalizedUsageRecord[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await admin
+          .from("usage_events")
+          .select("*")
+          .eq("user_id", userId)
+          .in("epoch_id", [...epochIds])
+          .order("occurred_at", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        fail("loadEventsForEpochs", error);
+        const rows = (data ?? []) as UsageEventRow[];
+        records.push(...rows.map(rowToUsageRecord));
+        if (rows.length < pageSize) break;
+      }
+      return records;
+    },
+
+    async loadClosedEpochs() {
+      const { data, error } = await admin
+        .from("reward_epochs")
+        .select("id, state")
+        .neq("state", "open");
+      fail("loadClosedEpochs", error);
+      return new Map((data ?? []).map((row) => [row.id, row.state as EpochState]));
     },
 
     async replaceDailyAggregates(userId, days) {

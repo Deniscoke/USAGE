@@ -38,6 +38,8 @@ describe("row mapping", () => {
     protocol_compute_micros: 4_500,
     protocol_pricing_version: "usage-pricing-v1",
     protocol_pricing_basis: "protocol_pricing",
+    epoch_id: "epoch-2026-03-15",
+    carried_forward: false,
     fraud_status: "none",
     reward_hold: false,
     raw_metadata: { bucket: "hour" },

@@ -45,9 +45,12 @@ function toGatewayUsage(usage: AnthropicUsage): GatewayTokenUsage {
       fresh === undefined && cacheRead === undefined && cacheWrite === undefined
         ? undefined
         : {
+            // Absent stays absent. A model that reported no cache fields has
+            // not told us they were zero, and a fabricated zero would be
+            // indistinguishable from a measured one.
             noCacheTokens: fresh,
-            cacheReadTokens: cacheRead ?? 0,
-            cacheWriteTokens: cacheWrite ?? 0,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
           },
   };
 }

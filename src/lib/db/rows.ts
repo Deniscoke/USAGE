@@ -61,6 +61,8 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
       ? toSafeInteger(row.protocol_compute_micros ?? 0, "protocol_compute_micros")
       : undefined,
     protocolPricingVersion: row.protocol_pricing_version ?? null,
+    epochId: row.epoch_id ?? null,
+    carriedForward: row.carried_forward ?? false,
     rawMetadata: row.raw_metadata ?? {},
   };
 }
@@ -85,6 +87,8 @@ export interface UsageEventInsert {
   protocol_compute_micros: number;
   protocol_pricing_version: string | null;
   protocol_pricing_basis: string | null;
+  epoch_id: string | null;
+  carried_forward: boolean;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
 }
 
@@ -114,6 +118,9 @@ export function usageRecordToInsert(
     protocol_compute_micros: record.protocolComputeMicros ?? 0,
     protocol_pricing_version: record.protocolPricingVersion ?? null,
     protocol_pricing_basis: record.protocolPricingVersion ? "protocol_pricing" : null,
+    // Assigned by ingestion, from the epoch lifecycle -- never from input.
+    epoch_id: record.epochId ?? null,
+    carried_forward: record.carriedForward ?? false,
     raw_metadata: record.rawMetadata,
   };
 }

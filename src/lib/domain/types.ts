@@ -76,6 +76,15 @@ export interface NormalizedUsageRecord {
   protocolComputeMicros?: number;
   protocolPricingVersion?: string | null;
 
+  /**
+   * The one epoch this event was assigned to at ingestion. Never revised, so a
+   * settled epoch stays settled. `carriedForward` records that the assignment
+   * differs from the epoch containing `occurredAt`, because that one had
+   * already stopped accepting usage. See assignEpoch() in domain/epoch.ts.
+   */
+  epochId?: string | null;
+  carriedForward?: boolean;
+
   /** Small, non-sensitive provider metadata. Never prompts or completions. */
   rawMetadata: Record<string, string | number | boolean | null>;
 }

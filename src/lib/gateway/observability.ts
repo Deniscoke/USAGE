@@ -46,9 +46,36 @@ export interface GatewayLogFields {
   outcome: string;
 }
 
+/**
+ * The only fields that are ever written to a log line.
+ *
+ * An allowlist rather than a spread, because the gateway now handles a Claude
+ * subscription credential it merely forwards: an accidental extra field on a
+ * call site must not be able to reach stdout. Anything not named here is
+ * dropped, whatever it is.
+ */
+const LOGGED_FIELDS = [
+  "requestId",
+  "userId",
+  "path",
+  "status",
+  "latencyMs",
+  "streaming",
+  "model",
+  "generationId",
+  "inputTokens",
+  "outputTokens",
+  "costMicroUsd",
+  "outcome",
+] as const satisfies readonly (keyof GatewayLogFields)[];
+
 export function logGatewayRequest(fields: GatewayLogFields): void {
+  const line: Record<string, unknown> = { at: new Date().toISOString() };
+  for (const field of LOGGED_FIELDS) {
+    if (fields[field] !== undefined) line[field] = fields[field];
+  }
   // One structured line. No body, no headers, no credentials.
-  process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
+  process.stdout.write(`${JSON.stringify(line)}\n`);
 }
 
 /**

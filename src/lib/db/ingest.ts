@@ -1,3 +1,4 @@
+import { assignEpoch, epochDay, type EpochState } from "@/lib/domain/epoch";
 import { aggregateDaily, utcDay } from "@/lib/domain/normalize";
 import { CURRENT_SCORING_VERSION, scoreRecords } from "@/lib/domain/scoring";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
@@ -73,6 +74,13 @@ export interface IngestStore {
   insertEvents(rows: ReturnType<typeof usageRecordToInsert>[]): Promise<InsertedEventRef[]>;
   insertProofs(userId: string, proofs: readonly ProofDraft[]): Promise<void>;
   loadEventsForDays(userId: string, days: readonly string[]): Promise<NormalizedUsageRecord[]>;
+  /** Events by epoch assignment, which is what scoring and settlement work on. */
+  loadEventsForEpochs(userId: string, epochIds: readonly string[]): Promise<NormalizedUsageRecord[]>;
+  /**
+   * Epochs that have stopped accepting usage. Only these are recorded: an
+   * epoch nobody has closed is open, including one that does not exist yet.
+   */
+  loadClosedEpochs(): Promise<Map<string, EpochState>>;
   upsertDailyAggregates(userId: string, aggregates: readonly DailyAggregate[]): Promise<void>;
   replaceDailyAggregates(userId: string, days: readonly string[]): Promise<void>;
   upsertScores(userId: string, scores: readonly StoredDailyScore[]): Promise<void>;
@@ -133,13 +141,31 @@ function proofFromRecord(
 export async function ingestRecords(
   store: IngestStore,
   userId: string,
-  records: readonly NormalizedUsageRecord[],
+  inputRecords: readonly NormalizedUsageRecord[],
   connectionIds: ReadonlyMap<string, string | null> = new Map(),
   proofOverrides: ReadonlyMap<string, NormalizedObservation["proof"]> = new Map(),
 ): Promise<Omit<IngestSummary, "failures" | "fetched">> {
-  if (records.length === 0) {
+  if (inputRecords.length === 0) {
     return { inserted: 0, duplicates: 0, daysRecomputed: 0 };
   }
+
+  // Epoch assignment happens once, here, before anything is written. A closed
+  // epoch cannot take new usage, so a late proof carries forward to the current
+  // open one rather than vanishing into a settled allocation.
+  const closedEpochs = await store.loadClosedEpochs();
+  const ingestedAt = new Date().toISOString();
+  const records = inputRecords.map((record) => {
+    const assignment = assignEpoch({
+      occurredAt: record.occurredAt,
+      ingestedAt,
+      stateOf: (epochId) => closedEpochs.get(epochId) ?? "open",
+    });
+    return {
+      ...record,
+      epochId: assignment.epochId,
+      carriedForward: assignment.carriedForward,
+    };
+  });
 
   const rows = records.map((record) =>
     usageRecordToInsert(userId, record, connectionIds.get(record.provider) ?? null),
@@ -167,19 +193,25 @@ export async function ingestRecords(
     .filter((proof): proof is ProofDraft => proof !== null);
   await store.insertProofs(userId, proofs);
 
+  // Aggregates describe usage as it happened, so they are keyed by the day the
+  // work occurred. Scores are the economic layer, so they are keyed by the
+  // epoch the work was assigned to. Those differ only for carried-forward
+  // events, and conflating them would either misreport a day's activity or
+  // mis-credit an epoch.
   const days = [...new Set(records.map((record) => utcDay(record.occurredAt)))].sort();
   const storedEvents = await store.loadEventsForDays(userId, days);
-
-  // Aggregation and scoring stay separate layers over the same stored events.
   const aggregates = aggregateDaily(storedEvents);
   await store.replaceDailyAggregates(userId, days);
   await store.upsertDailyAggregates(userId, aggregates);
 
-  const scores: StoredDailyScore[] = days.map((day) => {
-    const dayEvents = storedEvents.filter((event) => utcDay(event.occurredAt) === day);
-    const scored = scoreRecords(dayEvents, CURRENT_SCORING_VERSION);
+  const epochIds = [...new Set(records.map((record) => record.epochId))].sort();
+  const epochEvents = await store.loadEventsForEpochs(userId, epochIds);
+
+  const scores: StoredDailyScore[] = epochIds.map((epochId) => {
+    const events = epochEvents.filter((event) => event.epochId === epochId);
+    const scored = scoreRecords(events, CURRENT_SCORING_VERSION);
     return {
-      day,
+      day: epochDay(epochId),
       algorithmVersion: scored.algorithmVersion,
       weightedCostMicros: scored.weightedCostMicros,
       excludedCostMicros: scored.excludedCostMicros,

@@ -97,6 +97,8 @@ export type UsageEventRow = {
   protocol_compute_micros: number;
   protocol_pricing_version: string | null;
   protocol_pricing_basis: string | null;
+  epoch_id: string | null;
+  carried_forward: boolean;
   fraud_status: string;
   reward_hold: boolean;
   raw_metadata: Record<string, string | number | boolean | null>;
@@ -175,6 +177,8 @@ export type ScoreRecordRow = {
   created_at: string;
 }
 
+export type EpochStateRow = "open" | "finalizing" | "settled";
+
 export type RewardEpochRow = {
   id: string;
   starts_at: string;
@@ -183,6 +187,8 @@ export type RewardEpochRow = {
   scoring_version: string;
   network_score: string | number;
   settled_at: string | null;
+  finalizing_at: string | null;
+  state: EpochStateRow;
   pricing_version: string | null;
   epoch_kind: string;
 }
@@ -260,6 +266,8 @@ export type UsageEventInsertRow = {
   protocol_compute_micros?: number;
   protocol_pricing_version?: string | null;
   protocol_pricing_basis?: string | null;
+  epoch_id?: string | null;
+  carried_forward?: boolean;
   raw_metadata?: Record<string, string | number | boolean | null>;
 }
 

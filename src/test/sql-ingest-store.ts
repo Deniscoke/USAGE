@@ -1,6 +1,7 @@
 import type { IngestStore, InsertedEventRef, ProofDraft } from "@/lib/db/ingest";
 import { rowToUsageRecord } from "@/lib/db/rows";
 import type { UsageEventRow } from "@/lib/supabase/database.types";
+import type { EpochState } from "@/lib/domain/epoch";
 import type { DailyAggregate } from "@/lib/domain/types";
 import type { StoredDailyScore } from "@/lib/db/rows";
 import type { TestDb } from "./pg";
@@ -47,6 +48,8 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "protocol_compute_micros",
         "protocol_pricing_version",
         "protocol_pricing_basis",
+        "epoch_id",
+        "carried_forward",
         "raw_metadata",
       ] as const;
 
@@ -139,6 +142,24 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         [userId, from, to],
       );
       return rows.map(rowToUsageRecord);
+    },
+
+    async loadEventsForEpochs(userId, epochIds) {
+      if (epochIds.length === 0) return [];
+      const rows = await db.asServiceRole<UsageEventRow>(
+        `select * from usage_events
+         where user_id = $1 and epoch_id = any($2::text[])
+         order by occurred_at asc`,
+        [userId, epochIds],
+      );
+      return rows.map(rowToUsageRecord);
+    },
+
+    async loadClosedEpochs() {
+      const rows = await db.asServiceRole<{ id: string; state: EpochState }>(
+        `select id, state from reward_epochs where state <> 'open'`,
+      );
+      return new Map(rows.map((row) => [row.id, row.state]));
     },
 
     async replaceDailyAggregates(userId, days) {

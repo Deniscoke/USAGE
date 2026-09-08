@@ -4,16 +4,22 @@
  *   npm run usage:settle-epoch                # today (UTC)
  *   npm run usage:settle-epoch -- 2026-06-01
  *
- * Idempotent. Running it twice credits nothing the second time, because an
- * allocation id may appear in the ledger only once.
+ * Two explicit phases, because crediting the ledger is permanent:
+ *
+ *   FINALIZING  the epoch stops accepting usage; late proofs from here on
+ *               carry forward to the next open epoch
+ *   SETTLED     allocations are computed once and credited once
+ *
+ * Running it again on a settled epoch is refused rather than silently
+ * re-credited: settled allocations are immutable.
  *
  * Usage Points are an off-chain protocol accounting unit — not money, not a
  * security, not a claim on any future token.
  */
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseSettlementStore } from "../src/lib/db/supabase-settlement-store";
-import { settleEpoch } from "../src/lib/db/settlement";
-import { dailyEpochFor } from "../src/lib/domain/epoch";
+import { finalizeEpoch, settleEpoch } from "../src/lib/db/settlement";
+import { dailyEpochFor, EpochLifecycleError } from "../src/lib/domain/epoch";
 import { DAILY_REWARD_POOL_POINTS } from "../src/lib/demo/network";
 import { CURRENT_SCORING_VERSION } from "../src/lib/domain/scoring";
 import { formatNumber } from "../src/lib/domain/money";
@@ -35,11 +41,26 @@ async function main(): Promise<number> {
   });
 
   const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), DAILY_REWARD_POOL_POINTS);
-  const result = await settleEpoch(createSupabaseSettlementStore(admin), epoch, {
+  const store = createSupabaseSettlementStore(admin);
+  const options = {
     algorithmVersion: CURRENT_SCORING_VERSION,
     // Not a public network yet, and the record says so.
     epochKind: "development",
-  });
+  };
+
+  let result;
+  try {
+    const finalized = await finalizeEpoch(store, epoch, options);
+    line(`Finalized      : ${finalized.epochId} (no longer accepting usage)`);
+    result = await settleEpoch(store, epoch, options);
+  } catch (error) {
+    if (error instanceof EpochLifecycleError) {
+      line(`Refused: ${error.message}`);
+      line("Settled allocations are immutable; nothing was changed.");
+      return 1;
+    }
+    throw error;
+  }
 
   line("USAGE — EPOCH SETTLEMENT (development epoch)");
   line("===========================================");

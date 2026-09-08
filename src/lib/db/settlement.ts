@@ -1,4 +1,11 @@
-import { allocateEpochRewards, type EpochParticipant, type RewardEpoch } from "@/lib/domain/epoch";
+import {
+  allocateEpochRewards,
+  assertSettleable,
+  EpochLifecycleError,
+  type EpochParticipant,
+  type EpochState,
+  type RewardEpoch,
+} from "@/lib/domain/epoch";
 
 /**
  * Epoch settlement.
@@ -19,6 +26,8 @@ import { allocateEpochRewards, type EpochParticipant, type RewardEpoch } from "@
 export interface SettlementStore {
   /** Daily scores for the epoch, by user. */
   loadEpochScores(day: string, algorithmVersion: string): Promise<EpochParticipant[]>;
+  /** Null when the epoch has never been recorded, which means it is still open. */
+  loadEpochState(epochId: string): Promise<EpochState | null>;
   upsertEpoch(epoch: RewardEpoch, networkScore: number, epochKind: string): Promise<void>;
   /** Writes allocations and ledger entries. Must ignore an allocation id it already has. */
   creditAllocations(
@@ -31,8 +40,8 @@ export interface SettlementStore {
       points: number;
     }[],
   ): Promise<number>;
-  /** Marks the scored events as counted, so they cannot be settled into another epoch. */
-  markSettled(day: string, userIds: readonly string[]): Promise<void>;
+  /** Marks the epoch's events as counted, so they cannot be settled into another epoch. */
+  markSettled(epochId: string, userIds: readonly string[]): Promise<void>;
 }
 
 export interface SettlementResult {
@@ -49,16 +58,60 @@ export function allocationId(epochId: string, userId: string): string {
   return `${epochId}:${userId}`;
 }
 
+/**
+ * Stop an epoch collecting usage.
+ *
+ * The separate phase is the whole point: while an epoch is OPEN a proof can
+ * still be assigned to it, so any allocation computed then would be provisional
+ * -- but a credited allocation is permanent. Finalizing draws the line, after
+ * which late proofs carry forward to the next open epoch instead of silently
+ * disappearing into a settled one.
+ */
+export async function finalizeEpoch(
+  store: SettlementStore,
+  epoch: RewardEpoch,
+  options: { algorithmVersion: string; epochKind?: string } = { algorithmVersion: "usage_score_v1" },
+): Promise<{ epochId: string; state: EpochState; networkScore: number }> {
+  const state = (await store.loadEpochState(epoch.id)) ?? "open";
+  if (state === "settled") {
+    throw new EpochLifecycleError(`${epoch.id} is already settled.`, "already_settled");
+  }
+
+  const day = epoch.startsAt.slice(0, 10);
+  const participants = await store.loadEpochScores(day, options.algorithmVersion);
+  const networkScore = participants.reduce((acc, p) => acc + p.score, 0);
+
+  await store.upsertEpoch(
+    { ...epoch, state: "finalizing" },
+    networkScore,
+    options.epochKind ?? "development",
+  );
+  return { epochId: epoch.id, state: "finalizing", networkScore };
+}
+
+/**
+ * Settle a FINALIZING epoch into permanent Usage Points.
+ *
+ * Refuses an OPEN epoch (its usage is still changing) and an already SETTLED
+ * one (its allocations are immutable). The ledger's unique allocation id is the
+ * second line of defence behind that rule, not a substitute for it.
+ */
 export async function settleEpoch(
   store: SettlementStore,
   epoch: RewardEpoch,
   options: { algorithmVersion: string; epochKind?: string } = { algorithmVersion: "usage_score_v1" },
 ): Promise<SettlementResult> {
+  assertSettleable(epoch.id, (await store.loadEpochState(epoch.id)) ?? "open");
+
   const day = epoch.startsAt.slice(0, 10);
   const participants = await store.loadEpochScores(day, options.algorithmVersion);
   const networkScore = participants.reduce((acc, p) => acc + p.score, 0);
 
-  await store.upsertEpoch(epoch, networkScore, options.epochKind ?? "development");
+  await store.upsertEpoch(
+    { ...epoch, state: "settled" },
+    networkScore,
+    options.epochKind ?? "development",
+  );
 
   const allocations = allocateEpochRewards(participants, epoch.rewardPoolPoints);
   const distributed = allocations.reduce((acc, a) => acc + a.points, 0);
@@ -75,7 +128,7 @@ export async function settleEpoch(
   );
 
   await store.markSettled(
-    day,
+    epoch.id,
     participants.map((participant) => participant.userId),
   );
 
