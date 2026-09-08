@@ -1,0 +1,116 @@
+# Build and sign USAGE Miner.
+#
+# NOT WIRED UP YET, ON PURPOSE. It runs only when someone starts it by hand
+# (`workflow_dispatch`), and the signing step is skipped unless the SignPath
+# secrets exist. Until USAGE has a code-signing identity this produces exactly
+# what a local `npm run package` produces -- an unsigned build -- so nothing
+# here can quietly start claiming to be signed.
+#
+# WHY IT EXISTS ANYWAY. SignPath Foundation will not sign a binary a developer
+# built on their laptop. It verifies, through the GitHub App, that a specific
+# GitHub-hosted runner executed a specific workflow at a specific commit, and
+# that the artifact was stored as a workflow artifact before it was submitted.
+# That chain has to be in place before an application is worth making, and it
+# is worth having regardless: a release anyone can reproduce from a public
+# commit is a stronger claim than a hash from a machine nobody can inspect.
+#
+# BEFORE THIS CAN SIGN ANYTHING, all of which are human decisions:
+#   1. Add an OSI-approved licence to the repository. There is none today, so
+#      the code is "all rights reserved" and ineligible.
+#   2. Apply to SignPath Foundation and be accepted.
+#   3. Install the SignPath GitHub App and set the organization, project,
+#      signing policy and artifact configuration to match the names below.
+#   4. Add SIGNPATH_API_TOKEN as a repository secret.
+#   5. Publish a code-signing policy page, which the Foundation requires.
+#
+# The executable signing identity is SEPARATE from the Proof of Usage receipt
+# key, and must stay separate. A compromised signing certificate means bad
+# binaries; a compromised receipt key means fabricated proofs. Neither key may
+# ever stand in for the other.
+
+name: Release USAGE Miner
+
+on:
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Submit the build to SignPath (requires SIGNPATH_API_TOKEN)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # SignPath's action reads workflow metadata from GitHub rather than trusting
+  # anything the build script says about itself.
+  id-token: write
+
+jobs:
+  build:
+    # Windows-hosted, and GitHub-hosted rather than self-hosted: SignPath
+    # requires every job leading to a signing request to run on their agents.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned. The artifact literally contains this runtime, so the Node
+          # version is part of what the checksum means.
+          node-version: "24.13.1"
+
+      - name: Install miner dependencies
+        working-directory: miner
+        run: npm ci
+
+      - name: Check
+        working-directory: miner
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Package
+        working-directory: miner
+        run: npm run package
+
+      # Stored before signing, because SignPath will only sign an artifact it
+      # can see GitHub received from the workflow itself.
+      - name: Upload unsigned artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: usage-miner-unsigned
+          path: miner/dist/artifacts/
+          if-no-files-found: error
+
+      - name: Submit to SignPath
+        if: ${{ inputs.sign && env.SIGNPATH_API_TOKEN != '' }}
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: usage-miner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-executables
+          github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: miner/dist/signed
+
+      - name: Upload signed artifacts
+        if: ${{ inputs.sign && env.SIGNPATH_API_TOKEN != '' }}
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usage-miner-signed
+          path: miner/dist/signed/
+          if-no-files-found: error
+
+      # Deliberately no automatic release publication. Attaching binaries to a
+      # release is an outward-facing act; it stays a decision a person makes,
+      # after checking the checksums against a local rebuild.
+      - name: Checksums
+        working-directory: miner/dist/artifacts
+        shell: bash
+        run: cat SHA256SUMS.txt

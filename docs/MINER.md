@@ -172,6 +172,35 @@ SignPath Foundation is the right fallback and costs nothing, at the price of
 making the build pipeline public. Either way, signing is a prerequisite for
 telling anyone outside a small beta to download this.
 
+### SignPath Foundation: what it would actually take
+
+The repository is already public and there is now a release history, which were
+the two things that used to disqualify it. What remains:
+
+| Requirement | Status |
+|---|---|
+| Public repository | **Met** — github.com/Deniscoke/USAGE |
+| Already released in the form to be signed | **Met** — `v0.2.0-beta.1` |
+| OSI-approved licence, no commercial dual-licensing | **NOT MET — there is no `LICENSE` file at all.** Without one the code is "all rights reserved", which is not open source and cannot qualify. Choosing a licence is the owner's decision, not a build detail. |
+| Verifiable automated build on GitHub-hosted runners | **Prepared** — `.github/workflows/release-miner.yml`, currently manual-dispatch and unsigned |
+| Artifact uploaded as a workflow artifact before signing | **Prepared** — `actions/upload-artifact@v4`, then `signpath/github-action-submit-signing-request@v2` |
+| Author / reviewer / approver roles, MFA on GitHub and SignPath | **Owner action.** A solo project may hold all three roles; MFA is not optional |
+| Published code-signing policy page | **Not written** |
+| Every signing request individually approved | Built into SignPath; nothing to do here |
+
+SignPath's guarantee is worth understanding, because it is the reason the
+workflow exists before the certificate does: the GitHub App confirms to
+SignPath that a particular GitHub-hosted runner executed a particular workflow
+at a particular commit, and that the artifact was stored by GitHub before it was
+submitted. Origin metadata comes from GitHub, not from the build script, so a
+build cannot lie about where it came from. That is a stronger claim than "this
+hash came from a laptop", and it is worth having whether or not a signature ever
+gets attached.
+
+**Nothing here has been applied for, registered, or purchased.** The workflow
+runs only on manual dispatch and skips signing unless `SIGNPATH_API_TOKEN`
+exists, so it cannot start producing something that claims to be signed.
+
 **The signing key is not the receipt key.** Executable signing and Proof of Usage
 signing are separate trust systems with separate keys, separate lifetimes and
 separate blast radii. They must never share material. A compromised signing cert
@@ -263,9 +292,15 @@ npm run typecheck && npm test
 npm run package
 ```
 
-Artifacts land in `miner/dist/artifacts/`. The command also rewrites
-`src/lib/miner/release.generated.ts` — commit it, or the site advertises the
-previous build's checksums.
+Artifacts land in `miner/dist/artifacts/`. A plain build leaves the website's
+manifest alone; cutting a release is `npm run package -- --publish`, which
+rewrites `src/lib/miner/release.generated.ts`. Commit that, publish the exact
+bytes it describes, and set `MINER_RELEASE_TAG` in `src/lib/miner/release.ts` to
+the tag you published under.
+
+The flag exists because the installer wrapper is not reproducible: without it,
+every routine `npm run package` would repoint the live download page at a
+checksum matching nothing anyone can download.
 
 The executables are far too large for git and for a serverless bundle, so they
 are published as release assets. `USAGE_MINER_DOWNLOAD_BASE` repoints the

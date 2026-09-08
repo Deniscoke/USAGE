@@ -2,15 +2,21 @@
 
 ## Current milestone
 
-M11 — Zero-terminal Windows beta. **Complete, except the live E2E.**
+M11B — First distributable beta. **Complete.**
 
 USAGE Miner now ships as a standalone Windows application: download, install,
 sign in through the browser, click to enable mining, use AI. No Node, no npm,
 no terminal, no copied token, no base URL, no headers. See `docs/MINER.md` for
 the build, the trust story and the signing plan.
 
-The rules it does not break: **the miner is not a trusted usage reporter**, and
-**connectable is not mining eligible**.
+The first real end-to-end request through a user's own OpenRouter connection
+ran on production and produced a signed, independently verifiable proof that
+earns nothing, because it was free compute. The Windows beta is published as a
+GitHub prerelease and the download page links the real assets.
+
+The rules it does not break: **the miner is not a trusted usage reporter**,
+**connectable is not mining eligible**, and **free compute is provable but never
+rewarded**.
 
 Earlier milestones, still true: M9 separated proof of usage from reward
 eligibility (a CONFIRMED proof can exist without earning); M10 replaced manual
@@ -32,6 +38,8 @@ miner configuration with browser device pairing and DPAPI credential storage.
 | Capability discovery | **YES** — probed, never inferred from a name |
 | Unknown model behaviour | confirmed proof, `pending_pricing`, earns nothing |
 | Network | development epoch only; **Usage Points — Beta** |
+| Live provider-connection proof | **YES** — OpenRouter, routed + confirmed, signature verified |
+| Published Windows beta | **YES** — `v0.2.0-beta.1`, GitHub prerelease |
 | Miner distribution | standalone Windows exe + per-user installer, 0.2.0 |
 | Miner runtime dependency | **none** — Node is embedded in the artifact |
 | Miner build reproducibility | **YES** for the exe; installer wrapper is not |
@@ -109,23 +117,39 @@ mining engine never learns which provider a request came from.
   Signing needs an EU-registered organization for a Slovak developer; SignPath
   Foundation is the free fallback once the build pipeline is public.
 - Miner artifacts are ~87 MB and are not in git. They are published as release
-  assets; `USAGE_MINER_DOWNLOAD_BASE` repoints the links. Until a release is
-  uploaded, the download button on `/miners/install` points at a tag that does
-  not exist yet.
+  assets under `MINER_RELEASE_TAG`; `USAGE_MINER_DOWNLOAD_BASE` repoints the
+  links for a fork or a staging build.
+- **Enabling mining for Claude Code writes the device's miner token into
+  `~/.claude/settings.json` in plaintext.** That file takes literal environment
+  values and cannot name a credential held elsewhere, the way Codex's `env_key`
+  does. The token can spend the user's own connected provider credit; it cannot
+  reveal a provider key. Documented on the download page and in `docs/MINER.md`,
+  pinned by a test. The fix is a narrower per-tool credential.
+- **There is no `LICENSE` file.** The repository is public but "all rights
+  reserved", which makes it ineligible for SignPath Foundation signing. Picking
+  a licence is an owner decision.
+- The miner's loopback `/enable` does not check that a tool is installed, unlike
+  the CLI, so it can write a config file for a tool that is not there. Not
+  reachable from the UI, which offers no button for an absent tool.
 - Windows only. macOS and Linux have no secure credential store implemented, and
   the miner refuses to write a credential in plaintext rather than degrade.
 - The installer's interactive dialogs are verified by hand, not by a test.
 
 ## Next recommended milestone
 
-**First: the live OpenRouter end-to-end.** Everything below it is built and
-tested; what is missing is a connected OpenRouter account. Connect one at
-`/providers/add`, enable mining in the miner, run one small request, and confirm
-a CONFIRMED proof with an authoritative cost and `reward_status = eligible`.
-Nothing in the reward policy should be relaxed to make that pass.
+**A paid-model end-to-end.** The free-model run proved the chain and correctly
+earned nothing. Nothing has yet produced `reward_status = eligible` on a real
+provider connection, so the paid path — authoritative cost, protocol compute,
+eligible compute, a score, an epoch settlement — is still unexercised end to
+end. One small paid OpenRouter request would close it.
 
-Then: code signing (see `docs/MINER.md` §5), and publishing the 0.2.0 artifacts
-as a release so the download button resolves.
+Then, before inviting anyone outside a small beta:
+
+1. A licence, then SignPath Foundation (see `docs/MINER.md` §5). Asking
+   strangers to run an unsigned executable does not scale past people who
+   already trust you.
+2. A per-tool miner credential, so enabling Claude Code stops putting a
+   plaintext token in a config file.
 
 ## Important local commands
 
@@ -136,6 +160,9 @@ npm run usage:pricing:snapshot -- <v>      # capture a new pricing snapshot
 npm run usage:pricing:publish -- <v>       # mirror it into the database
 npm run usage:providers:publish            # mirror the provider registry and routes
 npm run usage:settle-epoch [YYYY-MM-DD]    # finalize, then settle, an epoch
+npm run usage:connections                  # what is connected, in production
+npm run usage:e2e:openrouter -- --connection <id> --confirm
+npm run usage:e2e:openrouter -- --verify <usage-event-id>
 npm run usage:verify-receipt -- <file>     # verify a receipt with a public key
 npm run miner:token                        # mint a miner credential
 npm run miner:claude                       # Claude Code via USAGE Gateway
