@@ -2,7 +2,7 @@ import { dailyEpochFor, estimateReward, type RewardEpoch } from "@/lib/domain/ep
 import { EMPTY_TOTALS, addToTotals, utcDay } from "@/lib/domain/normalize";
 import { scoreRecords, type DailyScore } from "@/lib/domain/scoring";
 import type { NormalizedUsageRecord, UsageTotals } from "@/lib/domain/types";
-import { DAILY_REWARD_POOL_POINTS, simulatedNetwork } from "@/lib/demo/network";
+import { epochEmissionPoints } from "@/lib/protocol/emission";
 
 /**
  * Mining session summary.
@@ -32,16 +32,21 @@ export interface MiningSessionSummary {
   scoresByDay: DailyScore[];
 
   epoch: RewardEpoch;
+  /** Total scored points across the network for the epoch. */
   networkScore: number;
   networkShare: number;
   estimatedPoints: number;
-  /** Until a real network exists this denominator is simulated. */
-  networkIsSimulated: true;
 }
 
 export function buildMiningSession(
   records: readonly NormalizedUsageRecord[],
   now: Date = new Date(),
+  /**
+   * Scored points contributed by everyone else in the epoch. Zero is the honest
+   * default for a single-participant development network -- inventing a
+   * denominator would invent a share.
+   */
+  otherParticipantsScore = 0,
 ): MiningSessionSummary {
   const totals = records.reduce<UsageTotals>((acc, record) => addToTotals(acc, record), EMPTY_TOTALS);
 
@@ -56,12 +61,11 @@ export function buildMiningSession(
 
   const today = utcDay(now.toISOString());
   const todayScore = scoresByDay.find((score) => score.day === today);
-  const network = simulatedNetwork(today);
-  const networkScore = network.score + (todayScore?.points ?? 0);
+  const networkScore = otherParticipantsScore + (todayScore?.points ?? 0);
   const reward = estimateReward({
     userScore: todayScore?.points ?? 0,
     networkScore,
-    rewardPoolPoints: DAILY_REWARD_POOL_POINTS,
+    rewardPoolPoints: epochEmissionPoints(),
   });
 
   return {
@@ -76,10 +80,9 @@ export function buildMiningSession(
     excludedCostMicros: scoresByDay.reduce((acc, score) => acc + score.excludedCostMicros, 0),
     miningScore,
     scoresByDay,
-    epoch: dailyEpochFor(now, DAILY_REWARD_POOL_POINTS),
+    epoch: dailyEpochFor(now, epochEmissionPoints()),
     networkScore,
     networkShare: reward.networkShare,
     estimatedPoints: reward.points,
-    networkIsSimulated: true,
   };
 }

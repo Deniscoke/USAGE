@@ -3,7 +3,7 @@
  * Supabase or a Next request. The middleware applies these; RLS enforces them.
  */
 
-export const PROTECTED_PREFIXES = ["/dashboard"] as const;
+export const PROTECTED_PREFIXES = ["/dashboard", "/onboarding", "/settings", "/proofs"] as const;
 export const AUTH_ROUTES = ["/login", "/sign-up"] as const;
 
 export type RouteDecision =

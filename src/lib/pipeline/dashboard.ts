@@ -7,11 +7,23 @@ import {
 } from "@/lib/domain/epoch";
 import { EMPTY_TOTALS, utcDay } from "@/lib/domain/normalize";
 import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
-import type { DailyAggregate, NormalizedUsageRecord, UsageTotals, VerificationType } from "@/lib/domain/types";
-import { DAILY_REWARD_POOL_POINTS, simulatedNetwork } from "@/lib/demo/network";
+import type {
+  DailyAggregate,
+  NormalizedUsageRecord,
+  ProofStatus,
+  UsageTotals,
+  VerificationType,
+} from "@/lib/domain/types";
+import {
+  CURRENT_MINING_PROTOCOL,
+  epochEmissionPoints,
+  type ProtocolNetwork,
+} from "@/lib/protocol/emission";
+import { buildActivityFeed, type ActivityItem } from "@/lib/product/activity";
+import { deriveConnections, type ConnectedTool } from "@/lib/product/connections";
 import { listIntegrations } from "@/lib/providers/registry";
 import { VERCEL_GATEWAY_PROVIDER } from "@/lib/providers/vercel-gateway/observation";
-import type { ConnectionSummary } from "@/lib/db/usage-repository";
+import type { ConnectionSummary, MinerCredentialSummary } from "@/lib/db/usage-repository";
 import type { StoredDailyScore } from "@/lib/db/rows";
 
 /**
@@ -91,9 +103,25 @@ export interface DashboardData {
     excludedCostMicros: number;
     /** Real usage today whose economic weight is not yet established. */
     pendingCostMicros: number;
-    networkIsSimulated: true;
     state: EpochState;
   };
+
+  /** Which protocol produced these numbers, and whether it is a public network. */
+  protocol: {
+    version: string;
+    network: ProtocolNetwork;
+    emissionPoints: number;
+  };
+
+  mining: {
+    /** True when a live miner credential exists AND usage has been observed. */
+    active: boolean;
+    hasCredential: boolean;
+    lastProofAt: string | null;
+  };
+
+  connectedAi: ConnectedTool[];
+  activity: ActivityItem[];
 
   /**
    * Usage Points actually credited by settled epochs. Permanent, and strictly
@@ -109,11 +137,16 @@ export interface DashboardData {
 export interface DashboardInput {
   aggregates: readonly DailyAggregate[];
   scores: readonly StoredDailyScore[];
-  recentEvents: readonly NormalizedUsageRecord[];
+  recentEvents: readonly (NormalizedUsageRecord & { id?: string })[];
   connections: readonly ConnectionSummary[];
   /** Permanently credited Usage Points. Absent for callers with no ledger. */
   settledPoints?: number;
   epochStates?: Readonly<Record<string, EpochState>>;
+  proofStatusById?: ReadonlyMap<string, ProofStatus>;
+  minerCredentials?: readonly MinerCredentialSummary[];
+  /** Scored points from everyone else in today's epoch. Zero, never invented. */
+  otherParticipantsScore?: number;
+  networkParticipants?: number;
   now?: Date;
 }
 
@@ -161,6 +194,10 @@ export function buildDashboardView({
   connections,
   settledPoints = 0,
   epochStates = {},
+  proofStatusById,
+  minerCredentials = [],
+  otherParticipantsScore = 0,
+  networkParticipants = 0,
   now = new Date(),
 }: DashboardInput): DashboardData {
   const today = utcDay(now.toISOString());
@@ -196,15 +233,25 @@ export function buildDashboardView({
 
   const todayScore = scoreByDay.get(today);
   const userScore = todayScore?.points ?? 0;
-  const network = simulatedNetwork(today);
-  const networkScore = network.score + userScore;
+  // The denominator is the real network: this user plus everyone else who
+  // actually scored today. A single-participant development network honestly
+  // shows a 100% share; inventing other participants would invent a share.
+  const networkScore = otherParticipantsScore + userScore;
   const reward = estimateReward({
     userScore,
     networkScore,
-    rewardPoolPoints: DAILY_REWARD_POOL_POINTS,
+    rewardPoolPoints: epochEmissionPoints(),
   });
 
   const capabilities = new Map(listIntegrations().map((i) => [i.provider, i]));
+
+  const hasCredential = minerCredentials.some((credential) => credential.revokedAt === null);
+  const activity = buildActivityFeed({ events: recentEvents, proofStatusById });
+  const activeProviders = new Set(
+    activity
+      .filter((item) => item.contributesToMining)
+      .map((item) => item.model.split("/")[0]),
+  );
 
   return {
     generatedAt: now.toISOString(),
@@ -241,17 +288,40 @@ export function buildDashboardView({
     },
 
     epoch: {
-      definition: dailyEpochFor(now, DAILY_REWARD_POOL_POINTS, epochState),
+      definition: dailyEpochFor(now, epochEmissionPoints(), epochState),
       userScore,
       networkScore,
-      networkParticipants: network.participants,
+      networkParticipants,
       networkShare: reward.networkShare,
       estimatedPoints: reward.points,
       excludedCostMicros: todayScore?.excludedCostMicros ?? 0,
       pendingCostMicros: todayScore?.pendingCostMicros ?? 0,
-      networkIsSimulated: true,
       state: epochState,
     },
+
+    protocol: {
+      version: CURRENT_MINING_PROTOCOL.version,
+      network: CURRENT_MINING_PROTOCOL.network,
+      emissionPoints: epochEmissionPoints(),
+    },
+
+    mining: {
+      active: hasCredential && activity.some((item) => item.contributesToMining),
+      hasCredential,
+      lastProofAt: activity[0]?.occurredAt ?? null,
+    },
+
+    connectedAi: deriveConnections({
+      connections: connections.map((connection) => ({
+        provider: connection.provider,
+        method: connection.method,
+        status: connection.status,
+        lastSyncedAt: connection.lastSyncedAt,
+      })),
+      hasActiveMiner: hasCredential,
+      activeProviders,
+    }),
+    activity,
 
     settledPoints,
 

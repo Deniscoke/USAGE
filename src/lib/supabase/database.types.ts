@@ -59,6 +59,8 @@ export type ProfileRow = {
   id: string;
   handle: string | null;
   display_name: string | null;
+  /** Nullable label only. USAGE holds no keys and takes no custody. */
+  wallet_address: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -71,6 +73,7 @@ export type ProviderConnectionRow = {
   status: ConnectionStatusRow;
   config: Record<string, unknown>;
   secret_ref: string | null;
+  method: "routed_mining" | "verified_import" | "byok" | "subscription";
   last_synced_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -179,6 +182,51 @@ export type ScoreRecordRow = {
 
 export type EpochStateRow = "open" | "finalizing" | "settled";
 
+export type MethodAvailabilityRow = "available" | "experimental" | "coming_soon" | "unsupported";
+
+export type ProviderRow = {
+  slug: string;
+  name: string;
+  category: string;
+  status: string;
+  integration_version: string;
+  routed_mining: MethodAvailabilityRow;
+  verified_import: MethodAvailabilityRow;
+  byok: MethodAvailabilityRow;
+  subscription: MethodAvailabilityRow;
+  usage_fields: string[];
+  cost_fields: string[];
+  updated_at: string;
+}
+
+export type MiningProtocolVersionRow = {
+  version: string;
+  epoch_duration_seconds: number;
+  epoch_emission_points: number;
+  scoring_version: string;
+  pricing_version: string;
+  effective_from: string;
+  network: "development" | "production";
+  status: "active" | "superseded";
+  created_at: string;
+}
+
+export type PointBalanceSnapshotRow = {
+  user_id: string;
+  epoch_id: string;
+  points_credited: number;
+  balance_after: number;
+  created_at: string;
+}
+
+/** Aggregate-only view: totals for an epoch, never per-user rows. */
+export type EpochNetworkTotalsRow = {
+  day: string;
+  algorithm_version: string;
+  network_score: string | number;
+  participants: number;
+}
+
 export type RewardEpochRow = {
   id: string;
   starts_at: string;
@@ -190,6 +238,7 @@ export type RewardEpochRow = {
   finalizing_at: string | null;
   state: EpochStateRow;
   pricing_version: string | null;
+  protocol_version: string | null;
   epoch_kind: string;
 }
 
@@ -379,11 +428,34 @@ export type Database = {
         Update: Partial<RewardAllocationRow>;
         Relationships: [];
       };
+      providers: {
+        Row: ProviderRow;
+        Insert: Partial<ProviderRow> & { slug: string; name: string; category: string; status: string; integration_version: string };
+        Update: Partial<ProviderRow>;
+        Relationships: [];
+      };
+      mining_protocol_versions: {
+        Row: MiningProtocolVersionRow;
+        Insert: MiningProtocolVersionRow;
+        Update: Partial<MiningProtocolVersionRow>;
+        Relationships: [];
+      };
+      point_balance_snapshots: {
+        Row: PointBalanceSnapshotRow;
+        Insert: PointBalanceSnapshotRow;
+        Update: Partial<PointBalanceSnapshotRow>;
+        Relationships: [];
+      };
     };
     // `{ [_ in never]: never }` (not Record<string, never>) — the client
     // intersects Tables & Views, and an index signature would poison every row
     // type with `never`.
-    Views: { [_ in never]: never };
+    Views: {
+      epoch_network_totals: {
+        Row: EpochNetworkTotalsRow;
+        Relationships: [];
+      };
+    };
     Functions: { [_ in never]: never };
     Enums: {
       verification_type: VerificationTypeRow;

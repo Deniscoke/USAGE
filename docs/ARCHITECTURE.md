@@ -314,6 +314,67 @@ signatures to type aliases. An interface there silently resolves the entire
 schema to `never` and every insert becomes a type error with a misleading
 message.
 
+## Product platform (M6)
+
+Four registries, all of which the UI reads rather than restates.
+
+```
+src/lib/providers/catalog.ts    what each provider supports, and what it does not
+src/lib/compute/registry.ts     gateways that can execute and observe a request
+src/lib/imports/adapter.ts      the pull half: historical usage from admin APIs
+src/lib/protocol/emission.ts    epoch length, emission, scoring and pricing, versioned
+```
+
+**The honesty rule.** A capability is `available` only when an implementation
+exists. `unresolvedGatewayReferences()` fails a test if a provider claims routed
+mining "via" a gateway that was never written, so the registry cannot drift into
+marketing.
+
+**ComputeGateway** is the execution boundary: it decides where a request goes
+and how USAGE authenticates upstream, and reports what it observed. It does not
+decide verification type, proof status, economic status or points — those are
+derived downstream from the trust environment and the signing key. A dishonest
+gateway implementation could lie about tokens; it still could not mint a
+confirmed proof, because it does not hold the key. `vercelComputeGateway` is the
+production implementation and wraps the code proven in M3–M5B unchanged.
+
+**Emission** is one versioned bundle (`mining-dev-v1`), so the number 100000
+exists in exactly one place and a protocol change is a new version rather than
+an edit. There is deliberately no field anywhere that converts tokens or dollars
+into points at a fixed rate.
+
+### The three ledgers
+
+They answer different questions and are never merged (`src/lib/protocol/ledgers.ts`):
+
+| Ledger | Question | Where | Unit |
+| --- | --- | --- | --- |
+| Compute | What AI compute happened? | `usage_events`, `proof_records` | tokens, protocol micro-USD |
+| Reward | How many Usage Points were earned? | `reward_allocations`, `usage_point_ledger` | whole points |
+| Payment | Who paid for the compute? | **not implemented** | micro-USD of real money |
+
+Compute Credits (pre-funded money) are not Usage Points (earned rewards). They
+are different units in different ledgers with different legal character, and no
+code converts one into the other.
+
+### The network denominator
+
+A user's share needs the network's total score, which no user can read under
+RLS. `epoch_network_totals` is a security-definer view exposing day,
+algorithm version, total score and participant count — aggregates only, no user
+ids. An invoker view would return only the caller's own score and quietly report
+a 100% share, which is worse than useless.
+
+With one participant the share really is 100%; the product says "development
+network" rather than inventing other miners.
+
+### Crypto readiness (not crypto)
+
+`profiles.wallet_address` is a nullable label and `point_balance_snapshots`
+records per-epoch credits immutably, so a future claim dataset can be built
+without migrating history. There is no chain, no token, no custody, no trading,
+and no mapping from a point to a token.
+
 ## Database
 
 `supabase/migrations/`:

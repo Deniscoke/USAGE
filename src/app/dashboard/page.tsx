@@ -2,16 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ScoreSparkline, StackedUsageChart } from "@/components/charts";
 import { DemoIngestButton } from "@/components/demo-ingest-button";
-import {
-  Bar,
-  DemoBanner,
-  FixtureBanner,
-  LiveRoutedBanner,
-  Panel,
-  Stat,
-  VERIFICATION_META,
-  VerificationBadge,
-} from "@/components/ui";
+import { AppNav, BalanceHeadline, PrivacyNote, StateBadge } from "@/components/product";
+import { Panel, Stat, VERIFICATION_META, VerificationBadge } from "@/components/ui";
 import { signOut } from "@/app/auth/actions";
 import { formatNumber, formatTokens, formatUsd } from "@/lib/domain/money";
 import { totalTokens } from "@/lib/domain/normalize";
@@ -19,12 +11,20 @@ import type { VerificationType } from "@/lib/domain/types";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
-import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard";
+import { buildDashboardView, dashboardSinceDay, type DashboardData } from "@/lib/pipeline/dashboard";
+import type { ActivityItem } from "@/lib/product/activity";
 
 export const dynamic = "force-dynamic";
 
 const CHART_DAYS = 45;
 
+/**
+ * The mining dashboard.
+ *
+ * Product first: balance, mining status, what ran today, what is connected.
+ * Protocol detail is real and reachable, but folded away -- a person should be
+ * able to read this page without knowing what an epoch is.
+ */
 export default async function DashboardPage() {
   if (!isSupabaseConfigured()) return <SetupRequired />;
 
@@ -41,25 +41,11 @@ export default async function DashboardPage() {
   const snapshot = await loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now));
   const data = buildDashboardView({ ...snapshot, now });
 
-  const series = data.series.slice(-CHART_DAYS);
-  const scoredCost = data.byVerification.verified.costMicros + data.byVerification.routed.costMicros;
-  const totalCost = scoredCost + data.byVerification.reported.costMicros;
-
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-3">
-          <Link href="/" className="tnum text-sm font-medium tracking-[0.3em]">
-            USAGE
-          </Link>
-          <span className="text-xs text-[var(--faint)]">AI compute</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="tnum text-[11px] text-[var(--faint)]">
-            {formatNumber(data.window.requests)} requests · {data.windowDays}d ·{" "}
-            {data.scoring.version}
-          </span>
-          <span className="text-[11px] text-[var(--muted)]">{user.email}</span>
+      <AppNav
+        email={user.email}
+        right={
           <form action={signOut}>
             <button
               type="submit"
@@ -68,368 +54,288 @@ export default async function DashboardPage() {
               Sign out
             </button>
           </form>
+        }
+      />
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <BalanceHeadline
+          settled={formatNumber(data.settledPoints)}
+          estimated={formatNumber(data.epoch.estimatedPoints)}
+          epochState={data.epoch.state}
+        />
+
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--faint)]">
+              Mining
+            </p>
+            <span
+              className="text-[11px] font-medium uppercase tracking-[0.14em]"
+              style={{ color: data.mining.active ? "var(--verified)" : "var(--muted)" }}
+            >
+              {data.mining.active
+                ? "Mining active"
+                : data.mining.hasCredential
+                  ? "Ready — no usage yet"
+                  : "Not connected"}
+            </span>
+          </div>
+
+          <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Metric
+              label="AI compute"
+              value={formatUsd(todayCompute(data), { maximumFractionDigits: 6 })}
+              sub="protocol equivalent"
+            />
+            <Metric label="AI usage" value={formatTokens(totalTokens(data.today))} sub="tokens today" />
+            <Metric label="Mining score" value={formatNumber(data.epoch.userScore, 2)} sub="today" />
+            <Metric
+              label="Network share"
+              value={`${(data.epoch.networkShare * 100).toFixed(2)}%`}
+              sub={`${formatNumber(Math.max(data.epoch.networkParticipants, 1))} miner(s)`}
+            />
+          </dl>
+
+          {!data.mining.hasCredential && (
+            <Link
+              href="/onboarding"
+              className="mt-5 inline-block rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)] transition-opacity hover:opacity-90"
+            >
+              Connect your AI →
+            </Link>
+          )}
+
+          <p className="mt-4 text-[11px] leading-relaxed text-[var(--faint)]">
+            {data.protocol.network === "development"
+              ? "Development network. Usage Points are beta: off-chain, non-transferable, no monetary value."
+              : "Usage Points are off-chain and non-transferable."}{" "}
+            Emission is a fixed {formatNumber(data.protocol.emissionPoints)} per epoch, so extra
+            usage cannot mint extra USAGE.
+          </p>
         </div>
-      </header>
+      </section>
 
       {data.isEmpty ? (
-        <EmptyState />
+        <div className="mt-4">
+          <EmptyState />
+        </div>
       ) : (
         <>
-          <div className="mb-6 flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-sm border border-[var(--border-strong)] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
-              <span className="size-1.5 rounded-full bg-[var(--verified)]" />
-              Stored data · read from Postgres under RLS
-            </span>
-            <DemoIngestButton label="Re-sync demo usage" />
-          </div>
-
-          <div className="mb-6 space-y-2">
-            {data.hasLiveRoutedEvidence && <LiveRoutedBanner />}
-            {data.containsDemoData && <DemoBanner />}
-            {data.containsFixtureEvidence && <FixtureBanner />}
-          </div>
-
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <Stat
-              label="Today"
-              value={formatUsd(data.today.costMicros)}
-              sub={`${formatNumber(data.today.requests)} requests`}
-            />
-            <Stat
-              label="This month"
-              value={formatUsd(data.monthToDate.costMicros)}
-              sub={`${formatNumber(data.monthToDate.requests)} requests`}
-            />
-            <Stat
-              label="Tokens (month)"
-              value={formatTokens(totalTokens(data.monthToDate))}
-              sub="input + cached + output"
-            />
-            <Stat
-              label="Proof of Usage"
-              value={formatNumber(data.scoring.totalPoints)}
-              sub="points, lifetime"
-              accent="var(--verified)"
-            />
-            <Stat
-              label="Network share"
-              value={`${(data.epoch.networkShare * 100).toFixed(3)}%`}
-              sub={`of ${formatNumber(data.epoch.networkParticipants)} participants (simulated)`}
-            />
-            <Stat
-              label="Current epoch"
-              value={`${formatNumber(data.epoch.estimatedPoints)} pts`}
-              sub="estimated, settles at 00:00 UTC"
-              accent="var(--warn)"
-            />
-          </section>
-
-          <section className="mt-6 grid gap-4 lg:grid-cols-3">
-            <Panel
-              className="lg:col-span-2"
-              title="Usage over time"
-              hint={`Daily spend by verification level, last ${series.length} days`}
-              action={
-                <div className="flex gap-3 text-[10px] uppercase tracking-[0.12em]">
-                  {(Object.keys(VERIFICATION_META) as VerificationType[]).map((type) => (
-                    <span
-                      key={type}
-                      className="flex items-center gap-1.5"
-                      style={{ color: VERIFICATION_META[type].color }}
-                    >
-                      <span
-                        className="size-1.5 rounded-full"
-                        style={{ background: VERIFICATION_META[type].color }}
-                      />
-                      {VERIFICATION_META[type].label}
-                    </span>
-                  ))}
-                </div>
-              }
-            >
-              <StackedUsageChart series={series} />
-            </Panel>
-
-            <Panel title="Proof of Usage" hint={`Algorithm ${data.scoring.version}`}>
-              <p className="tnum text-3xl leading-none tracking-tight text-[var(--verified)]">
-                {formatNumber(data.scoring.totalPoints)}
-              </p>
-              <p className="mt-1.5 text-xs text-[var(--muted)]">
-                points across {data.scoring.scoredDays} scored days
-              </p>
-              <div className="mt-4">
-                <ScoreSparkline series={series} />
-              </div>
-              <dl className="mt-4 space-y-2 border-t border-[var(--border)] pt-4 text-xs">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Today score</dt>
-                  <dd className="tnum">{formatNumber(data.epoch.userScore, 1)}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Protocol compute</dt>
-                  <dd className="tnum">
-                    {formatUsd(data.protocolComputeMicros, { maximumFractionDigits: 6 })}
-                  </dd>
-                </div>
-                {data.pricingVersion && (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">Pricing</dt>
-                    <dd className="tnum text-[var(--faint)]">{data.pricingVersion}</dd>
-                  </div>
-                )}
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Actual gateway cost</dt>
-                  <dd className="tnum text-[var(--faint)]">{formatUsd(scoredCost)}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Pending today</dt>
-                  <dd className="tnum text-[var(--warn)]">
-                    {formatUsd(data.epoch.pendingCostMicros, { maximumFractionDigits: 4 })}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--muted)]">Excluded today</dt>
-                  <dd className="tnum text-[var(--reported)]">
-                    {formatUsd(data.epoch.excludedCostMicros)}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-                Mining values verified compute at protocol prices, not what anyone was billed.
-                The score is concave in the daily total (√), so splitting or wasting requests
-                cannot farm points. Usage Points — Beta: off-chain and non-transferable.
-              </p>
-            </Panel>
-          </section>
-
-          <section className="mt-4 grid gap-4 lg:grid-cols-3">
-            <Panel title="Verified vs reported" hint={`Normalized cost, last ${data.windowDays} days`}>
-              <div className="space-y-4">
-                {(Object.keys(VERIFICATION_META) as VerificationType[]).map((type) => {
-                  const totals = data.byVerification[type];
-                  return (
-                    <Bar
-                      key={type}
-                      fraction={totalCost > 0 ? totals.costMicros / totalCost : 0}
-                      color={VERIFICATION_META[type].color}
-                      label={
-                        <span className="flex items-center gap-2">
-                          {VERIFICATION_META[type].label}
-                          <span className="tnum text-[10px] text-[var(--faint)]">
-                            ×{VERIFICATION_META[type].weight}
-                          </span>
-                        </span>
-                      }
-                      value={formatUsd(totals.costMicros)}
-                    />
-                  );
-                })}
-              </div>
-            </Panel>
-
-            <Panel title="Providers" hint="Month to date">
-              <div className="space-y-4">
-                {data.byProvider.map((slice) => (
-                  <Bar
-                    key={slice.key}
-                    fraction={slice.shareOfCost}
-                    color="var(--routed)"
-                    label={slice.key}
-                    value={formatUsd(slice.totals.costMicros)}
-                  />
-                ))}
-              </div>
-            </Panel>
-
-            <Panel title="Models" hint="Month to date">
-              <div className="space-y-4">
-                {data.byModel.map((slice) => (
-                  <Bar
-                    key={slice.key}
-                    fraction={slice.shareOfCost}
-                    color="var(--verified)"
-                    label={slice.key}
-                    value={formatUsd(slice.totals.costMicros)}
-                  />
-                ))}
-              </div>
-            </Panel>
-          </section>
-
-          <section className="mt-4 grid gap-4 lg:grid-cols-3">
-            <Panel
-              className="lg:col-span-2"
-              title="Recent activity"
-              hint="Usage metadata only — never prompts or responses"
-            >
-              <div className="-mx-4 overflow-x-auto">
-                <table className="w-full min-w-[620px] text-left text-xs">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">
-                      <th className="px-4 pb-2 font-medium">Time (UTC)</th>
-                      <th className="px-4 pb-2 font-medium">Provider</th>
-                      <th className="px-4 pb-2 font-medium">Model</th>
-                      <th className="px-4 pb-2 text-right font-medium">Requests</th>
-                      <th className="px-4 pb-2 text-right font-medium">Tokens</th>
-                      <th className="px-4 pb-2 text-right font-medium">Cost</th>
-                      <th className="px-4 pb-2 font-medium">Proof</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
-                    {data.recentEvents.map((event) => (
-                      <tr key={`${event.provider}:${event.externalReference}`}>
-                        <td className="tnum px-4 py-2 text-[var(--muted)]">
-                          {event.occurredAt.slice(5, 16).replace("T", " ")}
-                        </td>
-                        <td className="px-4 py-2">
-                          {event.provider}
-                          {event.rawMetadata.evidence_class === "fixture" && (
-                            <span className="ml-1.5 text-[10px] uppercase tracking-[0.1em] text-[var(--faint)]">
-                              fixture
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-[var(--muted)]">{event.model}</td>
-                        <td className="tnum px-4 py-2 text-right">{formatNumber(event.requests)}</td>
-                        <td className="tnum px-4 py-2 text-right text-[var(--muted)]">
-                          {formatTokens(
-                            event.inputTokens + event.cachedInputTokens + event.outputTokens,
-                          )}
-                        </td>
-                        <td className="tnum px-4 py-2 text-right">
-                          {formatUsd(event.normalizedCostMicros, { maximumFractionDigits: 4 })}
-                          {event.reportedCostMicros === null && (
-                            <span className="ml-1 text-[10px] text-[var(--faint)]">est</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <VerificationBadge type={event.verificationType} />
-                            {event.rawMetadata.proof_status === "confirmed" && (
-                              <span
-                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--verified)]"
-                                title="Signed by a USAGE production issuer"
-                              >
-                                signed ✓
-                              </span>
-                            )}
-                            {event.economicStatus === "eligible" && (
-                              <span
-                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--verified)]"
-                                title="Priced by an approved protocol pricing snapshot"
-                              >
-                                mining
-                              </span>
-                            )}
-                            {event.economicStatus === "pending_pricing" && (
-                              <span
-                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--warn)]"
-                                title="Real proof; no approved price for this model yet"
-                              >
-                                pending price
-                              </span>
-                            )}
-                            {event.economicStatus === "pending_cost" && (
-                              <span
-                                className="text-[10px] uppercase tracking-[0.1em] text-[var(--warn)]"
-                                title="Real proof; cost has not reconciled, so it earns nothing yet"
-                              >
-                                pending cost
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-
-            <div className="space-y-4">
-              <Panel title="Current epoch" hint={data.epoch.definition.id}>
-                <dl className="space-y-2.5 text-xs">
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">Reward pool</dt>
-                    <dd className="tnum">
-                      {formatNumber(data.epoch.definition.rewardPoolPoints)} pts
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">Your score</dt>
-                    <dd className="tnum">{formatNumber(data.epoch.userScore, 1)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">
-                      Network score <span className="text-[var(--faint)]">(simulated)</span>
-                    </dt>
-                    <dd className="tnum">{formatNumber(Math.round(data.epoch.networkScore))}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">Your share</dt>
-                    <dd className="tnum">{(data.epoch.networkShare * 100).toFixed(4)}%</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--muted)]">Epoch state</dt>
-                    <dd className="uppercase tracking-wide">{data.epoch.state}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3 border-t border-[var(--border)] pt-2.5">
-                    <dt className="text-[var(--foreground)]">Estimated Usage Points</dt>
-                    <dd className="tnum text-[var(--warn)]">
-                      {formatNumber(data.epoch.estimatedPoints)} pts
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-[var(--foreground)]">Settled Usage Points</dt>
-                    <dd className="tnum">{formatNumber(data.settledPoints)} pts</dd>
-                  </div>
-                </dl>
-                <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-                  {data.epoch.state === "open"
-                    ? "This epoch is OPEN: the estimate moves as usage arrives and nothing has been credited yet."
-                    : "This epoch no longer accepts usage; later proofs carry forward to the next open epoch."}{" "}
-                  Only a settled epoch credits Usage Points, and a settled allocation never changes.
-                  No USAGE network exists yet: the network denominator is simulated, so the estimate
-                  is illustrative. Points are non-transferable and carry no monetary value.
-                </p>
-              </Panel>
-
-              <Panel title="Connections">
-                <ul className="space-y-3">
-                  {data.connections.map((connection) => (
-                    <li key={connection.provider} className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs">{connection.label}</p>
-                        <p className="tnum mt-0.5 text-[10px] text-[var(--faint)]">
-                          {connection.lastSyncedAt
-                            ? `synced ${connection.lastSyncedAt.slice(0, 16).replace("T", " ")}`
-                            : "never synced"}{" "}
-                          · {connection.costDataAvailable ? "cost data" : "tokens only"}
-                        </p>
-                      </div>
-                      <VerificationBadge type={connection.verificationType} />
-                    </li>
+          <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+            <Panel title="Recent activity" hint="Your AI compute, newest first">
+              {data.activity.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">Nothing recorded yet.</p>
+              ) : (
+                <ul className="divide-y divide-[var(--border)]">
+                  {data.activity.map((item) => (
+                    <ActivityRow key={item.id} item={item} />
                   ))}
                 </ul>
+              )}
+            </Panel>
+
+            <Panel title="Connected AI" hint="What can mine, and what is coming">
+              <ul className="space-y-2.5">
+                {data.connectedAi
+                  .filter((tool) => tool.method === "routed_mining")
+                  .map((tool) => (
+                    <li key={tool.key} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs">{tool.label}</p>
+                        <p className="truncate text-[10px] text-[var(--faint)]">
+                          {tool.providerName}
+                        </p>
+                      </div>
+                      <StateBadge state={tool.state} />
+                    </li>
+                  ))}
+              </ul>
+              <Link
+                href="/onboarding"
+                className="mt-4 inline-block text-[11px] text-[var(--routed)] hover:underline"
+              >
+                Connect more AI →
+              </Link>
+            </Panel>
+          </section>
+
+          <details className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+            <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
+              Protocol detail
+            </summary>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat
+                label="This month"
+                value={formatUsd(data.monthToDate.costMicros)}
+                sub={`${formatNumber(data.monthToDate.requests)} requests`}
+              />
+              <Stat
+                label="Tokens (month)"
+                value={formatTokens(totalTokens(data.monthToDate))}
+                sub="input + cached + output"
+              />
+              <Stat
+                label="Mining score"
+                value={formatNumber(data.scoring.totalPoints)}
+                sub={`${data.scoring.version}, lifetime`}
+                accent="var(--verified)"
+              />
+              <Stat
+                label="Epoch"
+                value={data.epoch.state.toUpperCase()}
+                sub={data.epoch.definition.id}
+                accent="var(--warn)"
+              />
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <Panel
+                className="lg:col-span-2"
+                title="Usage over time"
+                hint={`Daily compute by evidence level, last ${Math.min(data.series.length, CHART_DAYS)} days`}
+                action={
+                  <div className="flex gap-3 text-[10px] uppercase tracking-[0.12em]">
+                    {(Object.keys(VERIFICATION_META) as VerificationType[]).map((type) => (
+                      <span
+                        key={type}
+                        className="flex items-center gap-1.5"
+                        style={{ color: VERIFICATION_META[type].color }}
+                      >
+                        <span
+                          className="size-1.5 rounded-full"
+                          style={{ background: VERIFICATION_META[type].color }}
+                        />
+                        {VERIFICATION_META[type].label}
+                      </span>
+                    ))}
+                  </div>
+                }
+              >
+                <StackedUsageChart series={data.series.slice(-CHART_DAYS)} />
+              </Panel>
+
+              <Panel title="Mining score" hint={data.scoring.version}>
+                <ScoreSparkline series={data.series.slice(-CHART_DAYS)} />
+                <dl className="mt-4 space-y-2 border-t border-[var(--border)] pt-4 text-xs">
+                  <DetailRow
+                    label="Protocol compute"
+                    value={formatUsd(data.protocolComputeMicros, { maximumFractionDigits: 6 })}
+                  />
+                  <DetailRow label="Pricing" value={data.pricingVersion ?? "—"} faint />
+                  <DetailRow label="Protocol" value={data.protocol.version} faint />
+                  <DetailRow
+                    label="Pending today"
+                    value={formatUsd(data.epoch.pendingCostMicros, { maximumFractionDigits: 4 })}
+                    tone="var(--warn)"
+                  />
+                  <DetailRow
+                    label="Excluded today"
+                    value={formatUsd(data.epoch.excludedCostMicros)}
+                    tone="var(--reported)"
+                  />
+                </dl>
+                <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
+                  The score is concave in the daily total (√) and the epoch pool is fixed, so
+                  splitting or wasting requests cannot farm USAGE.
+                </p>
               </Panel>
             </div>
-          </section>
+
+            <div className="mt-4">
+              <DemoIngestButton label="Re-sync demo usage" />
+            </div>
+          </details>
         </>
       )}
+
+      <div className="mt-6">
+        <PrivacyNote />
+      </div>
     </main>
+  );
+}
+
+/** Protocol compute observed today, from the events the feed already loaded. */
+function todayCompute(data: DashboardData): number {
+  const today = data.epoch.definition.startsAt.slice(0, 10);
+  return data.activity
+    .filter((item) => item.occurredAt.slice(0, 10) === today)
+    .reduce((acc, item) => acc + (item.protocolComputeMicros ?? 0), 0);
+}
+
+function Metric({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase tracking-[0.14em] text-[var(--faint)]">{label}</dt>
+      <dd className="tnum mt-1.5 text-lg leading-none tracking-tight">{value}</dd>
+      <dd className="mt-1 text-[10px] text-[var(--muted)]">{sub}</dd>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  tone,
+  faint,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  faint?: boolean;
+}) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-[var(--muted)]">{label}</dt>
+      <dd className="tnum" style={{ color: tone ?? (faint ? "var(--faint)" : undefined) }}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function ActivityRow({ item }: { item: ActivityItem }) {
+  return (
+    <li className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <Link href={`/proofs/${item.id}`} className="truncate text-xs hover:underline">
+          {item.tool ?? item.provider} · {item.modelLabel}
+        </Link>
+        <p className="tnum mt-0.5 text-[10px] text-[var(--faint)]">
+          {formatTokens(item.tokens)} tokens · {item.occurredAt.slice(0, 16).replace("T", " ")}
+          {item.contributesToMining && item.protocolComputeMicros !== null
+            ? ` · +${formatUsd(item.protocolComputeMicros, { maximumFractionDigits: 6 })} compute`
+            : ""}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {item.proofStatus === "confirmed" && (
+          <span className="text-[10px] uppercase tracking-[0.1em] text-[var(--verified)]">
+            Confirmed
+          </span>
+        )}
+        <VerificationBadge type={item.verificationType} />
+      </div>
+    </li>
   );
 }
 
 function EmptyState() {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-8">
-      <h2 className="text-sm font-medium">No usage stored yet</h2>
+      <h2 className="text-sm font-medium">Nothing mined yet</h2>
       <p className="mt-2 max-w-lg text-xs leading-relaxed text-[var(--muted)]">
-        Your account has no usage events. Real provider adapters are not implemented yet, so in
-        development you can run the demo adapters through the ingestion pipeline: they are
-        normalized, deduplicated and written to Postgres exactly like real provider data would be.
+        Connect an AI tool and use it normally. Every request USAGE routes is verified and starts
+        counting toward the current epoch.
       </p>
-      <div className="mt-5">
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Link
+          href="/onboarding"
+          className="rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)] transition-opacity hover:opacity-90"
+        >
+          Connect your AI
+        </Link>
         <DemoIngestButton />
       </div>
     </div>

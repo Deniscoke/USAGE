@@ -93,16 +93,17 @@ describe("buildDashboardView", () => {
     expect(view.scoring.scoredDays).toBe(2);
   });
 
-  it("uses today's stored score for the epoch estimate and marks the network simulated", () => {
+  it("uses today's stored score and the real network denominator", () => {
     const view = buildDashboardView({
       ...EMPTY,
       aggregates: [aggregate({})],
       scores: [score({ points: 2_000, excludedCostMicros: 9 * MICROS_PER_USD })],
+      // Other real participants. Never invented: with none, the share is 100%.
+      otherParticipantsScore: 6_000,
     });
 
     expect(view.epoch.userScore).toBe(2_000);
-    expect(view.epoch.networkIsSimulated).toBe(true);
-    expect(view.epoch.networkScore).toBeGreaterThan(2_000);
+    expect(view.epoch.networkScore).toBe(8_000);
     expect(view.epoch.networkShare).toBeCloseTo(2_000 / view.epoch.networkScore, 12);
     expect(view.epoch.estimatedPoints).toBe(
       Math.floor(view.epoch.networkShare * view.epoch.definition.rewardPoolPoints),
@@ -153,6 +154,7 @@ describe("buildDashboardView", () => {
           provider: "demo-cli",
           accountLabel: "demo",
           status: "active",
+          method: "routed_mining",
           lastSyncedAt: "2026-03-15T11:00:00.000Z",
         },
       ],
@@ -176,6 +178,15 @@ describe("dashboardSinceDay", () => {
 });
 
 describe("estimated versus settled Usage Points", () => {
+  it("gives a lone participant the whole emission rather than a fake share", () => {
+    // A development network with one miner really is 100% of that network. The
+    // honest number is the one that makes the epoch's smallness obvious.
+    const alone = buildDashboardView({ ...EMPTY, scores: [score({ points: 5 })] });
+    expect(alone.epoch.networkShare).toBe(1);
+    expect(alone.epoch.estimatedPoints).toBe(alone.protocol.emissionPoints);
+    expect(alone.protocol.network).toBe("development");
+  });
+
   it("treats an unrecorded epoch as open and shows an estimate only", () => {
     const view = buildDashboardView({ ...EMPTY, scores: [score({})] });
 
@@ -186,8 +197,9 @@ describe("estimated versus settled Usage Points", () => {
   });
 
   it("moves the estimate as usage arrives during an open epoch", () => {
-    const small = buildDashboardView({ ...EMPTY, scores: [score({ points: 100 })] });
-    const large = buildDashboardView({ ...EMPTY, scores: [score({ points: 10_000 })] });
+    const network = { otherParticipantsScore: 50_000 };
+    const small = buildDashboardView({ ...EMPTY, ...network, scores: [score({ points: 100 })] });
+    const large = buildDashboardView({ ...EMPTY, ...network, scores: [score({ points: 10_000 })] });
 
     expect(large.epoch.estimatedPoints).toBeGreaterThan(small.epoch.estimatedPoints);
     // ...while the permanent balance stays exactly where it was.
@@ -197,7 +209,8 @@ describe("estimated versus settled Usage Points", () => {
   it("reports the credited balance separately from the estimate", () => {
     const view = buildDashboardView({
       ...EMPTY,
-      scores: [score({})],
+      scores: [score({ points: 2_000 })],
+      otherParticipantsScore: 18_000,
       settledPoints: 100_000,
       epochStates: { "epoch-2026-03-15": "settled" },
     });
@@ -206,6 +219,7 @@ describe("estimated versus settled Usage Points", () => {
     expect(view.settledPoints).toBe(100_000);
     // The two numbers never merge: an estimate becomes a balance only by
     // settling the epoch that produced it.
+    expect(view.epoch.estimatedPoints).toBe(10_000);
     expect(view.settledPoints).not.toBe(view.epoch.estimatedPoints);
   });
 });

@@ -274,7 +274,6 @@ describe("mining session summary", () => {
       Math.sqrt(EXPECTED_PROTOCOL_MICROS / MICROS_PER_USD) * 1000,
       3,
     );
-    expect(session.networkIsSimulated).toBe(true);
     expect(session.estimatedPoints).toBeGreaterThan(0);
   });
 });

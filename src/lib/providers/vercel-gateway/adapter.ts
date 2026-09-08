@@ -174,6 +174,9 @@ export function normalizeGatewayObservation(
     protocol_compute_micros: protocol?.micros ?? null,
     protocol_pricing_version: protocol ? pricingVersion : null,
     client_type: observation.clientType ?? "unknown",
+    // The credential ID, never the credential. Signed into the receipt, so it
+    // has to be stored for the receipt to be re-derivable and re-verifiable.
+    miner_credential_id: options.minerCredentialId ?? null,
     generation_id_source: observation.generationIdSource ?? "gateway_generation_id",
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
     gateway_generation_id: observation.generationId,

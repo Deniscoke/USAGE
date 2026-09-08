@@ -23,6 +23,7 @@
     "usage:verify-hosted": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/verify-hosted.ts",
     "usage:pricing:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/generate-pricing-snapshot.ts",
     "usage:pricing:publish": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/publish-pricing.ts",
+    "usage:providers:publish": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/publish-providers.ts",
     "usage:settle-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/settle-epoch.ts"
   },
   "dependencies": {

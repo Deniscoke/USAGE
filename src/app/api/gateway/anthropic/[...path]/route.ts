@@ -1,19 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
-import {
-  anthropicError,
-  buildUpstreamHeaders,
-  isStreamingRequest,
-  sanitizeResponseHeaders,
-  upstreamBaseUrl,
-  withAttribution,
-} from "@/lib/gateway/anthropic";
-import {
-  AnthropicStreamUsageCollector,
-  buildGatewayObservation,
-  extractFromMessage,
-  readGatewayHeaders,
-} from "@/lib/gateway/usage-extract";
+import { anthropicError, buildUpstreamHeaders, upstreamBaseUrl } from "@/lib/gateway/anthropic";
+import { defaultComputeGateway } from "@/lib/compute/registry";
 import {
   appendDevObservation,
   checkRateLimit,
@@ -129,6 +117,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
   const trust = await assessTrust(request.headers);
   const environment = trust.canIssueProduction ? "live" : "development";
 
+  // One gateway implementation carries miner traffic. Which one is a server
+  // decision: letting a client pick its gateway would let it pick how its own
+  // usage is observed.
+  const gateway = defaultComputeGateway();
+
   const rawBody = await request.text();
   let parsedBody: unknown = null;
   try {
@@ -141,25 +134,29 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
     typeof (parsedBody as { model?: unknown } | null)?.model === "string"
       ? ((parsedBody as { model: string }).model)
       : null;
-  const streaming = isStreamingRequest(parsedBody);
+  const streaming = gateway.isStreaming(parsedBody);
 
   // Attribution is added by the server, from the authenticated identity.
-  const outgoingBody =
-    parsedBody === null
-      ? rawBody
-      : JSON.stringify(
-          withAttribution(parsedBody, {
-            user: auth.identity.userId,
-            tags: ["usage", "miner", CLIENT_TYPE, environment === "live" ? "production" : "development"],
-          }),
-        );
+  const call = gateway.buildUpstreamCall(
+    {
+      path,
+      headers: request.headers,
+      body: parsedBody,
+      rawBody,
+      attribution: {
+        user: auth.identity.userId,
+        tags: ["usage", "miner", CLIENT_TYPE, environment === "live" ? "production" : "development"],
+      },
+    },
+    apiKey,
+  );
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${upstreamBaseUrl()}/${upstreamPath}`, {
+    upstream = await fetch(call.url, {
       method: "POST",
-      headers: buildUpstreamHeaders(request.headers, apiKey),
-      body: outgoingBody,
+      headers: call.headers,
+      body: call.body,
       // Streaming must not be buffered by the runtime.
       cache: "no-store",
     });
@@ -177,8 +174,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
     return anthropicError(502, "api_error", "USAGE Gateway could not reach the upstream provider.");
   }
 
-  const responseHeaders = sanitizeResponseHeaders(upstream.headers);
-  const headerMetadata = readGatewayHeaders(upstream.headers);
+  const responseHeaders = gateway.sanitizeResponseHeaders(upstream.headers);
 
   // A failed generation is not evidence that billable usage occurred.
   if (!upstream.ok) {
@@ -236,20 +232,19 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
   };
 
   if (streaming && upstream.body) {
-    const collector = new AnthropicStreamUsageCollector();
+    const observer = gateway.observeStream(upstream.headers);
     const decoder = new TextDecoder();
 
-    // Bytes pass through untouched; the collector only reads a copy of the text.
+    // Bytes pass through untouched; the observer only reads a copy of the text.
     const passthrough = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
-        collector.push(decoder.decode(chunk, { stream: true }));
+        observer.push(decoder.decode(chunk, { stream: true }));
       },
       flush() {
         finish(
-          buildGatewayObservation({
-            extracted: collector.result(),
-            headerMetadata,
+          gateway.toObservation({
+            observed: observer.result(),
             requestedModel,
             environment,
             clientType: CLIENT_TYPE,
@@ -276,9 +271,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pa
   }
 
   finish(
-    buildGatewayObservation({
-      extracted: extractFromMessage(payload),
-      headerMetadata,
+    gateway.toObservation({
+      observed: gateway.observe(payload, upstream.headers),
       requestedModel,
       environment,
       clientType: CLIENT_TYPE,
@@ -309,6 +303,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
 
   return new Response(await upstream.text(), {
     status: upstream.status,
-    headers: sanitizeResponseHeaders(upstream.headers),
+    headers: defaultComputeGateway().sanitizeResponseHeaders(upstream.headers),
   });
 }

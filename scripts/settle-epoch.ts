@@ -20,7 +20,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseSettlementStore } from "../src/lib/db/supabase-settlement-store";
 import { finalizeEpoch, settleEpoch } from "../src/lib/db/settlement";
 import { dailyEpochFor, EpochLifecycleError } from "../src/lib/domain/epoch";
-import { DAILY_REWARD_POOL_POINTS } from "../src/lib/demo/network";
+import { epochEmissionPoints } from "../src/lib/protocol/emission";
 import { CURRENT_SCORING_VERSION } from "../src/lib/domain/scoring";
 import { formatNumber } from "../src/lib/domain/money";
 import type { Database } from "../src/lib/supabase/database.types";
@@ -40,7 +40,7 @@ async function main(): Promise<number> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), DAILY_REWARD_POOL_POINTS);
+  const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), epochEmissionPoints());
   const store = createSupabaseSettlementStore(admin);
   const options = {
     algorithmVersion: CURRENT_SCORING_VERSION,
