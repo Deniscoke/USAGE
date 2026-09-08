@@ -7,6 +7,9 @@ import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
 import { MINING_ELIGIBILITY_COPY } from "@/lib/protocols/protocol";
+// One source of truth for what build the server expects: a device that is told
+// it is current here and out of date on the download page would be a bug.
+import { MINER_PROTOCOL_VERSION, MINIMUM_MINER_VERSION } from "@/lib/miner/release";
 
 /**
  * What a paired device needs to route requests, and nothing more.
@@ -27,9 +30,6 @@ import { MINING_ELIGIBILITY_COPY } from "@/lib/protocols/protocol";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** The miner build this server expects. Reported, not yet enforced. */
-const MINER_PROTOCOL_VERSION = "miner-protocol-v1";
-const MINIMUM_MINER_VERSION = "0.1.0";
 
 export async function GET(request: NextRequest) {
   if (!isSupabaseConfigured()) return Response.json({ error: "unavailable" }, { status: 503 });

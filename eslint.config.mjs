@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Build output of the miner workspace: a generated CommonJS bundle, and a
+    // vendored Node runtime. It has its own typecheck; linting the artifact is
+    // linting the compiler.
+    "miner/dist/**",
   ]),
 ]);
 
