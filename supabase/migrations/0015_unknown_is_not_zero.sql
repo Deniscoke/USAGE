@@ -22,7 +22,8 @@
 --                                       tell the two apart. Left exactly as it
 --                                       was, flagged for audit, never guessed.
 
-begin;
+-- Run inside the migration runner's own transaction; no explicit BEGIN here,
+-- which would only nest and warn.
 
 -- ---------------------------------------------------------------- the column
 
@@ -115,4 +116,3 @@ alter table public.usage_events
 -- allocation that has already been settled changes: this migration alters how
 -- an absent price is represented, never what anything was worth.
 
-commit;

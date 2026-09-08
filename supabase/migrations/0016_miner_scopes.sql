@@ -19,7 +19,8 @@
 -- settling points, or reaching another user's data. Those are not things a
 -- program on somebody's laptop gets to do, so they are not expressible here.
 
-begin;
+-- Run inside the migration runner's own transaction; no explicit BEGIN here,
+-- which would only nest and warn.
 
 alter table public.usage_miner_credentials
   add column if not exists scopes text[] not null
@@ -52,4 +53,3 @@ alter table public.usage_miner_credentials
 comment on column public.usage_miner_credentials.rotated_to is
   'The credential that replaced this one. Set when a device rotates after its token was exposed.';
 
-commit;
