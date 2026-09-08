@@ -66,7 +66,7 @@ export const demoProviderAdapter: UsageProviderAdapter<DemoProviderRow> = {
 
   normalize(payload: RawUsagePayload<DemoProviderRow>): NormalizedUsageRecord[] {
     return payload.rows.map((row) => {
-      const reportedCostMicros =
+      const actualCostMicros =
         row.amount?.currency === "USD" ? usdStringToMicros(row.amount.value) : 0;
       return {
         provider: payload.provider,
@@ -78,8 +78,8 @@ export const demoProviderAdapter: UsageProviderAdapter<DemoProviderRow> = {
         cachedInputTokens: row.cache_read_input_tokens,
         outputTokens: row.output_tokens,
         requests: row.n_requests,
-        reportedCostMicros,
-        normalizedCostMicros: reportedCostMicros,
+        actualCostMicros,
+        normalizedCostMicros: actualCostMicros,
         verificationType: "verified",
         verificationStatus: "confirmed",
         rawMetadata: { bucket: "hour", currency: row.amount?.currency ?? "USD" },

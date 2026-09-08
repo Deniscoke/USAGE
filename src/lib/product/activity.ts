@@ -22,6 +22,8 @@ export interface ActivityItem {
   tool: string | null;
   tokens: number;
   verificationType: VerificationType;
+  /** Where the evidence came from, e.g. "Routed via Vercel AI Gateway". */
+  origin: string;
   proofStatus: ProofStatus | null;
   economicStatus: EconomicStatus | null;
   protocolComputeMicros: number | null;
@@ -37,9 +39,36 @@ export interface ActivityInput {
 
 const TOOL_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
+  "openrouter-miner": "USAGE Miner",
+  import: "Organization import",
   probe: "USAGE probe",
   fixture: "Fixture",
 };
+
+const GATEWAY_NAMES: Record<string, string> = {
+  "vercel-ai-gateway": "Vercel AI Gateway",
+  openrouter: "OpenRouter",
+};
+
+/**
+ * Where this evidence came from, in one phrase.
+ *
+ * A routed proof names the gateway that executed it; a verified import names
+ * the provider whose API stated it. The two are different kinds of evidence and
+ * the feed says which is which rather than blurring them into "verified".
+ */
+function describeOrigin(
+  verificationType: VerificationType,
+  gatewayId: string | null | undefined,
+  providerName: string,
+): string {
+  if (verificationType === "routed") {
+    const gateway = gatewayId ? (GATEWAY_NAMES[gatewayId] ?? gatewayId) : "USAGE";
+    return `Routed via ${gateway}`;
+  }
+  if (verificationType === "verified") return `Verified via ${providerName}`;
+  return "Reported";
+}
 
 export function buildActivityFeed({ events, proofStatusById }: ActivityInput): ActivityItem[] {
   return events.map((event) => {
@@ -47,16 +76,19 @@ export function buildActivityFeed({ events, proofStatusById }: ActivityInput): A
     const clientType = event.rawMetadata.client_type;
     const provider = providerForModel(event.model);
 
+    const providerName = provider?.name ?? event.provider;
+
     return {
       id,
       occurredAt: event.occurredAt,
-      provider: provider?.name ?? event.provider,
+      provider: providerName,
       model: event.model,
       modelLabel: event.model.includes("/") ? event.model.split("/").slice(1).join("/") : event.model,
       tool:
         typeof clientType === "string" ? (TOOL_LABELS[clientType] ?? clientType) : null,
       tokens: event.inputTokens + event.cachedInputTokens + event.outputTokens,
       verificationType: event.verificationType,
+      origin: describeOrigin(event.verificationType, event.gatewayId, providerName),
       proofStatus: proofStatusById?.get(id) ?? null,
       economicStatus: event.economicStatus ?? null,
       protocolComputeMicros: event.protocolPricingVersion ? (event.protocolComputeMicros ?? 0) : null,

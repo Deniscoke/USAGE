@@ -174,6 +174,8 @@ export function normalizeGatewayObservation(
     protocol_compute_micros: protocol?.micros ?? null,
     protocol_pricing_version: protocol ? pricingVersion : null,
     client_type: observation.clientType ?? "unknown",
+    // Which gateway executed it. With more than one, this is evidence.
+    gateway_id: observation.gatewayId ?? null,
     // The credential ID, never the credential. Signed into the receipt, so it
     // has to be stored for the receipt to be re-derivable and re-verifiable.
     miner_credential_id: options.minerCredentialId ?? null,
@@ -202,13 +204,15 @@ export function normalizeGatewayObservation(
     cachedInputTokens,
     outputTokens,
     requests: 1,
-    reportedCostMicros: parsedCost ? parsedCost.micros : null,
+    actualCostMicros: parsedCost ? parsedCost.micros : null,
     normalizedCostMicros: parsedCost ? parsedCost.micros : 0,
     verificationType: verification.verificationType,
     verificationStatus,
     economicStatus,
     protocolComputeMicros: protocol?.micros ?? 0,
     protocolPricingVersion: protocol ? pricingVersion : null,
+    gatewayId: observation.gatewayId ?? null,
+    actualCostBasis: costBasis,
     rawMetadata: metadata,
   };
 
@@ -228,6 +232,7 @@ export function normalizeGatewayObservation(
     model: observation.model,
     generationId: observation.generationId,
     generationIdSource: observation.generationIdSource ?? "gateway_generation_id",
+    gatewayId: observation.gatewayId ?? null,
     trustEnvironment: verification.trustEnvironment,
     inputTokens,
     cachedReadTokens: cachedInputTokens,

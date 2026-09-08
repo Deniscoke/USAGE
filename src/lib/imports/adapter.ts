@@ -1,6 +1,6 @@
 import type { UsageProviderAdapter } from "@/lib/providers/adapter";
 import { listPullIntegrations } from "@/lib/providers/registry";
-import { findProvider, type ProviderDefinition } from "@/lib/providers/catalog";
+import { findProvider, isUsable, type ProviderDefinition } from "@/lib/providers/catalog";
 import type { NormalizedUsageRecord, VerificationType } from "@/lib/domain/types";
 import type { ConnectionContext, UsageWindow, ValidationResult } from "@/lib/providers/adapter";
 
@@ -91,7 +91,7 @@ export function listImportCapabilities(): ImportCapability[] {
     if (!provider) continue;
     capabilities.push({
       provider,
-      implemented: provider.methods.verified_import.availability === "available",
+      implemented: isUsable(provider.import.status),
       verificationStrength: integration.verificationType,
     });
   }

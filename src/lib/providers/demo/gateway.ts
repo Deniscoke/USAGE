@@ -72,7 +72,7 @@ export const demoGatewayAdapter: UsageProviderAdapter<GatewayRecord> = {
       cachedInputTokens: row.tokens.cached,
       outputTokens: row.tokens.out,
       requests: row.count,
-      reportedCostMicros: row.cost_usd_micros,
+      actualCostMicros: row.cost_usd_micros,
       normalizedCostMicros: row.cost_usd_micros,
       verificationType: "routed",
       verificationStatus: "confirmed",

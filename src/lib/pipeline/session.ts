@@ -72,7 +72,7 @@ export function buildMiningSession(
     requests: totals.requests,
     totals,
     actualGatewayCostMicros: records.reduce(
-      (acc, record) => acc + (record.reportedCostMicros ?? 0),
+      (acc, record) => acc + (record.actualCostMicros ?? 0),
       0,
     ),
     routedCostMicros: scoresByDay.reduce((acc, score) => acc + score.weightedCostMicros, 0),

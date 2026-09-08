@@ -42,6 +42,7 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     model: "anthropic/claude-haiku-4.5",
     generationId: "gen_1",
     generationIdSource: "gateway_generation_id",
+    gatewayId: "vercel-ai-gateway",
     trustEnvironment: "production",
     inputTokens: 100,
     cachedReadTokens: 0,
@@ -417,11 +418,11 @@ describe("cost resolution", () => {
     cachedReadTokens: 0,
     cachedWriteTokens: 0,
     outputTokens: 20,
-    reportedCostMicros: null,
+    actualCostMicros: null,
   };
 
   it("uses the gateway figure when there is one", async () => {
-    const resolved = await resolveCost({ ...query, reportedCostMicros: 4_000_000 });
+    const resolved = await resolveCost({ ...query, actualCostMicros: 4_000_000 });
     expect(resolved).toMatchObject({ costMicroUsd: 4_000_000, costBasis: "gateway_reported" });
   });
 

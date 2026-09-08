@@ -38,6 +38,8 @@ export interface GatewayLogFields {
   status: number;
   latencyMs: number;
   streaming?: boolean;
+  /** Which compute gateway executed the request. */
+  gateway?: string;
   model?: string | null;
   generationId?: string | null;
   inputTokens?: number | null;
@@ -61,6 +63,7 @@ const LOGGED_FIELDS = [
   "status",
   "latencyMs",
   "streaming",
+  "gateway",
   "model",
   "generationId",
   "inputTokens",

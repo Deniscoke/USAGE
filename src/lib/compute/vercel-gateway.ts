@@ -96,6 +96,7 @@ export const vercelComputeGateway: ComputeGateway = {
 
   toObservation({ observed, requestedModel, environment, clientType, occurredAt, latencyMs }) {
     return buildGatewayObservation({
+      gatewayId: VERCEL_COMPUTE_GATEWAY_ID,
       extracted: {
         generationId: observed.identity.generationId,
         model: observed.identity.model,

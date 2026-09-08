@@ -91,10 +91,10 @@ describe("only trusted, priced evidence earns", () => {
       protocol_compute_micros: string;
       protocol_pricing_version: string;
       economic_status: string;
-      reported_cost_micros: string;
+      actual_cost_micros: string;
     }>(
       `select protocol_compute_micros::text, protocol_pricing_version, economic_status,
-              reported_cost_micros::text
+              actual_cost_micros::text
        from usage_events where user_id = $1`,
       [user],
     );
@@ -103,7 +103,7 @@ describe("only trusted, priced evidence earns", () => {
     expect(event.protocol_pricing_version).toBe(CURRENT_PRICING_VERSION);
     expect(event.economic_status).toBe("eligible");
     // The observation claimed a $4.00 bill. Mining ignores it entirely.
-    expect(event.reported_cost_micros).toBe(String(4 * MICROS_PER_USD));
+    expect(event.actual_cost_micros).toBe(String(4 * MICROS_PER_USD));
 
     const score = await scoreFor(user);
     expect(score.weighted).toBe(EXPECTED_PROTOCOL_MICROS);
@@ -148,15 +148,15 @@ describe("only trusted, priced evidence earns", () => {
     const [event] = await db.asServiceRole<{
       economic_status: string;
       protocol_compute_micros: string;
-      reported_cost_micros: string | null;
+      actual_cost_micros: string | null;
     }>(
-      `select economic_status, protocol_compute_micros::text, reported_cost_micros::text
+      `select economic_status, protocol_compute_micros::text, actual_cost_micros::text
        from usage_events where user_id = $1`,
       [user],
     );
 
     // No invoice, real compute: the protocol values the compute.
-    expect(event.reported_cost_micros).toBeNull();
+    expect(event.actual_cost_micros).toBeNull();
     expect(event.economic_status).toBe("eligible");
     expect(event.protocol_compute_micros).toBe(String(EXPECTED_PROTOCOL_MICROS));
     expect((await scoreFor(user)).weighted).toBe(EXPECTED_PROTOCOL_MICROS);

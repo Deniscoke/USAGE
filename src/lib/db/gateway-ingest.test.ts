@@ -116,20 +116,20 @@ describe("fixture observations", () => {
   });
 
   it("records the gateway cost exactly, and an absent cost as unknown", async () => {
-    const priced = await rows<{ reported_cost_micros: string | null; normalized_cost_micros: string }>(
-      `select reported_cost_micros::text, normalized_cost_micros::text from usage_events
+    const priced = await rows<{ actual_cost_micros: string | null; normalized_cost_micros: string }>(
+      `select actual_cost_micros::text, normalized_cost_micros::text from usage_events
        where user_id = $1 and external_reference = 'fixture:gen_fixture_0002'`,
       [user],
     );
     // 0.0512347891 USD, rounded half-up at the micro boundary.
     expect(priced[0].normalized_cost_micros).toBe("51235");
 
-    const unpriced = await rows<{ reported_cost_micros: string | null; normalized_cost_micros: string }>(
-      `select reported_cost_micros::text, normalized_cost_micros::text from usage_events
+    const unpriced = await rows<{ actual_cost_micros: string | null; normalized_cost_micros: string }>(
+      `select actual_cost_micros::text, normalized_cost_micros::text from usage_events
        where user_id = $1 and external_reference = 'fixture:gen_fixture_0003'`,
       [user],
     );
-    expect(unpriced[0].reported_cost_micros).toBeNull();
+    expect(unpriced[0].actual_cost_micros).toBeNull();
     expect(unpriced[0].normalized_cost_micros).toBe("0");
   });
 });

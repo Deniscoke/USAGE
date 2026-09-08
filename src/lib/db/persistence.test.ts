@@ -114,7 +114,7 @@ describe("money precision", () => {
       cachedInputTokens: 0,
       outputTokens: 1,
       requests: 1,
-      reportedCostMicros: 1,
+      actualCostMicros: 1,
       normalizedCostMicros: 1,
       verificationType: "verified",
       verificationStatus: "confirmed",
@@ -138,7 +138,7 @@ describe("money precision", () => {
       amounts.map((micros, index) =>
         record({
           externalReference: `money-${index}`,
-          reportedCostMicros: micros,
+          actualCostMicros: micros,
           normalizedCostMicros: micros,
         }),
       ),
@@ -169,7 +169,7 @@ describe("money precision", () => {
       [0, 1, 2].map((index) =>
         record({
           externalReference: `drift-${index}`,
-          reportedCostMicros: tenth,
+          actualCostMicros: tenth,
           normalizedCostMicros: tenth,
         }),
       ),
@@ -200,7 +200,7 @@ describe("scoring over persisted usage", () => {
         cachedInputTokens: 0,
         outputTokens: 0,
         requests: 1,
-        reportedCostMicros: 100 * MICROS_PER_USD,
+        actualCostMicros: 100 * MICROS_PER_USD,
         normalizedCostMicros: 100 * MICROS_PER_USD,
         verificationType: "verified",
         verificationStatus: "confirmed",
@@ -216,7 +216,7 @@ describe("scoring over persisted usage", () => {
         cachedInputTokens: 0,
         outputTokens: 0,
         requests: 1,
-        reportedCostMicros: null,
+        actualCostMicros: null,
         normalizedCostMicros: 900 * MICROS_PER_USD,
         verificationType: "reported",
         verificationStatus: "unverifiable",
@@ -265,7 +265,7 @@ describe("scoring over persisted usage", () => {
         ...base,
         externalReference: `split-${index}`,
         occurredAt: `${day}T${String(index % 24).padStart(2, "0")}:00:00.000Z`,
-        reportedCostMicros: MICROS_PER_USD,
+        actualCostMicros: MICROS_PER_USD,
         normalizedCostMicros: MICROS_PER_USD,
       })),
     );
@@ -275,7 +275,7 @@ describe("scoring over persisted usage", () => {
         ...base,
         externalReference: "whole-1",
         occurredAt: `${day}T10:00:00.000Z`,
-        reportedCostMicros: 64 * MICROS_PER_USD,
+        actualCostMicros: 64 * MICROS_PER_USD,
         normalizedCostMicros: 64 * MICROS_PER_USD,
       },
     ]);

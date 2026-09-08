@@ -91,6 +91,11 @@ function roundPoints(points: number): number {
  * cost" are not grounds for paying anyone.
  */
 export function isEconomicallyEligible(record: NormalizedUsageRecord): boolean {
+  // A reward hold outranks everything. It is set when this compute might
+  // already have been counted from another source, and paying twice is worse
+  // than paying late -- so the proof stays valid and the credit waits.
+  if (record.rewardHold) return false;
+
   // Records written since signed issuance carry an explicit economic status.
   // Older ones fall back to the verification status they were stored with.
   if (record.economicStatus) return record.economicStatus === "eligible";

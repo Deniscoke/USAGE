@@ -97,7 +97,7 @@ async function main(): Promise<number> {
   line(`cached input    : ${record.cachedInputTokens}`);
   line(`output tokens   : ${record.outputTokens}`);
   line(`cost            : ${
-    record.reportedCostMicros === null
+    record.actualCostMicros === null
       ? "not reported by gateway (recorded as unknown, never estimated)"
       : `${formatUsd(record.normalizedCostMicros, { maximumFractionDigits: 6 })} (${record.normalizedCostMicros} micro-USD)`
   }`);
@@ -183,7 +183,7 @@ async function runFixtureMode(): Promise<number> {
     line(
       `${record.externalReference}  ${record.model}  ${record.verificationType}/${record.verificationStatus}  ` +
         `${record.inputTokens}+${record.cachedInputTokens}/${record.outputTokens} tokens  ` +
-        `${record.reportedCostMicros === null ? "cost unknown" : `${record.normalizedCostMicros} micro-USD`}`,
+        `${record.actualCostMicros === null ? "cost unknown" : `${record.normalizedCostMicros} micro-USD`}`,
     );
   }
 

@@ -14,22 +14,39 @@ import type { ProofRecordRow } from "@/lib/supabase/database.types";
 
 const NO_CONNECTIONS: StoredConnection[] = [];
 const NOTHING_ACTIVE = new Set<string>();
+const MINING_KEY = "anthropic:routed_mining:vercel-ai-gateway";
 
 describe("connection state", () => {
+  it("shows one row per gateway, because a provider is not a gateway", () => {
+    const rows = deriveConnections({
+      connections: NO_CONNECTIONS,
+      hasActiveMiner: true,
+      activeProviders: NOTHING_ACTIVE,
+    });
+
+    const anthropic = rows.filter(
+      (row) => row.providerSlug === "anthropic" && row.method === "routed_mining",
+    );
+    expect(anthropic.map((row) => row.gateway).sort()).toEqual([
+      "openrouter",
+      "vercel-ai-gateway",
+    ]);
+  });
+
   it("shows a capability that does not exist as coming soon, whatever is stored", () => {
     const rows = deriveConnections({
       // A stale row claiming an import connection cannot promote a capability
       // the registry says is not implemented.
       connections: [
-        { provider: "openai", method: "verified_import", status: "active", lastSyncedAt: null },
+        { provider: "google", method: "verified_import", status: "active", lastSyncedAt: null },
       ],
       hasActiveMiner: true,
-      activeProviders: new Set(["openai"]),
+      activeProviders: new Set(["google"]),
     });
 
-    const openaiImport = rows.find((row) => row.key === "openai:verified_import")!;
-    expect(openaiImport.state).toBe("coming_soon");
-    expect(openaiImport.earns).toBe(false);
+    const googleImport = rows.find((row) => row.key === "google:verified_import")!;
+    expect(googleImport.state).toBe("coming_soon");
+    expect(googleImport.earns).toBe(false);
   });
 
   it("asks for setup when mining is available but no credential exists", () => {
@@ -38,25 +55,29 @@ describe("connection state", () => {
       hasActiveMiner: false,
       activeProviders: NOTHING_ACTIVE,
     });
-    expect(rows.find((row) => row.key === "anthropic:routed_mining")?.state).toBe("setup_required");
+    expect(rows.find((row) => row.key === MINING_KEY)?.state).toBe("setup_required");
   });
 
-  it("separates 'set up' from 'actually mining'", () => {
+  it("separates 'set up' from 'actually mining', per gateway", () => {
     const ready = deriveConnections({
       connections: NO_CONNECTIONS,
       hasActiveMiner: true,
       activeProviders: NOTHING_ACTIVE,
     });
-    expect(ready.find((row) => row.key === "anthropic:routed_mining")?.state).toBe("available");
+    expect(ready.find((row) => row.key === MINING_KEY)?.state).toBe("available");
 
     const mining = deriveConnections({
       connections: NO_CONNECTIONS,
       hasActiveMiner: true,
       activeProviders: new Set(["anthropic"]),
+      activeGateways: new Set(["vercel-ai-gateway"]),
     });
-    const row = mining.find((entry) => entry.key === "anthropic:routed_mining")!;
-    expect(row.state).toBe("active");
-    expect(row.earns).toBe(true);
+    // Traffic through Vercel does not make the OpenRouter route active: they
+    // are different connections with different upstreams.
+    expect(mining.find((row) => row.key === MINING_KEY)?.state).toBe("active");
+    expect(
+      mining.find((row) => row.key === "anthropic:routed_mining:openrouter")?.state,
+    ).toBe("available");
   });
 
   it("surfaces a broken or revoked connection", () => {
@@ -66,8 +87,9 @@ describe("connection state", () => {
       ],
       hasActiveMiner: true,
       activeProviders: new Set(["anthropic"]),
+      activeGateways: new Set(["vercel-ai-gateway"]),
     });
-    expect(broken.find((row) => row.key === "anthropic:routed_mining")?.state).toBe("error");
+    expect(broken.find((row) => row.key === MINING_KEY)?.state).toBe("error");
 
     const revoked = deriveConnections({
       connections: [
@@ -76,7 +98,19 @@ describe("connection state", () => {
       hasActiveMiner: false,
       activeProviders: NOTHING_ACTIVE,
     });
-    expect(revoked.find((row) => row.key === "anthropic:routed_mining")?.state).toBe("revoked");
+    expect(revoked.find((row) => row.key === MINING_KEY)?.state).toBe("revoked");
+  });
+
+  it("offers the OpenAI organization import, and only that one", () => {
+    const rows = deriveConnections({
+      connections: NO_CONNECTIONS,
+      hasActiveMiner: false,
+      activeProviders: NOTHING_ACTIVE,
+    });
+    const offered = rows.filter(
+      (row) => row.method === "verified_import" && row.state === "setup_required",
+    );
+    expect(offered.map((row) => row.providerSlug)).toEqual(["openai"]);
   });
 
   it("omits methods a provider does not support at all", () => {
@@ -100,7 +134,7 @@ function record(overrides: Partial<NormalizedUsageRecord> = {}): NormalizedUsage
     cachedInputTokens: 200,
     outputTokens: 300,
     requests: 1,
-    reportedCostMicros: null,
+    actualCostMicros: null,
     normalizedCostMicros: 0,
     verificationType: "routed",
     verificationStatus: "confirmed",

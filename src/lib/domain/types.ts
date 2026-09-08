@@ -5,6 +5,8 @@
  * Provider-shaped payloads must never leak past `normalize()`.
  */
 
+import type { CostBasis } from "./receipt";
+
 /** How strongly USAGE can vouch for a usage record. */
 export type VerificationType = "verified" | "routed" | "reported";
 
@@ -29,6 +31,22 @@ export type EconomicStatus =
   | "pending_cost"
   | "settled"
   | "ineligible";
+
+/**
+ * Could this record be double-counting compute we already counted?
+ *
+ *   clear            no other source could plausibly cover this compute
+ *   matched          matched to another record; exactly one of them earns
+ *   possible_overlap overlaps a known window, but not provably the same work
+ *   held             overlaps and cannot be separated: reward withheld
+ *   resolved         a human or a later rule settled it
+ */
+export type ReconciliationStatus =
+  | "clear"
+  | "matched"
+  | "possible_overlap"
+  | "held"
+  | "resolved";
 
 /** Where the bytes physically came from (an adapter may support several). */
 export type UsageSource =
@@ -57,8 +75,15 @@ export interface NormalizedUsageRecord {
   outputTokens: number;
   requests: number;
 
-  /** Cost as reported by the provider, if any. */
-  reportedCostMicros: number | null;
+  /**
+   * What the compute actually cost, in micro-USD, when a provider or gateway
+   * states it authoritatively. Null means unknown -- never zero. This is an
+   * audit and reconciliation figure and is NEVER what mining is paid on; see
+   * `protocolComputeMicros`.
+   */
+  actualCostMicros: number | null;
+  /** Who said so. `unavailable` when nobody did. */
+  actualCostBasis?: CostBasis;
   /** Cost USAGE will actually reason about (reported, or derived from pricing). */
   normalizedCostMicros: number;
 
@@ -84,6 +109,24 @@ export interface NormalizedUsageRecord {
    */
   epochId?: string | null;
   carriedForward?: boolean;
+
+  /**
+   * Which compute gateway executed this request, when one did. Imports have no
+   * gateway: nobody executed them on the user's behalf, they are a provider's
+   * own record of work that already happened.
+   */
+  gatewayId?: string | null;
+
+  /**
+   * Whether this record might double-count compute USAGE already counted from
+   * another source. See src/lib/db/reconciliation.ts.
+   */
+  reconciliationStatus?: ReconciliationStatus;
+  /**
+   * Economic credit is withheld pending reconciliation. The proof stays valid;
+   * only the reward waits. Never silently drop the evidence.
+   */
+  rewardHold?: boolean;
 
   /** Small, non-sensitive provider metadata. Never prompts or completions. */
   rawMetadata: Record<string, string | number | boolean | null>;

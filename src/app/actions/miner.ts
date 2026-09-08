@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createSupabaseMinerStore } from "@/lib/miner/credentials";
-import { findProvider, supportsMethod } from "@/lib/providers/catalog";
+import { findProvider, isUsable } from "@/lib/providers/catalog";
+import { getComputeGateway } from "@/lib/compute/registry";
 
 /**
  * Enabling mining, as a product action.
@@ -23,7 +24,16 @@ export interface MinerActionState {
   /** Shown once and never recoverable. Never persisted anywhere. */
   token?: string;
   credentialName?: string;
+  /** Where the miner should point. Public routing information, not a secret. */
+  endpoint?: string;
   message?: string;
+}
+
+/** The USAGE surface a gateway is served on. Public. */
+function gatewayEndpoint(gatewayId: string): string {
+  return gatewayId === "openrouter"
+    ? "/api/gateway/openrouter"
+    : "/api/gateway/anthropic";
 }
 
 async function requireUser() {
@@ -48,14 +58,17 @@ export async function enableMining(
   const providerSlug = String(formData.get("provider") ?? "");
   const provider = findProvider(providerSlug);
   if (!provider) return { error: "Unknown provider." };
-  if (!supportsMethod(provider, "routed_mining")) {
-    // The registry is the authority on what exists. Never mint a credential for
-    // a capability the product cannot actually deliver.
-    return { error: `Mining is not available for ${provider.name} yet.` };
+
+  // Which gateway will carry it. The registry is the authority on what exists:
+  // never mint a credential for a route the product cannot actually deliver.
+  const gatewayId = String(formData.get("gateway") ?? "");
+  const route = provider.routes.find((entry) => entry.gateway === gatewayId);
+  if (!route || !isUsable(route.status) || !getComputeGateway(gatewayId)) {
+    return { error: `Mining is not available for ${provider.name} on that gateway yet.` };
   }
 
   const label = String(formData.get("name") ?? "").trim().slice(0, 40);
-  const name = label || `${provider.slug} miner`;
+  const name = label || `${provider.slug} via ${route.gatewayName}`;
 
   const store = createSupabaseMinerStore(createAdminSupabase());
   const minted = await store.create(session.user.id, name);
@@ -70,14 +83,17 @@ export async function enableMining(
       account_label: name,
       method: "routed_mining",
       status: "active",
+      // A reference to where the credential lives, never the credential. The
+      // gateway is recorded so the connection says which route it set up.
       secret_ref: `miner:${minted.credentialId}`,
+      config: { gateway: gatewayId },
     },
     { onConflict: "user_id,provider,account_label" },
   );
 
   revalidatePath("/dashboard");
   revalidatePath("/settings");
-  return { token: minted.token, credentialName: name };
+  return { token: minted.token, credentialName: name, endpoint: gatewayEndpoint(gatewayId) };
 }
 
 export async function revokeMinerCredential(

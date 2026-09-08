@@ -5,8 +5,8 @@ import { EnableMiningButton } from "@/components/enable-mining";
 import { Panel } from "@/components/ui";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { listProviders, type ConnectionMethod, type ProviderDefinition } from "@/lib/providers/catalog";
-import type { ConnectionState } from "@/lib/product/connections";
+import { isUsable, listProviders, type ProviderDefinition } from "@/lib/providers/catalog";
+import { ROUTE_STATUS_MEANING } from "@/components/provider-meta";
 
 export const dynamic = "force-dynamic";
 
@@ -17,20 +17,6 @@ export const dynamic = "force-dynamic";
  * exist. A method the registry does not mark `available` is shown as COMING
  * SOON with the reason. Never pretend an integration works.
  */
-
-const METHOD_LABEL: Record<ConnectionMethod, string> = {
-  routed_mining: "Enable Mining",
-  verified_import: "Connect Organization",
-  byok: "Use your own key",
-  subscription: "Use your subscription",
-};
-
-const METHOD_BLURB: Record<ConnectionMethod, string> = {
-  routed_mining: "Mine usage routed through USAGE.",
-  verified_import: "Import verified organizational usage.",
-  byok: "Route with your own provider key.",
-  subscription: "Route your existing subscription.",
-};
 
 export default async function OnboardingPage() {
   if (!isSupabaseConfigured()) redirect("/");
@@ -81,35 +67,56 @@ export default async function OnboardingPage() {
 }
 
 function ProviderCard({ provider }: { provider: ProviderDefinition }) {
-  const methods = (Object.entries(provider.methods) as [ConnectionMethod, ProviderDefinition["methods"][ConnectionMethod]][])
-    .filter(([, method]) => method.availability !== "unsupported");
-
   return (
     <Panel title={provider.name} hint={provider.tools.map((tool) => tool.name).join(" · ") || undefined}>
       <div className="space-y-3">
-        {methods.map(([method, definition]) => {
-          const state: ConnectionState =
-            definition.availability === "available"
-              ? "setup_required"
-              : definition.availability === "experimental"
-                ? "experimental"
-                : "coming_soon";
-
+        {provider.routes.map((route) => {
+          const usable = isUsable(route.status);
           return (
-            <div key={method} className="space-y-1.5">
+            <div key={route.gateway} className="space-y-1.5">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs">{METHOD_LABEL[method]}</span>
-                <StateBadge state={state} />
+                <span className="text-xs">
+                  Enable Mining
+                  <span className="ml-1.5 text-[10px] text-[var(--faint)]">
+                    via {route.gatewayName}
+                  </span>
+                </span>
+                <StateBadge state={usable ? "setup_required" : "coming_soon"} />
               </div>
               <p className="text-[11px] leading-relaxed text-[var(--faint)]">
-                {definition.note ?? METHOD_BLURB[method]}
+                {route.note ?? ROUTE_STATUS_MEANING[route.status]}
               </p>
-              {method === "routed_mining" && definition.availability === "available" && (
-                <EnableMiningButton provider={provider.slug} providerName={provider.name} />
+              {usable && (
+                <EnableMiningButton
+                  provider={provider.slug}
+                  providerName={provider.name}
+                  gateway={route.gateway}
+                  gatewayName={route.gatewayName}
+                />
               )}
             </div>
           );
         })}
+
+        {provider.import.status !== "unsupported" && (
+          <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs">Connect Organization</span>
+              <StateBadge
+                state={isUsable(provider.import.status) ? "setup_required" : "coming_soon"}
+              />
+            </div>
+            <p className="text-[11px] leading-relaxed text-[var(--faint)]">
+              {provider.import.note ?? "Import verified organizational usage."}
+            </p>
+            {isUsable(provider.import.status) && (
+              <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+                Requires {provider.import.accountRequirement.toLowerCase()} Ask an administrator to
+                configure it for your organization.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </Panel>
   );

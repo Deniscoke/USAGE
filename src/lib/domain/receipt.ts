@@ -41,9 +41,13 @@ export type { EconomicStatus, ProofStatus };
  * fields are `null`, never 0 — "we don't know" and "zero" are different claims.
  */
 
-export const RECEIPT_VERSION = "usage.receipt.v3";
+export const RECEIPT_VERSION = "usage.receipt.v4";
 /** v2 receipts predate protocol pricing and still verify against their own form. */
-export const SUPPORTED_RECEIPT_VERSIONS = ["usage.receipt.v2", "usage.receipt.v3"] as const;
+export const SUPPORTED_RECEIPT_VERSIONS = [
+  "usage.receipt.v2",
+  "usage.receipt.v3",
+  "usage.receipt.v4",
+] as const;
 
 export type CostBasis = "gateway_reported" | "provider_reported" | "estimated" | "unavailable";
 
@@ -78,6 +82,13 @@ export interface ProofReceipt {
   generationId: string;
   generationIdSource: string;
   trustEnvironment: TrustEnvironment;
+  /**
+   * Which compute gateway executed the request, or null for an import -- for an
+   * import nobody executed anything on the user's behalf. With more than one
+   * gateway this is evidence, not bookkeeping: it says whose infrastructure
+   * observed the work.
+   */
+  gatewayId: string | null;
 
   inputTokens: number | null;
   cachedReadTokens: number | null;
@@ -159,8 +170,15 @@ const SIGNED_FIELDS_V3 = [
   "protocolPricingVersion",
 ] as const satisfies readonly (keyof ProofReceipt)[];
 
+const SIGNED_FIELDS_V4 = [
+  ...SIGNED_FIELDS_V3,
+  "gatewayId",
+] as const satisfies readonly (keyof ProofReceipt)[];
+
 function signedFieldsFor(version: string): readonly (keyof ProofReceipt)[] {
-  return version === "usage.receipt.v2" ? SIGNED_FIELDS_V2 : SIGNED_FIELDS_V3;
+  if (version === "usage.receipt.v2") return SIGNED_FIELDS_V2;
+  if (version === "usage.receipt.v3") return SIGNED_FIELDS_V3;
+  return SIGNED_FIELDS_V4;
 }
 
 /**

@@ -56,6 +56,9 @@ export function receiptFromStoredProof(
     model: event.model,
     generationId: metadataString(metadata, "gateway_generation_id", ""),
     generationIdSource: metadataString(metadata, "generation_id_source", "gateway_generation_id"),
+    // v4 receipts sign the executing gateway. Null is a real value here: an
+    // import has no gateway, and pre-v4 receipts never carried one.
+    gatewayId: metadataString(metadata, "gateway_id", "") || null,
     trustEnvironment: (proof.trust_environment ?? "development") as ProofReceipt["trustEnvironment"],
     inputTokens: event.inputTokens,
     cachedReadTokens: event.cachedInputTokens,
@@ -63,7 +66,7 @@ export function receiptFromStoredProof(
     outputTokens: event.outputTokens,
     reasoningTokens: metadataNumber(metadata, "reasoning_tokens"),
     requests: event.requests,
-    costMicroUsd: event.reportedCostMicros,
+    costMicroUsd: event.actualCostMicros,
     costBasis: metadataString(metadata, "cost_basis", "unavailable") as ProofReceipt["costBasis"],
     currency: "USD",
     occurredAt: event.occurredAt,

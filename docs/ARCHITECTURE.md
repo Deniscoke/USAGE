@@ -375,6 +375,105 @@ records per-epoch credits immutably, so a future claim dataset can be built
 without migrating history. There is no chain, no token, no custody, no trading,
 and no mapping from a point to a token.
 
+## Multi-provider (M7)
+
+Two real gateways and one real importer, all downstream of the same normalized
+record. The mining engine cannot tell them apart, and that is the point.
+
+```
+src/lib/compute/gateway.ts            the ComputeGateway contract
+src/lib/compute/vercel-gateway.ts     Anthropic-protocol, live in production
+src/lib/compute/openrouter-gateway.ts OpenAI-protocol, tested, no live proof yet
+src/lib/compute/registry.ts           registry + deterministic routing policy
+src/lib/gateway/handler.ts            ONE trust boundary, shared by both routes
+src/lib/imports/openai-org/           the first verified import
+src/lib/db/reconciliation.ts          cross-source double-reward protection
+```
+
+### Provider is not gateway
+
+The registry separates them, because "Anthropic routed" would imply a direct
+Anthropic integration that does not exist. Anthropic is reachable through the
+Vercel AI Gateway and through OpenRouter; each is a `GatewayRoute` with its own
+status, auth requirement and cost availability. Import capability stays on the
+provider, since it is the provider's own API.
+
+Statuses mean exactly one thing each: `live` (exercised in production),
+`tested` (implemented and covered by tests), `configured` (implemented with a
+credential present), `available` (implemented and usable), `coming_soon`
+(declared, not implemented). A test asserts that only routes with a real
+production proof claim `live`.
+
+### One trust boundary
+
+Adding a second gateway meant either duplicating the auth/trust/signing path or
+extracting it. It is extracted: `createGatewayRoute` carries miner
+authentication, rate limiting, trust assessment, attribution, streaming
+passthrough and `after()` persistence, and each route file only says which
+gateway and which error shape. Two gateways with two copies of that logic would
+become two security models.
+
+Receipts are now `usage.receipt.v4`, adding a signed `gatewayId`. With one
+gateway it was implicit; with two it is evidence. v2 and v3 keep verifying
+against the exact field list they were signed with.
+
+### Routing policy
+
+`selectGateway(provider)` is deterministic and does NOT retry across gateways at
+runtime. Fallback applies only when the preferred gateway has no credential at
+all -- a configuration fact known before anything is sent. Failing over
+mid-request would change which credential paid, which account the usage appears
+under, and which upstream terms applied, and would make a proof's recorded
+gateway a guess rather than evidence.
+
+### Imports are a different kind of proof
+
+An import is not a routed receipt and the code never pretends otherwise:
+
+| | Routed | Verified import |
+| --- | --- | --- |
+| Who observed it | USAGE, first-hand | The provider, after the fact |
+| Identity | provider generation id | deterministic bucket identity |
+| Granularity | one request | a time bucket |
+| `gatewayId` | the gateway that ran it | null |
+| Receipt `clientType` | the tool | `import` |
+
+Organization usage has no request ids, so identity is a SHA-256 over the
+authoritative dimensions the API grouped by: organization, bucket start, bucket
+width, model, project, user, api key, plus the adapter version. It contains
+nothing about when the import ran, which is what makes re-importing a window a
+no-op.
+
+`verified + confirmed` still requires a trusted server fetch with an admin
+credential AND a production signature. A client uploading a file can never
+produce it; there is no write path.
+
+### Cross-source reconciliation
+
+The same compute can arrive twice -- routed when USAGE executed it, then inside
+the provider's own daily total. Perfect matching is impossible (aggregates carry
+no request ids), so the rule refuses to pay into the ambiguity rather than
+guessing:
+
+1. identical external identity -> the natural key already deduped it;
+2. aggregate import overlapping routed usage for the same provider and UTC day
+   -> `reconciliation_status = held`, `reward_hold = true`;
+3. otherwise -> `clear`.
+
+A held record keeps its confirmed, signed proof. Withholding a reward is not the
+same as doubting the evidence, and `isEconomicallyEligible` checks the hold
+before anything else, so held compute is reported as pending rather than scored
+or discarded.
+
+### Cost
+
+`actual_cost_micros` (renamed from `reported_cost_micros`, which read like a
+user's claim) holds the authoritative provider or gateway cost, with
+`actual_cost_basis` saying who said so. OpenRouter reports one per request;
+the Anthropic-compatible Vercel surface does not. Mining has never used it and
+still does not -- `protocol_compute_micros` is the economic basis, so a route
+that happens to report its bill earns exactly the same as one that does not.
+
 ## Database
 
 `supabase/migrations/`:

@@ -17,6 +17,7 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     model: "anthropic/claude-haiku-4.5",
     generationId: "gen_abc",
     generationIdSource: "gateway_generation_id",
+    gatewayId: "vercel-ai-gateway",
     trustEnvironment: "production",
     inputTokens: 100,
     cachedReadTokens: 20,

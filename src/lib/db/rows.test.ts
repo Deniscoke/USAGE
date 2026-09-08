@@ -30,7 +30,8 @@ describe("row mapping", () => {
     cached_input_tokens: 5,
     output_tokens: 2,
     requests: 1,
-    reported_cost_micros: 4_500,
+    actual_cost_micros: 4_500,
+    actual_cost_basis: "gateway_reported",
     normalized_cost_micros: 4_500,
     verification_type: "verified",
     verification_status: "confirmed",
@@ -40,6 +41,8 @@ describe("row mapping", () => {
     protocol_pricing_basis: "protocol_pricing",
     epoch_id: "epoch-2026-03-15",
     carried_forward: false,
+    gateway_id: "vercel-ai-gateway",
+    reconciliation_status: "clear",
     fraud_status: "none",
     reward_hold: false,
     raw_metadata: { bucket: "hour" },
@@ -63,8 +66,8 @@ describe("row mapping", () => {
   });
 
   it("preserves a null reported cost as an estimate marker", () => {
-    const record = rowToUsageRecord({ ...row, reported_cost_micros: null });
-    expect(record.reportedCostMicros).toBeNull();
-    expect(usageRecordToInsert("u1", record, null).reported_cost_micros).toBeNull();
+    const record = rowToUsageRecord({ ...row, actual_cost_micros: null });
+    expect(record.actualCostMicros).toBeNull();
+    expect(usageRecordToInsert("u1", record, null).actual_cost_micros).toBeNull();
   });
 });

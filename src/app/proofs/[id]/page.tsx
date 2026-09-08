@@ -149,9 +149,9 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
             <Row
               label="Provider cost"
               value={
-                event.reportedCostMicros === null
+                event.actualCostMicros === null
                   ? "not reported"
-                  : formatUsd(event.reportedCostMicros)
+                  : formatUsd(event.actualCostMicros)
               }
             />
           </dl>

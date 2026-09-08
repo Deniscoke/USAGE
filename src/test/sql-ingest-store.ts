@@ -40,7 +40,8 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "cached_input_tokens",
         "output_tokens",
         "requests",
-        "reported_cost_micros",
+        "actual_cost_micros",
+        "actual_cost_basis",
         "normalized_cost_micros",
         "verification_type",
         "verification_status",
@@ -50,6 +51,9 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "protocol_pricing_basis",
         "epoch_id",
         "carried_forward",
+        "gateway_id",
+        "reconciliation_status",
+        "reward_hold",
         "raw_metadata",
       ] as const;
 

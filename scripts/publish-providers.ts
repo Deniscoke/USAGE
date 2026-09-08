@@ -32,10 +32,13 @@ async function main(): Promise<number> {
     category: provider.category,
     status: provider.status,
     integration_version: provider.integrationVersion,
-    routed_mining: provider.methods.routed_mining.availability,
-    verified_import: provider.methods.verified_import.availability,
-    byok: provider.methods.byok.availability,
-    subscription: provider.methods.subscription.availability,
+    byok: provider.byok.availability,
+    subscription: provider.subscription.availability,
+    import_status: provider.import.status,
+    import_source: provider.import.source,
+    import_account_requirement: provider.import.accountRequirement,
+    import_granularity: provider.import.granularity,
+    import_cost_availability: provider.import.costAvailability,
     usage_fields: [...provider.usageFields],
     cost_fields: [...provider.costFields],
     updated_at: new Date().toISOString(),
@@ -46,6 +49,26 @@ async function main(): Promise<number> {
     .upsert(providers, { onConflict: "slug" });
   if (providerError) {
     line(`providers: ${providerError.message}`);
+    return 1;
+  }
+
+  const routes = listProviders().flatMap((provider) =>
+    provider.routes.map((route) => ({
+      provider_slug: provider.slug,
+      gateway: route.gateway,
+      status: route.status,
+      auth_requirement: route.authRequirement,
+      cost_availability: route.costAvailability,
+      note: route.note ?? null,
+      updated_at: new Date().toISOString(),
+    })),
+  );
+
+  const { error: routeError } = await admin
+    .from("provider_routes")
+    .upsert(routes, { onConflict: "provider_slug,gateway" });
+  if (routeError) {
+    line(`provider routes: ${routeError.message}`);
     return 1;
   }
 
@@ -68,12 +91,14 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  line(`Published ${providers.length} provider(s) and ${listMiningProtocols().length} protocol version(s).`);
+  line(
+    `Published ${providers.length} provider(s), ${routes.length} route(s) and ` +
+      `${listMiningProtocols().length} protocol version(s).`,
+  );
   for (const provider of listProviders()) {
-    line(
-      `  ${provider.slug.padEnd(14)} mining=${provider.methods.routed_mining.availability.padEnd(12)}` +
-        ` import=${provider.methods.verified_import.availability}`,
-    );
+    const routeSummary =
+      provider.routes.map((route) => `${route.gateway}=${route.status}`).join(" ") || "no routes";
+    line(`  ${provider.slug.padEnd(14)} ${routeSummary.padEnd(46)} import=${provider.import.status}`);
   }
   return 0;
 }

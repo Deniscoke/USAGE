@@ -13,7 +13,7 @@ function record(overrides: Partial<NormalizedUsageRecord> = {}): NormalizedUsage
     cachedInputTokens: 500,
     outputTokens: 200,
     requests: 3,
-    reportedCostMicros: 12_000,
+    actualCostMicros: 12_000,
     normalizedCostMicros: 12_000,
     verificationType: "verified",
     verificationStatus: "confirmed",

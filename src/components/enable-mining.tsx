@@ -16,21 +16,33 @@ const EMPTY: MinerActionState = {};
 export function EnableMiningButton({
   provider,
   providerName,
+  gateway,
+  gatewayName,
   disabled,
 }: {
   provider: string;
   providerName: string;
+  /** Which gateway will carry this provider's traffic. */
+  gateway: string;
+  gatewayName: string;
   disabled?: boolean;
 }) {
   const [state, action, pending] = useActionState(enableMining, EMPTY);
 
   if (state.token) {
-    return <MinerToken token={state.token} name={state.credentialName ?? "miner"} />;
+    return (
+      <MinerToken
+        token={state.token}
+        name={state.credentialName ?? "miner"}
+        endpoint={state.endpoint ?? "/api/gateway/anthropic"}
+      />
+    );
   }
 
   return (
     <form action={action} className="space-y-2">
       <input type="hidden" name="provider" value={provider} />
+      <input type="hidden" name="gateway" value={gateway} />
       <button
         type="submit"
         disabled={disabled || pending}
@@ -39,14 +51,14 @@ export function EnableMiningButton({
         {pending ? "Enabling…" : "Enable Mining"}
       </button>
       <p className="text-[11px] text-[var(--faint)]">
-        Routes {providerName} requests through USAGE so they can be verified.
+        Routes {providerName} requests through USAGE via {gatewayName} so they can be verified.
       </p>
       {state.error && <p className="text-[11px] text-[var(--warn)]">{state.error}</p>}
     </form>
   );
 }
 
-function MinerToken({ token, name }: { token: string; name: string }) {
+function MinerToken({ token, name, endpoint }: { token: string; name: string; endpoint: string }) {
   return (
     <div className="space-y-3 rounded-md border border-[color-mix(in_srgb,var(--verified)_35%,transparent)] bg-[color-mix(in_srgb,var(--verified)_7%,transparent)] p-3">
       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--verified)]">
@@ -63,6 +75,9 @@ function MinerToken({ token, name }: { token: string; name: string }) {
         <summary className="cursor-pointer text-[var(--foreground)]">Set up your tool</summary>
         <ol className="mt-2 list-decimal space-y-1 pl-4 leading-relaxed">
           <li>Install the USAGE Miner for your tool.</li>
+          <li>
+            Point it at <code className="tnum">{endpoint}</code>.
+          </li>
           <li>Paste this key when it asks for your USAGE mining key.</li>
           <li>Use your AI tool exactly as before. Verified compute starts counting.</li>
         </ol>

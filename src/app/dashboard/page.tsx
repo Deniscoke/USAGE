@@ -134,16 +134,23 @@ export default async function DashboardPage() {
               )}
             </Panel>
 
-            <Panel title="Connected AI" hint="What can mine, and what is coming">
+            <Panel title="Connected AI" hint="What can mine, and how">
               <ul className="space-y-2.5">
                 {data.connectedAi
-                  .filter((tool) => tool.method === "routed_mining")
+                  .filter((tool) => tool.state !== "coming_soon")
                   .map((tool) => (
                     <li key={tool.key} className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-xs">{tool.label}</p>
                         <p className="truncate text-[10px] text-[var(--faint)]">
-                          {tool.providerName}
+                          {tool.gatewayName
+                            ? `Mining via ${tool.gatewayName}`
+                            : tool.method === "verified_import"
+                              ? "Verified organization import"
+                              : tool.providerName}
+                          {tool.lastSyncedAt
+                            ? ` · synced ${tool.lastSyncedAt.slice(0, 10)}`
+                            : ""}
                         </p>
                       </div>
                       <StateBadge state={tool.state} />
@@ -303,7 +310,8 @@ function ActivityRow({ item }: { item: ActivityItem }) {
           {item.tool ?? item.provider} · {item.modelLabel}
         </Link>
         <p className="tnum mt-0.5 text-[10px] text-[var(--faint)]">
-          {formatTokens(item.tokens)} tokens · {item.occurredAt.slice(0, 16).replace("T", " ")}
+          {item.origin} · {formatTokens(item.tokens)} tokens ·{" "}
+          {item.occurredAt.slice(0, 16).replace("T", " ")}
           {item.contributesToMining && item.protocolComputeMicros !== null
             ? ` · +${formatUsd(item.protocolComputeMicros, { maximumFractionDigits: 6 })} compute`
             : ""}

@@ -65,7 +65,7 @@ describe("collectUsage", () => {
     const reported = records.filter((r) => r.verificationType === "reported");
     expect(reported.length).toBeGreaterThan(0);
     for (const record of reported) {
-      expect(record.reportedCostMicros).toBeNull();
+      expect(record.actualCostMicros).toBeNull();
       expect(record.normalizedCostMicros).toBeGreaterThan(0);
       expect(record.rawMetadata.cost_basis).toBe("estimated");
     }

@@ -92,7 +92,8 @@ export type UsageEventRow = {
   cached_input_tokens: number;
   output_tokens: number;
   requests: number;
-  reported_cost_micros: number | null;
+  actual_cost_micros: number | null;
+  actual_cost_basis: string | null;
   normalized_cost_micros: number;
   verification_type: VerificationTypeRow;
   verification_status: VerificationStatusRow;
@@ -102,6 +103,8 @@ export type UsageEventRow = {
   protocol_pricing_basis: string | null;
   epoch_id: string | null;
   carried_forward: boolean;
+  gateway_id: string | null;
+  reconciliation_status: ReconciliationStatusRow;
   fraud_status: string;
   reward_hold: boolean;
   raw_metadata: Record<string, string | number | boolean | null>;
@@ -182,6 +185,31 @@ export type ScoreRecordRow = {
 
 export type EpochStateRow = "open" | "finalizing" | "settled";
 
+export type ReconciliationStatusRow =
+  | "clear"
+  | "matched"
+  | "possible_overlap"
+  | "held"
+  | "resolved";
+
+export type RouteStatusRow =
+  | "live"
+  | "tested"
+  | "configured"
+  | "available"
+  | "coming_soon"
+  | "unsupported";
+
+export type ProviderRouteRow = {
+  provider_slug: string;
+  gateway: string;
+  status: RouteStatusRow;
+  auth_requirement: string;
+  cost_availability: "authoritative" | "unavailable";
+  note: string | null;
+  updated_at: string;
+}
+
 export type MethodAvailabilityRow = "available" | "experimental" | "coming_soon" | "unsupported";
 
 export type ProviderRow = {
@@ -190,10 +218,13 @@ export type ProviderRow = {
   category: string;
   status: string;
   integration_version: string;
-  routed_mining: MethodAvailabilityRow;
-  verified_import: MethodAvailabilityRow;
   byok: MethodAvailabilityRow;
   subscription: MethodAvailabilityRow;
+  import_status: RouteStatusRow;
+  import_source: string | null;
+  import_account_requirement: string | null;
+  import_granularity: "per_generation" | "provider_aggregate" | null;
+  import_cost_availability: string | null;
   usage_fields: string[];
   cost_fields: string[];
   updated_at: string;
@@ -307,7 +338,8 @@ export type UsageEventInsertRow = {
   cached_input_tokens?: number;
   output_tokens?: number;
   requests?: number;
-  reported_cost_micros?: number | null;
+  actual_cost_micros?: number | null;
+  actual_cost_basis?: string | null;
   normalized_cost_micros?: number;
   verification_type: VerificationTypeRow;
   verification_status?: VerificationStatusRow;
@@ -317,6 +349,9 @@ export type UsageEventInsertRow = {
   protocol_pricing_basis?: string | null;
   epoch_id?: string | null;
   carried_forward?: boolean;
+  gateway_id?: string | null;
+  reconciliation_status?: ReconciliationStatusRow;
+  reward_hold?: boolean;
   raw_metadata?: Record<string, string | number | boolean | null>;
 }
 
@@ -438,6 +473,12 @@ export type Database = {
         Row: MiningProtocolVersionRow;
         Insert: MiningProtocolVersionRow;
         Update: Partial<MiningProtocolVersionRow>;
+        Relationships: [];
+      };
+      provider_routes: {
+        Row: ProviderRouteRow;
+        Insert: Partial<ProviderRouteRow> & { provider_slug: string; gateway: string; status: RouteStatusRow; auth_requirement: string; cost_availability: "authoritative" | "unavailable" };
+        Update: Partial<ProviderRouteRow>;
         Relationships: [];
       };
       point_balance_snapshots: {

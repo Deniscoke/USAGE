@@ -57,6 +57,11 @@ export interface GatewayObservation {
   generationId: string;
   /** Gateway model slug, e.g. "openai/gpt-5.4". */
   model: string;
+  /**
+   * Which compute gateway carried this request. Set by the server from the
+   * gateway that actually ran it -- never from anything a client sent.
+   */
+  gatewayId?: string;
   /** What produced the traffic: "probe", "claude-code", ... Non-PII. */
   clientType?: string;
   /** How the identity was obtained, for provenance. */

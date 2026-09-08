@@ -106,7 +106,7 @@ describe("token normalization", () => {
 describe("cost handling", () => {
   it("uses the gateway's authoritative cost", () => {
     const { record } = normalizeGatewayObservation(liveObservation());
-    expect(record.reportedCostMicros).toBe(12_300);
+    expect(record.actualCostMicros).toBe(12_300);
     expect(record.normalizedCostMicros).toBe(12_300);
     expect(record.rawMetadata.cost_basis).toBe("gateway_reported");
   });
@@ -122,7 +122,7 @@ describe("cost handling", () => {
 
   it("records an absent cost as unknown rather than zero or estimated", () => {
     const { record } = normalizeGatewayObservation(liveObservation({ cost: null }));
-    expect(record.reportedCostMicros).toBeNull();
+    expect(record.actualCostMicros).toBeNull();
     expect(record.normalizedCostMicros).toBe(0);
     expect(record.rawMetadata.cost_basis).toBe("unavailable");
   });

@@ -200,6 +200,8 @@ function readCost(headers: Headers): string | null {
 }
 
 export interface BuildObservationInput {
+  /** Which compute gateway executed this. Set by the gateway itself. */
+  gatewayId?: string;
   extracted: ExtractedUsage;
   headerMetadata: ReturnType<typeof readGatewayHeaders>;
   requestedModel: string | null;
@@ -225,6 +227,7 @@ export function buildGatewayObservation(input: BuildObservationInput): GatewayOb
     generationId,
     generationIdSource: input.headerMetadata.generationIdSource ?? "anthropic_message_id",
     model,
+    gatewayId: input.gatewayId,
     clientType: input.clientType,
     servedByProvider: model.includes("/") ? model.split("/")[0] : undefined,
     occurredAt: input.occurredAt.toISOString(),

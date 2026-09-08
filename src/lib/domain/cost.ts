@@ -20,7 +20,7 @@ export interface CostQuery {
   cachedWriteTokens: number | null;
   outputTokens: number | null;
   /** Whatever the observation itself carried, if anything. */
-  reportedCostMicros: number | null;
+  actualCostMicros: number | null;
 }
 
 export interface ResolvedCost {
@@ -44,9 +44,9 @@ export interface CostResolver {
 export const gatewayReportedCostResolver: CostResolver = {
   name: "gateway_reported",
   async resolve(query) {
-    if (query.reportedCostMicros === null) return null;
+    if (query.actualCostMicros === null) return null;
     return {
-      costMicroUsd: query.reportedCostMicros,
+      costMicroUsd: query.actualCostMicros,
       costBasis: "gateway_reported",
       pricingSource: "vercel-ai-gateway",
       pricingVersion: null,

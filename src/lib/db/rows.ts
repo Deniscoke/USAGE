@@ -46,10 +46,11 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     cachedInputTokens: toSafeInteger(row.cached_input_tokens, "cached_input_tokens"),
     outputTokens: toSafeInteger(row.output_tokens, "output_tokens"),
     requests: toSafeInteger(row.requests, "requests"),
-    reportedCostMicros:
-      row.reported_cost_micros === null
+    actualCostMicros:
+      row.actual_cost_micros === null
         ? null
-        : toSafeInteger(row.reported_cost_micros, "reported_cost_micros"),
+        : toSafeInteger(row.actual_cost_micros, "actual_cost_micros"),
+    actualCostBasis: (row.actual_cost_basis as NormalizedUsageRecord["actualCostBasis"]) ?? undefined,
     normalizedCostMicros: toSafeInteger(row.normalized_cost_micros, "normalized_cost_micros"),
     verificationType: row.verification_type,
     verificationStatus: row.verification_status,
@@ -63,6 +64,9 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
     protocolPricingVersion: row.protocol_pricing_version ?? null,
     epochId: row.epoch_id ?? null,
     carriedForward: row.carried_forward ?? false,
+    gatewayId: row.gateway_id ?? null,
+    reconciliationStatus: row.reconciliation_status ?? "clear",
+    rewardHold: row.reward_hold ?? false,
     rawMetadata: row.raw_metadata ?? {},
   };
 }
@@ -79,7 +83,8 @@ export interface UsageEventInsert {
   cached_input_tokens: number;
   output_tokens: number;
   requests: number;
-  reported_cost_micros: number | null;
+  actual_cost_micros: number | null;
+  actual_cost_basis: string | null;
   normalized_cost_micros: number;
   verification_type: NormalizedUsageRecord["verificationType"];
   verification_status: NormalizedUsageRecord["verificationStatus"];
@@ -89,6 +94,9 @@ export interface UsageEventInsert {
   protocol_pricing_basis: string | null;
   epoch_id: string | null;
   carried_forward: boolean;
+  gateway_id: string | null;
+  reconciliation_status: NonNullable<NormalizedUsageRecord["reconciliationStatus"]>;
+  reward_hold: boolean;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
 }
 
@@ -109,7 +117,8 @@ export function usageRecordToInsert(
     cached_input_tokens: record.cachedInputTokens,
     output_tokens: record.outputTokens,
     requests: record.requests,
-    reported_cost_micros: record.reportedCostMicros,
+    actual_cost_micros: record.actualCostMicros,
+    actual_cost_basis: record.actualCostBasis ?? null,
     normalized_cost_micros: record.normalizedCostMicros,
     // Assigned by trusted ingestion from the adapter, never accepted from input.
     verification_type: record.verificationType,
@@ -121,6 +130,11 @@ export function usageRecordToInsert(
     // Assigned by ingestion, from the epoch lifecycle -- never from input.
     epoch_id: record.epochId ?? null,
     carried_forward: record.carriedForward ?? false,
+    // Which gateway executed it. Null for imports: nobody executed those.
+    gateway_id: record.gatewayId ?? null,
+    // Reconciliation is decided by trusted ingestion, never by input.
+    reconciliation_status: record.reconciliationStatus ?? "clear",
+    reward_hold: record.rewardHold ?? false,
     raw_metadata: record.rawMetadata,
   };
 }

@@ -86,7 +86,7 @@ export const demoLocalCliAdapter: UsageProviderAdapter<CliSessionReport> = {
         cachedInputTokens: row.cached_tokens,
         outputTokens: row.completion_tokens,
         requests: row.sessions,
-        reportedCostMicros: null,
+        actualCostMicros: null,
         normalizedCostMicros,
         verificationType: "reported",
         verificationStatus: "unverifiable",

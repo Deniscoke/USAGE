@@ -7,7 +7,6 @@ import { listPullIntegrations } from "@/lib/providers/registry";
 import { collectUsage } from "@/lib/pipeline/collect";
 import {
   normalizeGatewayObservation,
-  type NormalizedObservation,
   type ProofIssuance,
 } from "@/lib/providers/vercel-gateway/adapter";
 import {
@@ -33,6 +32,15 @@ import { usageRecordToInsert, type StoredDailyScore } from "./rows";
  * Recomputation is full-day rather than incremental: a day is re-derived from
  * its stored events, so running ingestion twice converges on the same state.
  */
+
+/**
+ * A proof supplied by the adapter that produced the record.
+ *
+ * `verificationType` is deliberately not part of it: ingestion takes that from
+ * the record, so a proof can never claim to be stronger evidence than the
+ * record it belongs to.
+ */
+export type ProofOverride = Omit<ProofDraft, "usageEventId" | "verificationType">;
 
 /** Identity of an event that was actually inserted (not a duplicate). */
 export interface InsertedEventRef {
@@ -111,7 +119,7 @@ function naturalKey(provider: string, source: string, externalReference: string)
 function proofFromRecord(
   record: NormalizedUsageRecord,
   usageEventId: string,
-  override?: NormalizedObservation["proof"],
+  override?: ProofOverride,
 ): ProofDraft {
   const adapterVersion = record.rawMetadata.adapter_version;
   const trustEnvironment = record.rawMetadata.trust_environment;
@@ -143,7 +151,7 @@ export async function ingestRecords(
   userId: string,
   inputRecords: readonly NormalizedUsageRecord[],
   connectionIds: ReadonlyMap<string, string | null> = new Map(),
-  proofOverrides: ReadonlyMap<string, NormalizedObservation["proof"]> = new Map(),
+  proofOverrides: ReadonlyMap<string, ProofOverride> = new Map(),
 ): Promise<Omit<IngestSummary, "failures" | "fetched">> {
   if (inputRecords.length === 0) {
     return { inserted: 0, duplicates: 0, daysRecomputed: 0 };
@@ -307,7 +315,7 @@ export async function ingestGatewayObservations(
   options: GatewayIngestOptions = {},
 ): Promise<GatewayIngestSummary> {
   const records: NormalizedUsageRecord[] = [];
-  const proofOverrides = new Map<string, NormalizedObservation["proof"]>();
+  const proofOverrides = new Map<string, ProofOverride>();
   const rejected: GatewayIngestSummary["rejected"] = [];
 
   for (const observation of observations) {

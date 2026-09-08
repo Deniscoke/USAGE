@@ -19,7 +19,7 @@ function usage(
     cachedInputTokens: 0,
     outputTokens: 0,
     requests: 1,
-    reportedCostMicros: usd * MICROS_PER_USD,
+    actualCostMicros: usd * MICROS_PER_USD,
     normalizedCostMicros: usd * MICROS_PER_USD,
     verificationType,
     verificationStatus: "confirmed",
