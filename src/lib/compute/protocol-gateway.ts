@@ -75,6 +75,9 @@ export function protocolGateway(input: {
         // and two providers can both serve "llama-3.1-70b".
         model: model.includes("/") ? model : `${input.providerSlug}/${model}`,
         gatewayId: id,
+        // Whose connection this was. Without it a proof would name USAGE's own
+        // gateway as the provider of a request USAGE only relayed.
+        providerSlug: input.providerSlug,
         endpointTrusted: input.endpointTrusted ?? false,
         clientType,
         servedByProvider: observed.identity.provider ?? input.providerSlug,

@@ -74,6 +74,17 @@ export interface GatewayObservation {
   clientType?: string;
   /** How the identity was obtained, for provenance. */
   generationIdSource?: string;
+  /**
+   * Which provider account carried this request, when it is not USAGE's own
+   * gateway -- the slug of the connection that executed it, e.g. "openrouter".
+   *
+   * Distinct from `servedByProvider`, which is whoever ultimately ran the model
+   * (an OpenRouter request can be served by Liquid). Both matter: one says
+   * whose credential and whose bill, the other says whose hardware.
+   *
+   * Absent means USAGE's own gateway, which the adapter names itself.
+   */
+  providerSlug?: string;
   /** Upstream provider that actually served the request, when the gateway says. */
   servedByProvider?: string;
   occurredAt: string;

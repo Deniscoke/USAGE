@@ -258,6 +258,21 @@ export function decideReward(input: RewardDecisionInput): RewardDecision {
     };
   }
 
+  // A source this policy will NEVER reward is decided before pricing.
+  //
+  // "We do not know what this is worth yet" is a reason to wait. "This compute
+  // was free" is not: holding it would leave free inference as something a
+  // later pricing snapshot could quietly turn into earnings, which is precisely
+  // the farming hole this policy exists to close. Terminal is terminal.
+  if (policy.rules[input.economicSource] === "ineligible") {
+    return {
+      status: "ineligible",
+      reason: reasonFor(input.economicSource, "ineligible"),
+      policyVersion: policy.version,
+      eligibleComputeMicros: 0,
+    };
+  }
+
   // Real, provable compute with no approved price. Held, not discarded: a
   // future pricing snapshot can make it earn without re-proving anything.
   if (input.protocolComputeMicros === null) {

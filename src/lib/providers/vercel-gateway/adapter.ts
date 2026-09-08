@@ -227,8 +227,11 @@ export function normalizeGatewayObservation(
   };
 
   const record: NormalizedUsageRecord = {
-    provider: VERCEL_GATEWAY_PROVIDER,
-    source: "vercel_ai_gateway",
+    // A request relayed through a user's own connection was carried by that
+    // provider, not by USAGE's gateway. Saying otherwise puts a false fact in
+    // a signed proof.
+    provider: observation.providerSlug ?? VERCEL_GATEWAY_PROVIDER,
+    source: observation.providerSlug ? "gateway" : "vercel_ai_gateway",
     externalReference,
     model: observation.model,
     occurredAt,

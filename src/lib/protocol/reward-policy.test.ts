@@ -148,6 +148,21 @@ describe("reward policy v1", () => {
     expect(decision.reason).toBe("not_priced");
   });
 
+  it("keeps free compute ineligible even when the model has no price", () => {
+    // Found by the first live free-model request: the unpriced branch ran
+    // first, so free inference came out "held" -- meaning a later pricing
+    // snapshot could have turned it into earnings. Free compute is the one
+    // thing that must never become farmable, so terminal beats unknown.
+    const decision = decideReward({
+      ...base,
+      economicSource: "free",
+      protocolComputeMicros: null,
+    });
+    expect(decision.status).toBe("ineligible");
+    expect(decision.reason).toBe("free_inference");
+    expect(decision.eligibleComputeMicros).toBe(0);
+  });
+
   it("refuses anything that is not a confirmed proof", () => {
     const decision = decideReward({
       ...base,
