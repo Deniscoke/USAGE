@@ -64,7 +64,18 @@ export const MINER_RELEASE_TAG = "v0.3.0-beta.1";
  * release asset, and the base is configurable so a fork or a staging build can
  * point somewhere else without editing code.
  */
+/**
+ * The miner is its own repository now.
+ *
+ * Releases are cut there, by a GitHub-hosted workflow, from a commit anyone can
+ * read. This constant is the only thing the website needs to know about it --
+ * there is no source-level dependency in either direction.
+ *
+ * `v0.3.0-beta.1` and earlier were published under the platform repository and
+ * keep their URLs: a historical release is not something to move.
+ */
 const REPOSITORY = "https://github.com/Deniscoke/USAGE";
+export const MINER_SOURCE_REPOSITORY = "https://github.com/Deniscoke/USAGE-Miner";
 
 export function downloadUrl(file: MinerReleaseFile): string {
   const base = process.env.USAGE_MINER_DOWNLOAD_BASE;

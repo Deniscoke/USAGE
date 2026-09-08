@@ -4,6 +4,7 @@ import { Panel } from "@/components/ui";
 import {
   MINER_RELEASE,
   MINER_RELEASE_TAG,
+  MINER_SOURCE_REPOSITORY,
   downloadUrl,
   releaseUrl,
   formatBytes,
@@ -209,15 +210,13 @@ export default function InstallMinerPage() {
               — notes, every asset, and <code>SHA256SUMS.txt</code>.
             </li>
             <li>
-              <a
-                href="https://github.com/Deniscoke/USAGE/tree/main/miner"
-                className="text-[var(--routed)] hover:underline"
-              >
+              <a href={MINER_SOURCE_REPOSITORY} className="text-[var(--routed)] hover:underline">
                 Source
               </a>{" "}
-              — <code>npm run package</code> in <code>miner/</code> rebuilds this. The standalone
-              executable is byte-for-byte reproducible: the same source on Node{" "}
-              {MINER_RELEASE.nodeVersion} hashes to the value above.
+              — the miner is open source under Apache-2.0, in its own repository, and{" "}
+              <code>npm run package</code> rebuilds it. The standalone executable is byte-for-byte
+              reproducible: the same commit on Node {MINER_RELEASE.nodeVersion} hashes to the value
+              above.
             </li>
           </ul>
         </Panel>

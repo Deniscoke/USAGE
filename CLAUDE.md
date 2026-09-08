@@ -38,6 +38,20 @@ Read `docs/PRODUCT.md` for the thesis and `docs/ARCHITECTURE.md` for the shape.
     cost-unknown usage stays `pending`.
 12. **Dashboard reads run as the signed-in user** so RLS applies. The service
     role is for ingestion only, never for serving a read.
+13. **Say before you migrate production.** A schema change against the hosted
+    database is called out explicitly and agreed before it runs — not mentioned
+    afterwards in a summary, and not folded silently into a larger task.
+    Migrations are usually safe and this one is not a prohibition; it is a
+    refusal to let production DDL become routine background noise, because the
+    day it is not safe is the day nobody was watching.
+
+    The one exception is an active production security or correctness incident,
+    where waiting is the greater risk. Say so at the time, and say why.
+
+    Applies to `supabase db push`, `apply_migration`, and anything else that
+    alters the hosted schema. Local stacks, PGlite tests and migration *files*
+    are not covered — writing a migration is ordinary work; running it against
+    production is not.
 
 ## Conventions
 
