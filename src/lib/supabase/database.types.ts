@@ -42,7 +42,88 @@ export type ProofStatusRow = "observed" | "confirmed" | "rejected";
  * settings, provider secrets, proof creation, reward changes, settlement, or
  * another user's data -- those abilities are not expressible here at all.
  */
-export type MinerScope = "miner:route" | "miner:config" | "miner:heartbeat" | "miner:rotate";
+export type MinerScope =
+  | "miner:route"
+  | "miner:config"
+  | "miner:heartbeat"
+  | "miner:rotate"
+  | "miner:telemetry"
+  | "miner:mappings";
+
+export type VerificationLevelRow =
+  | "local_observed"
+  | "device_attested"
+  | "provider_correlated"
+  | "routed_confirmed"
+  | "provider_verified_import";
+export type CorrelationStatusRow = "none" | "pending" | "matched" | "unmatched";
+export type MeteringMethodRow = "native_otel" | "routed" | "provider_import" | "local_observed" | "unsupported";
+export type MappingStatusRow = "enabled" | "disabled";
+
+export type MinerToolMappingRow = {
+  id: string;
+  device_id: string;
+  user_id: string;
+  tool_id: string;
+  tool_version: string | null;
+  metering_method: MeteringMethodRow;
+  status: MappingStatusRow;
+  verification_capability: VerificationLevelRow;
+  enabled_at: string;
+  disabled_at: string | null;
+  last_event_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * What a paired device reported. Analytics and provenance only: this row has
+ * no proof, economic, pricing or reward columns, and never will.
+ */
+export type LocalUsageObservationRow = {
+  id: string;
+  user_id: string;
+  device_id: string;
+  mapping_id: string | null;
+  schema_version: string;
+  adapter: string;
+  tool_id: string;
+  tool_version: string | null;
+  source_type: string;
+  provider: string;
+  model: string | null;
+  upstream_request_id: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
+  tool_tokens: number | null;
+  estimated_cost_micros: number | null;
+  occurred_at: string;
+  local_session_id: string;
+  local_event_id: string;
+  device_signature: string | null;
+  signature_verified: boolean;
+  verification_level: VerificationLevelRow;
+  correlation_status: CorrelationStatusRow;
+  correlated_event_id: string | null;
+  provider_identity_hash: string | null;
+  received_at: string;
+};
+
+/** Schema readiness only. No route writes it and nothing economic reads it. */
+export type WalletConnectionRow = {
+  id: string;
+  user_id: string;
+  chain_namespace: string;
+  chain_id: string;
+  address: string;
+  verified_at: string | null;
+  verification_method: string | null;
+  created_at: string;
+  revoked_at: string | null;
+};
 
 export type MinerCredentialRow = {
   device_id?: string | null;
@@ -149,6 +230,12 @@ export type UsageEventRow = {
   fraud_status: string;
   reward_hold: boolean;
   raw_metadata: Record<string, string | number | boolean | null>;
+  /** Where the evidence came from, e.g. ["usage_gateway", "local_telemetry"]. */
+  provenance_sources: string[];
+  verification_level: VerificationLevelRow | null;
+  correlation_status: CorrelationStatusRow;
+  identity_trust_level: string;
+  provider_identity_hash: string | null;
   created_at: string;
 }
 
@@ -290,6 +377,14 @@ export type MinerDeviceRow = {
   app_version: string;
   credential_id: string | null;
   enabled_tools: string[];
+  public_key: string | null;
+  public_key_algorithm: string | null;
+  public_key_registered_at: string | null;
+  os: string | null;
+  /** Safe state from the heartbeat: [{tool, version, detected, mapped}]. */
+  tool_state: { tool: string; version: string | null; detected: boolean; mapped: boolean }[];
+  last_usage_event_at: string | null;
+  device_trust_level: string;
   created_at: string;
   last_seen_at: string | null;
   revoked_at: string | null;
@@ -505,6 +600,11 @@ export type RewardAllocationRow = {
  */
 export type UsageEventInsertRow = {
   pricing_status?: PricingStatusRow;
+  provenance_sources?: string[];
+  verification_level?: VerificationLevelRow | null;
+  correlation_status?: CorrelationStatusRow;
+  identity_trust_level?: string;
+  provider_identity_hash?: string | null;
   id?: string;
   user_id: string;
   connection_id?: string | null;
@@ -681,6 +781,41 @@ export type Database = {
         Row: MinerDeviceRow;
         Insert: Partial<MinerDeviceRow> & { user_id: string; name: string; platform: string; app_version: string };
         Update: Partial<MinerDeviceRow>;
+        Relationships: [];
+      };
+      miner_tool_mappings: {
+        Row: MinerToolMappingRow;
+        Insert: Partial<MinerToolMappingRow> & {
+          device_id: string;
+          user_id: string;
+          tool_id: string;
+          metering_method: MeteringMethodRow;
+          verification_capability: VerificationLevelRow;
+        };
+        Update: Partial<MinerToolMappingRow>;
+        Relationships: [];
+      };
+      local_usage_observations: {
+        Row: LocalUsageObservationRow;
+        Insert: Partial<LocalUsageObservationRow> & {
+          user_id: string;
+          device_id: string;
+          schema_version: string;
+          adapter: string;
+          tool_id: string;
+          source_type: string;
+          provider: string;
+          occurred_at: string;
+          local_session_id: string;
+          local_event_id: string;
+        };
+        Update: Partial<LocalUsageObservationRow>;
+        Relationships: [];
+      };
+      wallet_connections: {
+        Row: WalletConnectionRow;
+        Insert: Partial<WalletConnectionRow> & { user_id: string; chain_namespace: string; chain_id: string; address: string };
+        Update: Partial<WalletConnectionRow>;
         Relationships: [];
       };
       miner_pairing_requests: {

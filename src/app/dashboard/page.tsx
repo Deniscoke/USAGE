@@ -13,6 +13,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
 import { buildDashboardView, dashboardSinceDay, type DashboardData } from "@/lib/pipeline/dashboard";
 import type { ActivityItem } from "@/lib/product/activity";
+import { loadDeviceViews } from "@/lib/miner/device-view";
+import { TodayFigures } from "@/components/miner-device";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,10 @@ export default async function DashboardPage() {
   if (!user) redirect("/login?next=/dashboard");
 
   const now = new Date();
-  const snapshot = await loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now));
+  const [snapshot, devices] = await Promise.all([
+    loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now)),
+    loadDeviceViews(supabase, user.id),
+  ]);
   const data = buildDashboardView({ ...snapshot, now });
 
   return (
@@ -163,6 +168,71 @@ export default async function DashboardPage() {
               >
                 Connect more AI →
               </Link>
+            </Panel>
+          </section>
+
+          <section className="mt-4">
+            <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
+              {devices.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">
+                  No paired computer yet.{" "}
+                  <Link href="/miners/install" className="text-[var(--routed)] hover:underline">
+                    Install USAGE Miner →
+                  </Link>
+                </p>
+              ) : (
+                <ul className="divide-y divide-[var(--border)]">
+                  {devices.map((view) => (
+                    <li key={view.device.id} className="py-3 first:pt-0 last:pb-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Link href={`/miners/${view.device.id}`} className="text-xs hover:underline">
+                          {view.device.name}
+                        </Link>
+                        <span
+                          className="text-[10px] uppercase tracking-[0.1em]"
+                          style={{ color: view.revoked ? "var(--reported)" : view.online ? "var(--verified)" : "var(--faint)" }}
+                        >
+                          {view.revoked ? "Revoked" : view.online ? "● Online" : "Offline"}
+                        </span>
+                      </div>
+                      <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                        {view.tools
+                          .filter((t) => t.detected || t.mapped)
+                          .map((t) => (
+                            <li key={t.tool.id} className="text-[10px]">
+                              <span
+                                style={{
+                                  color: t.mapped
+                                    ? t.verificationCapability === "provider_correlated"
+                                      ? "var(--verified)"
+                                      : "var(--routed)"
+                                    : "var(--faint)",
+                                }}
+                              >
+                                ●
+                              </span>{" "}
+                              {t.tool.displayName}{" "}
+                              <span className="text-[var(--muted)]">
+                                {t.mapped
+                                  ? t.verificationCapability === "provider_correlated"
+                                    ? "mapping active"
+                                    : "observed only"
+                                  : "not mapped"}
+                              </span>
+                            </li>
+                          ))}
+                      </ul>
+                      <div className="mt-3">
+                        <TodayFigures view={view} compact />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-3 text-[10px] leading-relaxed text-[var(--faint)]">
+                Tracked ≠ verified ≠ reward-eligible. Only compute USAGE can confirm with a record of its
+                own enters mining, and free compute stays at zero.
+              </p>
             </Panel>
           </section>
 

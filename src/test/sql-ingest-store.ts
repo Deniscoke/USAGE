@@ -61,6 +61,11 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "reconciliation_status",
         "reward_hold",
         "raw_metadata",
+        "provenance_sources",
+        "verification_level",
+        "correlation_status",
+        "identity_trust_level",
+        "provider_identity_hash",
       ] as const;
 
       const params: unknown[] = [];

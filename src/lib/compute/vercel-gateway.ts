@@ -19,6 +19,7 @@ import type {
   StreamObserver,
   UpstreamCall,
 } from "./gateway";
+import { upstreamRequestIdFrom } from "./gateway";
 
 /**
  * The Vercel AI Gateway implementation -- the one USAGE runs in production.
@@ -41,6 +42,7 @@ function toObserved(
       source: headerMetadata.generationIdSource ?? (extracted.generationId ? "anthropic_message_id" : null),
       model: extracted.model,
       provider: extracted.model?.includes("/") ? extracted.model.split("/")[0] : null,
+      upstreamRequestId: upstreamRequestIdFrom(headers),
     },
     usage: extracted.usage,
     cost: headerMetadata.cost ? { value: headerMetadata.cost, currency: "USD" } : null,
@@ -109,6 +111,7 @@ export const vercelComputeGateway: ComputeGateway = {
         generationIdSource: observed.identity.source,
         cost: observed.cost ? String(observed.cost.value) : null,
       },
+      upstreamRequestId: observed.identity.upstreamRequestId ?? null,
       requestedModel,
       environment,
       clientType,

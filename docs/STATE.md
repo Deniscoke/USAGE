@@ -2,7 +2,29 @@
 
 ## Current milestone
 
-M12B — Signed external beta. **Repository split done; signing pending SignPath acceptance.**
+M13 — Universal local metering. **Built and tested; production migration awaiting approval.**
+
+## Production migration awaiting approval
+
+**`supabase/migrations/0017_local_metering.sql` has NOT been applied.** Per
+operating rule 13 it is presented here first. The code that depends on it is
+committed but **not deployed**: deploying the web app before the migration
+would break `/miners`, the dashboard's miner panel, and `POST /api/miner/telemetry`.
+
+| | |
+|---|---|
+| File | `supabase/migrations/0017_local_metering.sql` |
+| Tables created | `miner_tool_mappings`, `local_usage_observations`, `wallet_connections` |
+| Tables altered | `miner_devices` (+7 nullable/defaulted columns), `usage_events` (+5 defaulted columns), `usage_miner_credentials` (scope check widened; two scopes added to live rows; default widened) |
+| Types created | `metering_method`, `mapping_status`, `verification_level`, `correlation_status` |
+| Destructive | **No.** No column dropped, renamed or retyped; no row deleted. |
+| Backfill | `usage_events.verification_level` and `provenance_sources` set from the existing `verification_type` (routed → `routed_confirmed`/`usage_gateway`, verified → `provider_verified_import`/`provider_import`). Live credentials gain `miner:telemetry` and `miner:mappings`. Nothing economic changes: `eligible_compute_micros`, `reward_status`, the ledger and every epoch are untouched, and the test suite asserts the ledger total before and after correlation. |
+| Rollback | Drop the three new tables and four types; drop the added columns from `miner_devices` and `usage_events`; restore the previous scope check and default on `usage_miner_credentials` (0016's list). Nothing pre-existing was modified, so rollback loses only what 0017 created. |
+| Exercised | Every PGlite test runs it (`src/lib/db/local-metering.test.ts` targets it directly: RLS, grants, dedupe constraint, scope check, wallet unreachability, ledger immutability). |
+
+After approval: `npx supabase db push --linked`, then `npx vercel --prod --yes`.
+
+## Beta readiness checklist
 
 USAGE Miner now ships as a standalone Windows application: download, install,
 sign in through the browser, click to enable mining, use AI. No Node, no npm,
@@ -22,9 +44,35 @@ credential 0.2.x left on disk. **Unknown is no longer zero:** an unpriced model
 stores `NULL` with `pricing_status = pending_pricing`, so "we have no price" and
 "priced at nothing" stopped sharing a representation.
 
+M13 turned the miner from a routing launcher into the local AI usage meter
+for the account. A paired computer detects supported AI apps, the user opts
+each one in, and the app's own official OpenTelemetry stream is pointed at a
+loopback receiver inside the miner for that session. The receiver flattens
+OTLP/JSON, an allowlist keeps compute metadata and nothing else, the device
+signs each observation with a DPAPI-held Ed25519 key, and the result is
+uploaded to a table that nothing economic reads.
+
+**The verification ladder is now explicit:** `local_observed` →
+`device_attested` → `provider_correlated` → `routed_confirmed` →
+`provider_verified_import`. A device upload can reach the second rung at most.
+The third requires the server to find its own record with the same provider
+request id — exact equality, no fuzzy matching — and even then only the
+existing record's provenance improves; no reward is created.
+
 The rules it does not break: **the miner is not a trusted usage reporter**,
-**connectable is not mining eligible**, and **free compute is provable but never
-rewarded**.
+**connectable is not mining eligible**, **free compute is provable but never
+rewarded**, and now **tracked ≠ verified ≠ reward-eligible** — three numbers
+the dashboard, the device page and the desktop window all compute with one
+function.
+
+What the research settled, against current official sources:
+
+| Tool | Surface | Yields | Ceiling |
+|---|---|---|---|
+| Claude Code | OTLP logs `api_request` (docs say `claude_code.api_request`; wire says `api_request` — both accepted) | model, 4 token counts, `cost_usd_micros`, **`request_id`** | `provider_correlated` |
+| Gemini CLI | OTLP logs `gemini_cli.api_response` | model, 5 token counts; **no request id**; `logPrompts` defaults **true** (forced false) | `device_attested` |
+| Codex | OTLP logs `codex.sse_event(response.completed)` | 6 token counts; **no model, no response id**; `tool_result` carries `arguments`/`output` (never parsed) | `device_attested`, experimental |
+| Cursor | Enterprise-only, **server-side**, admin-configured | nothing locally | unsupported; future Enterprise connector |
 
 ## Beta readiness checklist
 
@@ -49,7 +97,11 @@ Mandatory items must all pass before anyone outside the project is invited.
 - [x] **free inference earns zero** — `ineligible` / `free_inference`, and
       terminal classes are decided before pricing
 - [x] **privacy claims verified** — no provider secret in the shipped bundle, no
-      credential in logs or shortcuts, loopback guards hold
+      credential in logs or shortcuts, loopback guards hold; local telemetry
+      allowlist proven against a real Claude Code run (prompt, email, account
+      and organisation ids on the wire, none in the upload)
+- [ ] **local metering live** — code complete and tested; needs migration 0017
+      applied and a deploy, then the one real upload
 
 Earlier milestones, still true: M9 separated proof of usage from reward
 eligibility (a CONFIRMED proof can exist without earning); M10 replaced manual
@@ -182,6 +234,10 @@ mining engine never learns which provider a request came from.
 - The installer's interactive dialogs are verified by hand, not by a test.
 
 ## Next recommended milestone
+
+**Apply migration 0017, deploy, and make the one real upload.** Everything
+else in M13 is built and tested; the local half of the acceptance test ran
+against real Claude Code. After that, in order:
 
 **A paid-model end-to-end.** The free-model run proved the chain and correctly
 earned nothing. Nothing has yet produced `reward_status = eligible` on a real

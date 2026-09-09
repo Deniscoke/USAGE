@@ -209,6 +209,8 @@ export interface BuildObservationInput {
   clientType: string;
   occurredAt: Date;
   latencyMs: number;
+  /** Provider request id from the upstream response headers, if any. */
+  upstreamRequestId?: string | null;
 }
 
 /**
@@ -228,6 +230,7 @@ export function buildGatewayObservation(input: BuildObservationInput): GatewayOb
     generationIdSource: input.headerMetadata.generationIdSource ?? "anthropic_message_id",
     model,
     gatewayId: input.gatewayId,
+    upstreamRequestId: input.upstreamRequestId ?? null,
     clientType: input.clientType,
     servedByProvider: model.includes("/") ? model.split("/")[0] : undefined,
     occurredAt: input.occurredAt.toISOString(),

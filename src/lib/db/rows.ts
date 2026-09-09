@@ -1,6 +1,9 @@
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
+import { createHash } from "node:crypto";
 import type {
+  CorrelationStatusRow,
   PricingStatusRow,
+  VerificationLevelRow,
   ScoreRecordRow,
   UsageDailyAggregateRow,
   UsageEventRow,
@@ -118,6 +121,11 @@ export interface UsageEventInsert {
   reconciliation_status: NonNullable<NormalizedUsageRecord["reconciliationStatus"]>;
   reward_hold: boolean;
   raw_metadata: NormalizedUsageRecord["rawMetadata"];
+  provenance_sources: string[];
+  verification_level: VerificationLevelRow;
+  correlation_status: CorrelationStatusRow;
+  identity_trust_level: string;
+  provider_identity_hash: string | null;
 }
 
 export function usageRecordToInsert(
@@ -176,7 +184,32 @@ export function usageRecordToInsert(
     reconciliation_status: record.reconciliationStatus ?? "clear",
     reward_hold: record.rewardHold ?? false,
     raw_metadata: record.rawMetadata,
+    // Provenance names where the evidence came from. Set from the verification
+    // type the trusted adapter assigned; correlation may later ADD a source,
+    // never replace one, and never touches the reward columns above.
+    provenance_sources:
+      record.verificationType === "verified"
+        ? ["provider_import"]
+        : record.verificationType === "routed"
+          ? ["usage_gateway"]
+          : ["reported"],
+    verification_level:
+      record.verificationType === "verified"
+        ? "provider_verified_import"
+        : record.verificationType === "routed"
+          ? "routed_confirmed"
+          : "local_observed",
+    correlation_status: "none",
+    identity_trust_level: "account",
+    provider_identity_hash: providerIdentityHashFor(record),
   };
+}
+
+function providerIdentityHashFor(record: NormalizedUsageRecord): string | null {
+  const id = record.rawMetadata?.upstream_request_id;
+  if (typeof id !== "string" || !id) return null;
+  return `sha256:${createHash("sha256").update(`${record.provider}
+${id}`).digest("hex")}`;
 }
 
 /**

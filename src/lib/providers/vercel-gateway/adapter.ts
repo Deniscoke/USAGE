@@ -208,6 +208,10 @@ export function normalizeGatewayObservation(
     // has to be stored for the receipt to be re-derivable and re-verifiable.
     miner_credential_id: options.minerCredentialId ?? null,
     generation_id_source: observation.generationIdSource ?? "gateway_generation_id",
+    // The provider's own request identity, as the upstream response named it.
+    // Local telemetry from a tool that saw the same response carries the same
+    // id, and exact equality here is the only correlation USAGE will accept.
+    upstream_request_id: observation.upstreamRequestId ?? null,
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
     gateway_generation_id: observation.generationId,
     gateway_model: observation.model,

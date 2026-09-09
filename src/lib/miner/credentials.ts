@@ -29,6 +29,10 @@ export const DEVICE_SCOPES: MinerScope[] = [
   "miner:config",
   "miner:heartbeat",
   "miner:rotate",
+  // Report what the device observed, and which tools it may observe. Neither
+  // can move a point: observations land in a table nothing economic reads.
+  "miner:telemetry",
+  "miner:mappings",
 ];
 
 /**

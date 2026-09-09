@@ -67,7 +67,11 @@ POST /api/miner/pair                 start device pairing
 POST /api/miner/pair/poll            collect the credential once approved
 POST /api/miner/credential/rotate    replace this device's credential
 GET  /api/miner/config               routing configuration for this device
-POST /api/miner/heartbeat            liveness and which tools are active
+POST /api/miner/heartbeat            liveness; per-tool detected/version/mapped (v2)
+POST /api/miner/mappings             opt a tool in or out of metering
+POST /api/miner/device-key           register this device's Ed25519 public key (once)
+POST /api/miner/telemetry            signed local-usage-observation-v1 batches
+GET  /api/miner/usage                today's tracked / verified / eligible, server-computed
 GET  /api/miner/release              current version and checksums
 POST /api/gateway/provider/<id>/**   route a request through a connection
 POST /api/gateway/anthropic/**       route through USAGE's own gateway

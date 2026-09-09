@@ -274,6 +274,7 @@ export const openRouterComputeGateway: ComputeGateway = {
       generationIdSource: observed.identity.source ?? "openrouter_generation_id",
       model,
       gatewayId: OPENROUTER_GATEWAY_ID,
+      upstreamRequestId: observed.identity.upstreamRequestId ?? null,
       clientType,
       servedByProvider: observed.identity.provider ?? undefined,
       occurredAt: occurredAt.toISOString(),

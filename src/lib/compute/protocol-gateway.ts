@@ -78,6 +78,7 @@ export function protocolGateway(input: {
         // Whose connection this was. Without it a proof would name USAGE's own
         // gateway as the provider of a request USAGE only relayed.
         providerSlug: input.providerSlug,
+        upstreamRequestId: observed.identity.upstreamRequestId ?? null,
         endpointTrusted: input.endpointTrusted ?? false,
         clientType,
         servedByProvider: observed.identity.provider ?? input.providerSlug,

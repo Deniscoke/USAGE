@@ -57,6 +57,22 @@ export interface GenerationIdentity {
   model: string | null;
   /** Upstream provider that actually served it, when the gateway says. */
   provider: string | null;
+  /**
+   * The provider's own request id from the response headers (Anthropic
+   * `request-id`, OpenAI/OpenRouter `x-request-id`). Null when absent. This is
+   * the value a tool's local telemetry can also see, so it is the ONLY key on
+   * which a local observation may be correlated with this record.
+   */
+  upstreamRequestId?: string | null;
+}
+
+/** Read the provider request id from upstream response headers, if any. */
+export function upstreamRequestIdFrom(headers: Headers | null | undefined): string | null {
+  if (!headers) return null;
+  const value = headers.get("request-id") ?? headers.get("x-request-id");
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= 200 ? trimmed : null;
 }
 
 export interface ObservedGeneration {

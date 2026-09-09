@@ -4,7 +4,7 @@ import {
   AnthropicStreamUsageCollector,
   extractFromMessage,
 } from "@/lib/gateway/usage-extract";
-import type { ObservedGeneration, StreamObserver } from "@/lib/compute/gateway";
+import { upstreamRequestIdFrom, type ObservedGeneration, type StreamObserver } from "@/lib/compute/gateway";
 import {
   UNKNOWN_CAPABILITIES,
   upstreamPath,
@@ -236,8 +236,12 @@ export const anthropicCompatibleProtocol: ProviderProtocol = {
     );
   },
 
-  observe(payload) {
-    return toObserved(payload);
+  observe(payload, responseHeaders) {
+    const observed = toObserved(payload);
+    return {
+      ...observed,
+      identity: { ...observed.identity, upstreamRequestId: upstreamRequestIdFrom(responseHeaders) },
+    };
   },
 
   observeStream() {

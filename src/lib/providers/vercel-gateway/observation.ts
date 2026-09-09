@@ -87,6 +87,12 @@ export interface GatewayObservation {
   providerSlug?: string;
   /** Upstream provider that actually served the request, when the gateway says. */
   servedByProvider?: string;
+  /**
+   * The provider's own request id from the upstream response headers
+   * (Anthropic `request-id`, OpenAI `x-request-id`), when present. Distinct
+   * from the generation id: this is the value a tool's telemetry also sees.
+   */
+  upstreamRequestId?: string | null;
   occurredAt: string;
   usage: GatewayTokenUsage;
   /** Authoritative cost from the gateway. Absent means unknown, never zero. */

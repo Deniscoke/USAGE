@@ -65,6 +65,68 @@ Covered by `miner/src/ui.test.ts`.
 
 ---
 
+## 1b. Metering: how usage gets tracked
+
+Since 0.4.0 the miner is the local AI usage meter for the account, and the
+mechanism is deliberately boring:
+
+```
+AI tool --official OpenTelemetry (OTLP/JSON, logs only)--> 127.0.0.1:<random>
+                                                              | per-session bearer secret
+                                                              v
+                                                     flatten (scalars only)
+                                                              v
+                                                     allowlist per tool
+                                                              v
+                                                  LocalUsageObservation v1
+                                                              v
+                                            sign (device Ed25519, DPAPI-held)
+                                                              v
+                                POST /api/miner/telemetry -- or DPAPI buffer, <=2000, <=72h
+```
+
+**The receiver treats localhost as hostile.** Every other program running as
+you can reach 127.0.0.1. So each launched session gets a fresh 32-byte bearer
+secret handed only to the child process's environment; the long-lived miner
+credential is never the receiver's secret and never present in that module;
+bodies are capped at 1 MB and requests at 20/s; `/v1/metrics` and
+`/v1/traces` are acknowledged and discarded; protobuf is refused (415) so a
+tool is told to use JSON.
+
+**Two privacy gates, independent of each other.** The OTLP flattener keeps
+scalar attributes only -- a message list or a raw API body is an array or a
+map, and never reaches an adapter. The allowlist then keeps exactly the fields
+named in one table per tool. `prompt`, `response`, `user.email`,
+`user.account_uuid`, `organization.id`, `session.id`, `tool_input`,
+`arguments`, `output`, paths -- all present on the real wire from these tools
+-- are dropped by never being named. The observation type has no slot for
+them. Tested by sending them.
+
+**Opt-in, per app.** Detected never means enabled. The user ticks each app;
+the choice is recorded locally and on the server, where the metering method
+and verification ceiling are looked up in the server's own registry -- a
+device that claims more is ignored.
+
+**A device signature proves origin, not truth.** The user owns the machine,
+the key and the pipe. A signed observation of ten million tokens is a signed
+lie if they want it to be. That is why a device upload can reach
+`device_attested` and no higher, and why nothing in `local_usage_observations`
+is read by scoring, settlement or the ledger -- the table has no economic
+columns to read.
+
+**Exact correlation or nothing.** When an observation carries the provider's
+own request id (Claude Code does; Gemini and Codex do not), the server looks
+for a record it produced itself with the identical id. On a match the
+observation becomes `provider_correlated` and the trusted event gains
+`local_telemetry` as a provenance source. Its reward columns are not in the
+update. There is no "same token count and roughly the same minute" path.
+
+**Verified against a real run.** Claude Code 2.1.261, one tiny prompt:
+5 OTLP requests, 116 log records, 58 distinct attribute keys on the wire
+including `prompt`, `response`, `user.email`, `user.account_uuid`,
+`organization.id`. One observation out: model, four token counts, cost
+estimate, `request_id`. Nothing else.
+
 ## 2. What the miner is not
 
 **USAGE Miner is not a trusted usage reporter.** It never submits token counts,

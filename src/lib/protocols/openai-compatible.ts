@@ -1,5 +1,5 @@
 import { safeFetch } from "@/lib/net/ssrf";
-import type { ObservedGeneration, StreamObserver } from "@/lib/compute/gateway";
+import { upstreamRequestIdFrom, type ObservedGeneration, type StreamObserver } from "@/lib/compute/gateway";
 import type { GatewayCost, GatewayTokenUsage } from "@/lib/providers/vercel-gateway/observation";
 import {
   UNKNOWN_CAPABILITIES,
@@ -311,8 +311,12 @@ export const openAiCompatibleProtocol: ProviderProtocol = {
     );
   },
 
-  observe(payload) {
-    return observeOpenAiCompletion(payload);
+  observe(payload, responseHeaders) {
+    const observed = observeOpenAiCompletion(payload);
+    return {
+      ...observed,
+      identity: { ...observed.identity, upstreamRequestId: upstreamRequestIdFrom(responseHeaders) },
+    };
   },
 
   observeStream() {
