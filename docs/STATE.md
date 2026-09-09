@@ -2,14 +2,19 @@
 
 ## Current milestone
 
-M13 — Universal local metering. **Built and tested; production migration awaiting approval.**
+M13 — Universal local metering. **Live in production.**
 
 ## Production migration awaiting approval
 
-**`supabase/migrations/0017_local_metering.sql` has NOT been applied.** Per
-operating rule 13 it is presented here first. The code that depends on it is
-committed but **not deployed**: deploying the web app before the migration
-would break `/miners`, the dashboard's miner panel, and `POST /api/miner/telemetry`.
+**Applied 2026-09-09, with explicit approval and the preflight below.** Only
+0017 was pending (dry-run confirmed). Economic invariants before and after,
+and again after the first real upload: usage events 5, settled allocations 1,
+Usage Point ledger total 100000, settled epochs 1 — identical. Live
+credentials 17 → 18 (the acceptance device). Post-migration verification
+`npm run usage:verify-0017`: 21/21. Hosted RLS/security: 43/43. A JSON
+logical export of every rollback-relevant table was taken beforehand, outside
+the repository (Docker is absent here, so `supabase db dump` was not an option;
+note that for the future).
 
 | | |
 |---|---|
@@ -100,8 +105,11 @@ Mandatory items must all pass before anyone outside the project is invited.
       credential in logs or shortcuts, loopback guards hold; local telemetry
       allowlist proven against a real Claude Code run (prompt, email, account
       and organisation ids on the wire, none in the upload)
-- [ ] **local metering live** — code complete and tested; needs migration 0017
-      applied and a deploy, then the one real upload
+- [x] **local metering live** — 0017 applied, platform deployed, one real
+      Claude Code request metered through the installed 0.4.0 miner into the
+      production account: `device_attested`, model + tokens + request id
+      present, prompt/email/account ids absent, tracked 6 / verified 0 /
+      eligible 0, ledger unchanged
 
 Earlier milestones, still true: M9 separated proof of usage from reward
 eligibility (a CONFIRMED proof can exist without earning); M10 replaced manual
@@ -234,10 +242,6 @@ mining engine never learns which provider a request came from.
 - The installer's interactive dialogs are verified by hand, not by a test.
 
 ## Next recommended milestone
-
-**Apply migration 0017, deploy, and make the one real upload.** Everything
-else in M13 is built and tested; the local half of the acceptance test ran
-against real Claude Code. After that, in order:
 
 **A paid-model end-to-end.** The free-model run proved the chain and correctly
 earned nothing. Nothing has yet produced `reward_status = eligible` on a real
