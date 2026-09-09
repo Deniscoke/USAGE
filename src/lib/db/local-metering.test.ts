@@ -83,6 +83,41 @@ describe("local observations", () => {
   });
 });
 
+describe("database-level invariants added at preflight", () => {
+  it("refuses a negative token count even from the service role", async () => {
+    const row = OBSERVATION("ev-negative");
+    row[10] = -1;
+    await expect(db.asServiceRole(INSERT_OBSERVATION, row)).rejects.toThrow(/check constraint|violates/i);
+  });
+
+  it("refuses to bind an observation to a device another user owns", async () => {
+    // bob's user id with alice's device: the composite foreign key has no such pair.
+    const row = OBSERVATION("ev-cross-user");
+    row[0] = bob;
+    await expect(db.asServiceRole(INSERT_OBSERVATION, row)).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  it("refuses a mapping that belongs to a different device", async () => {
+    const [other] = await db.asServiceRole<{ id: string }>(
+      `insert into miner_devices (user_id, name, platform, app_version) values ($1, 'DESKTOP-B', 'win32', '0.4.0') returning id`,
+      [alice],
+    );
+    const row = OBSERVATION("ev-cross-device");
+    row[1] = other.id; // alice's other device, but `mapping` belongs to the first one
+    await expect(db.asServiceRole(INSERT_OBSERVATION, row)).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  it("refuses a mapping for a device the user does not own", async () => {
+    await expect(
+      db.asServiceRole(
+        `insert into miner_tool_mappings (device_id, user_id, tool_id, metering_method, verification_capability)
+         values ($1, $2, 'codex', 'native_otel', 'device_attested')`,
+        [device, bob],
+      ),
+    ).rejects.toThrow(/foreign key|violates/i);
+  });
+});
+
 describe("tool mappings", () => {
   it("are owner-readable and client-unwritable", async () => {
     expect((await db.asUser(alice, `select tool_id, status from miner_tool_mappings`)).length).toBe(1);

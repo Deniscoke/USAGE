@@ -1,10 +1,20 @@
 -- Universal local metering, and the accounting it must never contaminate.
 --
--- NOT APPLIED TO PRODUCTION BY THIS COMMIT. See docs/STATE.md: this file is
--- presented for approval first. Everything below is additive -- no column is
--- dropped, renamed or retyped, no row is rewritten -- and it is exercised
--- against PGlite by the test suite before it goes anywhere near a hosted
--- database.
+-- Presented for approval before it was run (docs/STATE.md, operating rule
+-- 13). Schema changes are additive: no column is dropped, renamed or retyped,
+-- and no row is deleted. Two sets of EXISTING ROWS ARE UPDATED, and this is
+-- the whole list:
+--
+--   usage_events               every row gets verification_level and
+--                              provenance_sources derived from its existing
+--                              verification_type. No economic column is read
+--                              or written by that statement.
+--   usage_miner_credentials    every live (unrevoked) credential gains the
+--                              scopes miner:telemetry and miner:mappings.
+--                              Neither scope can move a point.
+--
+-- Exercised against PGlite by the test suite before it goes near a hosted
+-- database; the ledger total and settled allocations are asserted unchanged.
 --
 -- WHAT IT ADDS
 --
@@ -51,10 +61,16 @@ begin
   end if;
 end $$;
 
+-- (id, user_id) on miner_devices is trivially unique -- id is the key -- but
+-- naming it lets the tables below reference the PAIR, so a row cannot bind a
+-- device to a user who does not own it, whatever the server code says.
+create unique index if not exists miner_devices_id_user_key on public.miner_devices (id, user_id);
+
 create table if not exists public.miner_tool_mappings (
   id uuid primary key default gen_random_uuid(),
   device_id uuid not null references public.miner_devices (id) on delete cascade,
   user_id uuid not null references public.profiles (id) on delete cascade,
+  foreign key (device_id, user_id) references public.miner_devices (id, user_id) on delete cascade,
   tool_id text not null,
   tool_version text,
   -- Decided by the server from the tool registry, never accepted from a client.
@@ -68,7 +84,8 @@ create table if not exists public.miner_tool_mappings (
   last_event_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (device_id, tool_id)
+  unique (device_id, tool_id),
+  unique (id, device_id)
 );
 
 create index if not exists miner_tool_mappings_user_idx on public.miner_tool_mappings (user_id, status);
@@ -114,6 +131,9 @@ create table if not exists public.local_usage_observations (
   user_id uuid not null references public.profiles (id) on delete cascade,
   device_id uuid not null references public.miner_devices (id) on delete cascade,
   mapping_id uuid references public.miner_tool_mappings (id) on delete set null,
+  -- The device must belong to this user, and the mapping to this device.
+  foreign key (device_id, user_id) references public.miner_devices (id, user_id) on delete cascade,
+  foreign key (mapping_id, device_id) references public.miner_tool_mappings (id, device_id) on delete set null,
 
   schema_version text not null,
   adapter text not null,
@@ -127,14 +147,16 @@ create table if not exists public.local_usage_observations (
   -- ONLY field with correlation value. Null when the tool did not supply one.
   upstream_request_id text,
 
-  input_tokens bigint,
-  output_tokens bigint,
-  cache_read_tokens bigint,
-  cache_write_tokens bigint,
-  reasoning_tokens bigint,
-  tool_tokens bigint,
+  -- Null means the tool did not say. Negative is refused here as well as at
+  -- the route: a count is a count.
+  input_tokens bigint check (input_tokens is null or input_tokens >= 0),
+  output_tokens bigint check (output_tokens is null or output_tokens >= 0),
+  cache_read_tokens bigint check (cache_read_tokens is null or cache_read_tokens >= 0),
+  cache_write_tokens bigint check (cache_write_tokens is null or cache_write_tokens >= 0),
+  reasoning_tokens bigint check (reasoning_tokens is null or reasoning_tokens >= 0),
+  tool_tokens bigint check (tool_tokens is null or tool_tokens >= 0),
   -- The tool's own estimate. Recorded, displayed, never used for anything.
-  estimated_cost_micros bigint,
+  estimated_cost_micros bigint check (estimated_cost_micros is null or estimated_cost_micros >= 0),
 
   occurred_at timestamptz not null,
   local_session_id text not null,
