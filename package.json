@@ -29,7 +29,8 @@
     "usage:connections": "node --env-file-if-exists=.env.local --import tsx scripts/inspect-connections.ts",
     "usage:e2e:openrouter": "node --env-file-if-exists=.env.local --import tsx scripts/e2e-openrouter.ts",
     "usage:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/economic-snapshot.ts",
-    "usage:export": "node --env-file-if-exists=.env.local --import tsx scripts/logical-export.ts"
+    "usage:export": "node --env-file-if-exists=.env.local --import tsx scripts/logical-export.ts",
+    "usage:verify-0017": "node --env-file-if-exists=.env.local --import tsx scripts/verify-0017.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",
