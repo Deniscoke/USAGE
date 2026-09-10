@@ -22,12 +22,10 @@ async function main(): Promise<void> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const count = async (table: keyof Database["public"]["Tables"], filter?: (q: any) => any) => {
-    let q = admin.from(table).select("*", { count: "exact", head: true });
-    if (filter) q = filter(q);
-    const { count: n, error } = await q;
-    if (error) throw new Error(`${String(table)}: ${error.message}`);
-    return n ?? 0;
+  const exact = { count: "exact" as const, head: true as const };
+  const counted = (result: { count: number | null; error: { message: string } | null }, what: string): number => {
+    if (result.error) throw new Error(`${what}: ${result.error.message}`);
+    return result.count ?? 0;
   };
 
   const { data: ledger, error: ledgerError } = await admin.from("usage_point_ledger").select("amount");
@@ -36,11 +34,11 @@ async function main(): Promise<void> {
 
   const snapshot = {
     takenAt: new Date().toISOString(),
-    usageEvents: await count("usage_events"),
-    settledAllocations: await count("usage_point_ledger"),
+    usageEvents: counted(await admin.from("usage_events").select("*", exact), "usage_events"),
+    settledAllocations: counted(await admin.from("usage_point_ledger").select("*", exact), "usage_point_ledger"),
     usagePointLedgerTotal: ledgerTotal.toString(),
-    settledEpochs: await count("reward_epochs", (q) => q.not("settled_at", "is", null)),
-    activeMinerCredentials: await count("usage_miner_credentials", (q) => q.is("revoked_at", null)),
+    settledEpochs: counted(await admin.from("reward_epochs").select("*", exact).not("settled_at", "is", null), "reward_epochs"),
+    activeMinerCredentials: counted(await admin.from("usage_miner_credentials").select("*", exact).is("revoked_at", null), "usage_miner_credentials"),
   };
 
   line(JSON.stringify(snapshot, null, 2));

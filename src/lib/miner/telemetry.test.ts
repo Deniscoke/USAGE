@@ -54,6 +54,14 @@ describe("validateIncoming", () => {
     }
   });
 
+  it("rejects a device that names funding, cost or eligibility, whatever the value", () => {
+    for (const key of ["funding_class", "fundingClass", "economic_source", "actual_cost_micros", "reward_eligible", "economic_verified", "is_free_tier", "economic_event_key", "cost"]) {
+      const r = validateIncoming({ observation: { ...good, [key]: "metered_paid" }, signature: null });
+      expect(r.ok, key).toBe(false);
+      expect((r as { reason: string }).reason).toBe(`forbidden_field:${key}`);
+    }
+  });
+
   it("rejects unknown fields rather than ignoring them", () => {
     const r = validateIncoming({ observation: { ...good, prompt_hash: "x" }, signature: null });
     expect(r.ok).toBe(false);
@@ -117,6 +125,16 @@ describe("device signature", () => {
   });
 });
 
+const CANDIDATE = {
+  eventId: "ev-1",
+  verificationLevel: "routed_confirmed" as const,
+  provenanceSources: ["usage_gateway"],
+  provider: "anthropic",
+  model: "anthropic/claude-sonnet-5",
+  inputTokens: 1_500,
+  outputTokens: 240,
+};
+
 describe("correlation is exact or nothing", () => {
   it("leaves an observation without identity at its base level, uncorrelated", () => {
     const d = correlate({ upstreamRequestId: null, signatureVerified: true }, null);
@@ -133,22 +151,50 @@ describe("correlation is exact or nothing", () => {
   it("upgrades provenance on a match and touches nothing economic", () => {
     const d = correlate(
       { upstreamRequestId: "req_x", signatureVerified: false },
-      { eventId: "ev-1", verificationLevel: "routed_confirmed", provenanceSources: ["usage_gateway"] },
+      { ...CANDIDATE, provenanceSources: ["usage_gateway"] },
     );
     expect(d.observation.level).toBe("provider_correlated");
     expect(d.observation.correlatedEventId).toBe("ev-1");
-    expect(d.event).toEqual({ eventId: "ev-1", provenanceSources: ["local_telemetry", "usage_gateway"], correlationStatus: "matched" });
+    expect(d.event).toEqual({ kind: "match", eventId: "ev-1", provenanceSources: ["local_telemetry", "usage_gateway"], correlationStatus: "matched" });
     // The update the server will apply has exactly these keys. No reward,
     // no compute, no status, no price can be expressed through it.
-    expect(Object.keys(d.event!).sort()).toEqual(["correlationStatus", "eventId", "provenanceSources"]);
+    expect(Object.keys(d.event!).sort()).toEqual(["correlationStatus", "eventId", "kind", "provenanceSources"]);
+  });
+
+  it("matches when the device's counts agree with the trusted record within tolerance", () => {
+    const d = correlate(
+      { upstreamRequestId: "req_x", signatureVerified: true, provider: "anthropic", model: "claude-sonnet-5-20260501", inputTokens: 1_505, outputTokens: 240 },
+      CANDIDATE,
+    );
+    expect(d.event?.kind).toBe("match");
+  });
+
+  it("records a conflict, holds the reward and raises nothing when the device disagrees on tokens", () => {
+    const d = correlate(
+      { upstreamRequestId: "req_x", signatureVerified: true, provider: "anthropic", model: "claude-sonnet-5", inputTokens: 1_500, outputTokens: 999_999 },
+      CANDIDATE,
+    );
+    expect(d.observation.correlationStatus).toBe("pending");
+    // The observation does not rise: a disagreement is not a corroboration.
+    expect(d.observation.level).toBe("device_attested");
+    expect(d.event).toEqual({ kind: "conflict", eventId: "ev-1", correlationStatus: "pending", conflicts: ["output_tokens"], rewardHold: true });
+  });
+
+  it("records a conflict when the device names a different model family", () => {
+    const d = correlate(
+      { upstreamRequestId: "req_x", signatureVerified: true, provider: "anthropic", model: "claude-opus-5", inputTokens: 1_500, outputTokens: 240 },
+      CANDIDATE,
+    );
+    expect(d.event?.kind).toBe("conflict");
+    expect((d.event as { conflicts: string[] }).conflicts).toEqual(["model"]);
   });
 
   it("does not duplicate a provenance source on repeated correlation", () => {
     const d = correlate(
       { upstreamRequestId: "req_x", signatureVerified: true },
-      { eventId: "ev-1", verificationLevel: "routed_confirmed", provenanceSources: ["local_telemetry", "usage_gateway"] },
+      { ...CANDIDATE, provenanceSources: ["local_telemetry", "usage_gateway"] },
     );
-    expect(d.event!.provenanceSources).toEqual(["local_telemetry", "usage_gateway"]);
+    expect((d.event as { provenanceSources: string[] }).provenanceSources).toEqual(["local_telemetry", "usage_gateway"]);
   });
 
   it("hashes provider identity without revealing it, and only when there is one", () => {

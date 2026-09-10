@@ -1,3 +1,4 @@
+import { economicKeyOf } from "@/lib/protocol/economic-unit";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -57,6 +58,24 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
         source: row.source,
         externalReference: row.external_reference,
       }));
+    },
+
+    async loadEventsByEconomicKey(userId, keys) {
+      if (keys.length === 0) return [];
+      // The key lives in raw_metadata until migration 0018 gives it a column.
+      const { data, error } = await admin
+        .from("usage_events")
+        .select("id, provider, source, external_reference, raw_metadata, created_at")
+        .eq("user_id", userId)
+        .in("raw_metadata->>economic_event_key", [...keys])
+        .order("created_at", { ascending: true });
+      fail("loadEventsByEconomicKey", error);
+      return (data ?? []).flatMap((row) => {
+        const key = economicKeyOf(row.raw_metadata as Record<string, unknown>);
+        return key
+          ? [{ id: row.id, economicEventKey: key, provider: row.provider, source: row.source, externalReference: row.external_reference }]
+          : [];
+      });
     },
 
     async insertProofs(userId: string, proofs: readonly ProofDraft[]) {

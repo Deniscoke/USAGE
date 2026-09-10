@@ -115,7 +115,8 @@ is read by scoring, settlement or the ledger -- the table has no economic
 columns to read.
 
 **Exact correlation or nothing.** When an observation carries the provider's
-own request id (Claude Code does; Gemini and Codex do not), the server looks
+own request id (Claude Code does; Gemini and Codex do not — Codex reports the
+model and counts only, confirmed on the wire), the server looks
 for a record it produced itself with the identical id. On a match the
 observation becomes `provider_correlated` and the trusted event gains
 `local_telemetry` as a provenance source. Its reward columns are not in the

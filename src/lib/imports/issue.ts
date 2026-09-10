@@ -1,4 +1,10 @@
 import {
+  classifyEconomicSource,
+  economicEventKey,
+  selectAuthoritativeIdentity,
+  verifyEconomically,
+} from "@/lib/protocol/economic-unit";
+import {
   newReceiptId,
   receiptHash,
   signReceipt,
@@ -8,7 +14,7 @@ import {
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type { ProofIssuance } from "@/lib/providers/vercel-gateway/adapter";
 import type { ProofDraft } from "@/lib/db/ingest";
-import { decideReward, deriveEconomicSource } from "@/lib/protocol/reward-policy";
+import { decideReward } from "@/lib/protocol/reward-policy";
 
 /**
  * Issuing a proof for imported usage.
@@ -76,11 +82,51 @@ export function issueImportProof(
   // An import is the provider's own record of the user's own account, so the
   // user funded it. Whether it was PAID depends on what the provider stated,
   // and a share of a bucket total is not an authoritative per-request cost.
-  const economicSource = deriveEconomicSource({
+  // An import carries no funding evidence of its own: the provider's billing
+  // export says what was charged, not what account tier paid it. Under
+  // economic-verification-v1 that is `unknown`, and unknown is held.
+  const economicSource = classifyEconomicSource({
     gatewayId: null,
     actualCostMicros: record.actualCostMicros,
-    actualCostBasis: record.actualCostBasis ?? null,
+    actualCostAuthority: record.actualCostBasis ?? null,
     usageFunded: false,
+    endpointControlledByUser: false,
+    subscription: record.rawMetadata.subscription === true,
+    funding: null,
+  });
+  // The bucket identity anchors the unit. It is unique per import bucket,
+  // never per request, so a routed proof of one request inside the bucket
+  // does not share it; that overlap is what reconciliation holds.
+  const identity = selectAuthoritativeIdentity({
+    sourceAuthority: "provider_admin_import",
+    authoritativeRequestId: metadataString(record.rawMetadata, "upstream_request_id"),
+    gatewayGenerationId: null,
+    importIdentity: record.externalReference,
+    provider: record.provider,
+  });
+  const unitKey = economicEventKey(record.provider, identity);
+  const economicVerification = verifyEconomically({
+    evidence: {
+      source: record.source,
+      sourceAuthority: "provider_admin_import",
+      evidenceTrust: issuance ? "provider_authoritative" : "unknown",
+      provider: record.provider,
+      model: record.model,
+      authoritativeRequestId: metadataString(record.rawMetadata, "upstream_request_id"),
+      gatewayGenerationId: null,
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      cacheReadTokens: record.cachedInputTokens,
+      cacheWriteTokens: null,
+      reasoningTokens: null,
+      actualCostMicros: record.actualCostMicros,
+      actualCostAuthority: record.actualCostBasis ?? null,
+      fundingClass: null,
+      occurredAt: record.occurredAt,
+    },
+    economicEventKey: unitKey,
+    dedupeStatus: unitKey ? "unique" : "unkeyed",
+    sourceClass: economicSource,
   });
   const reward = decideReward({
     proofStatus,
@@ -136,6 +182,18 @@ export function issueImportProof(
   return {
     record: {
       ...record,
+      rawMetadata: {
+        ...record.rawMetadata,
+        economic_event_key: unitKey,
+        economic_identity_kind: identity?.kind ?? null,
+        economic_identity_authority: identity?.authority ?? null,
+        dedupe_status: unitKey ? "unique" : "unkeyed",
+        source_authority: "provider_admin_import",
+        evidence_trust: issuance ? "provider_authoritative" : "unknown",
+        economic_verification_status: economicVerification.status,
+        economic_verification_reason: economicVerification.reason,
+        economic_verification_policy_version: economicVerification.policyVersion,
+      },
       economicStatus,
       economicSourceClass: economicSource,
       eligibleComputeMicros: reward.eligibleComputeMicros,
@@ -171,6 +229,16 @@ export function issueImportProof(
         client_type: "import",
         generation_id_source: "import_identity",
         connection_id: options.connectionId ?? null,
+        economic_event_key: unitKey,
+        economic_identity_kind: identity?.kind ?? null,
+        economic_identity_authority: identity?.authority ?? null,
+        dedupe_status: unitKey ? "unique" : "unkeyed",
+        source_authority: "provider_admin_import",
+        evidence_trust: issuance ? "provider_authoritative" : "unknown",
+        funding_class: null,
+        economic_verification_status: economicVerification.status,
+        economic_verification_reason: economicVerification.reason,
+        economic_verification_policy_version: economicVerification.policyVersion,
       },
     },
   };

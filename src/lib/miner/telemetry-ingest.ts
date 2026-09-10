@@ -24,7 +24,8 @@ export interface IngestVerdicts {
   duplicate: number;
   rejected: number;
   matched: number;
-  verdicts: Record<string, "accepted" | "duplicate" | "rejected" | "matched">;
+  conflict: number;
+  verdicts: Record<string, "accepted" | "duplicate" | "rejected" | "matched" | "conflict">;
   /** Reasons by localEventId, for rejected items. Never content. */
   reasons: Record<string, string>;
 }
@@ -33,7 +34,7 @@ export async function ingestLocalObservations(
   admin: SupabaseClient<Database>,
   input: { userId: string; device: MinerDeviceRow; items: unknown[] },
 ): Promise<IngestVerdicts> {
-  const out: IngestVerdicts = { accepted: 0, duplicate: 0, rejected: 0, matched: 0, verdicts: {}, reasons: {} };
+  const out: IngestVerdicts = { accepted: 0, duplicate: 0, rejected: 0, matched: 0, conflict: 0, verdicts: {}, reasons: {} };
 
   // Which tools this device may report on. Anything else is rejected, per item.
   const { data: mappingRows } = await admin
@@ -85,10 +86,11 @@ export async function ingestLocalObservations(
     // candidate must be this user's, this provider's, and carry the very same
     // upstream identity in the metadata the gateway wrote at the time.
     let candidate: CorrelationCandidate | null = null;
+    let candidateMetadata: Record<string, string | number | boolean | null> = {};
     if (observation.upstreamRequestId) {
       const { data: event } = await admin
         .from("usage_events")
-        .select("id, verification_level, provenance_sources, verification_status")
+        .select("id, verification_level, provenance_sources, verification_status, provider, model, input_tokens, output_tokens, raw_metadata")
         .eq("user_id", input.userId)
         .eq("provider", observation.provider)
         .eq("verification_status", "confirmed")
@@ -99,10 +101,25 @@ export async function ingestLocalObservations(
           eventId: event.id,
           verificationLevel: event.verification_level,
           provenanceSources: event.provenance_sources ?? [],
+          provider: event.provider,
+          model: event.model,
+          inputTokens: event.input_tokens,
+          outputTokens: event.output_tokens,
         };
+        candidateMetadata = event.raw_metadata ?? {};
       }
     }
-    const decision = correlate({ upstreamRequestId: observation.upstreamRequestId, signatureVerified }, candidate);
+    const decision = correlate(
+      {
+        upstreamRequestId: observation.upstreamRequestId,
+        signatureVerified,
+        provider: observation.provider,
+        model: observation.model,
+        inputTokens: observation.inputTokens,
+        outputTokens: observation.outputTokens,
+      },
+      candidate,
+    );
 
     const { data: inserted, error } = await admin
       .from("local_usage_observations")
@@ -152,11 +169,11 @@ export async function ingestLocalObservations(
     }
     if (!inserted) continue;
 
-    if (decision.event) {
-      // The whole of what correlation may change on a trusted event. Note
-      // what is absent: reward_status, eligible_compute_micros, economic
-      // fields, pricing. They are not here because nothing about provenance
-      // changes what was earned.
+    if (decision.event?.kind === "match") {
+      // The whole of what a match may change on a trusted event. Note what
+      // is absent: reward_status, eligible_compute_micros, economic fields,
+      // pricing. They are not here because nothing about provenance changes
+      // what was earned.
       await admin
         .from("usage_events")
         .update({
@@ -167,6 +184,29 @@ export async function ingestLocalObservations(
         .eq("user_id", input.userId);
       out.matched += 1;
       out.verdicts[key] = "matched";
+    } else if (decision.event?.kind === "conflict") {
+      // A disagreement HOLDS the reward and records why. Holding is the one
+      // economic effect a device upload can have, and it only ever reduces
+      // what is paid. Nothing here can raise eligibility or a price.
+      await admin
+        .from("usage_events")
+        .update({
+          correlation_status: decision.event.correlationStatus,
+          reward_hold: true,
+          reconciliation_status: "held",
+          raw_metadata: {
+            ...candidateMetadata,
+            dedupe_status: "conflict",
+            correlation_conflict: decision.event.conflicts.join(","),
+            economic_verification_status: "held",
+            economic_verification_reason: "identity_conflict",
+            reconciliation_reason: `Local telemetry disagrees with the trusted record on ${decision.event.conflicts.join(", ")}; reward held.`,
+          },
+        })
+        .eq("id", decision.event.eventId)
+        .eq("user_id", input.userId);
+      out.conflict += 1;
+      out.verdicts[key] = "conflict";
     } else {
       out.verdicts[key] = "accepted";
     }

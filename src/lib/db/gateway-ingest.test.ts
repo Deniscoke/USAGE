@@ -48,6 +48,9 @@ function liveObservation(overrides: Partial<GatewayObservation> = {}): GatewayOb
     // usage-reward-policy-v1 makes eligible.
     gatewayId: "connection:11111111-1111-4111-8111-111111111111",
     endpointTrusted: true,
+    // SIMULATED: what OpenRouter's account surface would state for a paying
+    // account. A fixture, labelled as one; never a live paid proof.
+    funding: { class: "paid_account", basis: "fixture:SIMULATED paid_account" },
     occurredAt: `${DAY}T10:00:00.000Z`,
     usage: {
       inputTokens: 1_000,

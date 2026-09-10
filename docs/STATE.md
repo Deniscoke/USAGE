@@ -2,6 +2,48 @@
 
 ## Current milestone
 
+M14 — Proof of economic usage. **Code complete; migration 0018 prepared and awaiting approval.**
+
+USAGE now has an explicit economic unit: one `usage_events` row per unique,
+authoritatively identified AI compute, rewarded at most once. The key is
+derived server-side from the provider's request id or the gateway's
+generation id, never from anything a device sends; `economic-verification-v1`
+decides whether evidence is strong enough to classify a unit, and it calls a
+positive cost *paid* only when the provider's account surface says the
+account is a paying one. Cross-source duplicates are stored as evidence with
+the reward held; conflicting evidence holds the reward; a device signature
+verifies nothing economic. See `docs/ARCHITECTURE.md` → *Proof of economic
+usage (M14)*.
+
+**PAID E2E BLOCKED — NO AUTHORITATIVELY PAID FUNDING SOURCE.** `npm run
+usage:funding` (read-only) shows USAGE's own Vercel AI Gateway key on the $5
+free monthly allowance ($4.99 balance, $0.0084 used, nothing purchased), the
+only OpenRouter OAuth connection provider-flagged `is_free_tier: true` and
+revoked, and every API-key connection funding-unknown. Under
+economic-verification-v1 none of those can become `metered_paid`, so no live
+paid request was made and nothing was bought. The positive path is proved on
+PGlite with fixtures labelled SIMULATED.
+
+## Production migration awaiting approval (0018)
+
+`supabase/pending/0018_economic_unit.sql` — **prepared, NOT applied, and no
+deployed code depends on it.** It lives outside `supabase/migrations/` so
+neither `db push` nor the test harness picks it up; `src/lib/db/migration-0018.test.ts`
+applies it to PGlite on top of 0001–0017 and proves what it enforces.
+
+| | |
+|---|---|
+| Why | Move the economic key, dedupe status and verification verdict from `raw_metadata` into columns so the **database** refuses a second unit for one key and refuses changes to a settled row's economics. Today ingestion code enforces both and tests hold it to that. |
+| Tables/columns | `usage_events` + `economic_event_key`, `dedupe_status` (new enum `economic_dedupe_status`), `economic_verification_status`, `economic_verification_policy_version`; `correlation_status` enum + `conflict`. |
+| Constraints/indexes | check on key shape and status vocabulary; unique partial index `usage_events_one_unit_per_key (user_id, economic_event_key) where dedupe_status = 'unique'`; trigger `usage_events_settled_immutable`; append-only triggers on `usage_point_ledger` and `reward_allocations`. |
+| Rows rewritten | Every `usage_events` row: the four new columns backfilled from `raw_metadata`. No economic column, no ledger row, no epoch is read or written. `pending`-spelled conflicts are not relabelled (new enum values cannot be used in the same transaction). |
+| Economic impact | None on any settled value. Prospectively: duplicate units and edits to settled economics become database errors. |
+| Rollback | Drop the two triggers and functions, the partial index, the four columns and the enum type; `raw_metadata` still holds everything. The added enum value `conflict` stays (Postgres cannot drop one) and is harmless once unused. |
+
+After approval: copy it into `supabase/migrations/`, `npx supabase db push --linked`, then deploy.
+
+## Previous milestone
+
 M13 — Universal local metering. **Live in production.**
 
 ## Production migration awaiting approval
@@ -76,7 +118,7 @@ What the research settled, against current official sources:
 |---|---|---|---|
 | Claude Code | OTLP logs `api_request` (docs say `claude_code.api_request`; wire says `api_request` — both accepted) | model, 4 token counts, `cost_usd_micros`, **`request_id`** | `provider_correlated` |
 | Gemini CLI | OTLP logs `gemini_cli.api_response` | model, 5 token counts; **no request id**; `logPrompts` defaults **true** (forced false) | `device_attested` |
-| Codex | OTLP logs `codex.sse_event(response.completed)` | 6 token counts; **no model, no response id**; `tool_result` carries `arguments`/`output` (never parsed) | `device_attested`, experimental |
+| Codex | OTLP logs `codex.sse_event(response.completed)` | 5 token counts + shared `model` (real wire, 0.153.3); **no request/response id**; `tool_token_count` is a total (not read); `user.email`/`user.account_id` on every event (never read); `tool_result` carries `arguments`/`output` (never parsed) | `device_attested`, experimental |
 | Cursor | Enterprise-only, **server-side**, admin-configured | nothing locally | unsupported; future Enterprise connector |
 
 ## Beta readiness checklist
@@ -230,8 +272,19 @@ mining engine never learns which provider a request came from.
 - Version 0.3.1 exists only in the public repository and is unreleased: it is
   the build waiting to be signed. `v0.3.0-beta.1` remains the current download
   and keeps its original bytes.
-- Codex remains **experimental**: the configuration shape matches current docs
-  and is covered by tests, but no live Codex session has run through USAGE.
+- Codex remains **experimental**: a real local wire capture (0.153.3) confirmed
+  model and token counts but no request identity, so its ceiling stays
+  `device_attested`. The packaged-miner detection bug (npm `.cmd` shim needs a
+  shell) is fixed in 0.4.0. No live Codex session has run *through* USAGE.
+- `economic_event_key`, `dedupe_status` and the verification verdict live in
+  `usage_events.raw_metadata` until migration 0018 is approved; the at-most-one
+  rule is enforced by ingestion code and asserted by tests, not yet by an index.
+- Funding evidence exists only for OpenRouter OAuth connections
+  (`is_free_tier`), read at connection time and not refreshed. API-key
+  connections are funding-unknown and therefore held. No surface USAGE uses can
+  prove a BYOK upstream account is paid, so `byok` is always held.
+- Vercel AI Gateway's API cannot distinguish purchased credit from the free
+  monthly allowance, so USAGE's own gateway key is always `usage_credit`.
 - Migration 0015 marks records that predate the metadata as `unknown_legacy`
   rather than guessing what their zero meant. They are flagged for audit, not
   rewritten.
@@ -243,11 +296,13 @@ mining engine never learns which provider a request came from.
 
 ## Next recommended milestone
 
-**A paid-model end-to-end.** The free-model run proved the chain and correctly
-earned nothing. Nothing has yet produced `reward_status = eligible` on a real
-provider connection, so the paid path — authoritative cost, protocol compute,
-eligible compute, a score, an epoch settlement — is still unexercised end to
-end. One small paid OpenRouter request would close it.
+**M15 — mining economics and Sybil resistance**, now that the economic unit is
+sound. Before that, two owner actions unblock the live positive path: approve
+migration 0018, and connect one provider account that its provider states is
+paid (OpenRouter with purchased credit reports `is_free_tier: false`). One tiny
+request through that connection would be the first live `metered_paid`,
+`verified`, `eligible` unit — no policy change needed. Nothing has yet produced
+`reward_status = eligible` on a real connection, and nothing should until then.
 
 Then, before inviting anyone outside a small beta:
 

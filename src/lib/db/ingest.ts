@@ -15,6 +15,7 @@ import {
   type GatewayObservation,
 } from "@/lib/providers/vercel-gateway/observation";
 import { usageRecordToInsert, type StoredDailyScore } from "./rows";
+import { applyEconomicDedupe } from "./economic-dedupe";
 
 /**
  * Trusted server-side ingestion.
@@ -41,6 +42,15 @@ import { usageRecordToInsert, type StoredDailyScore } from "./rows";
  * record it belongs to.
  */
 export type ProofOverride = Omit<ProofDraft, "usageEventId" | "verificationType">;
+
+/** An existing event, reduced to what cross-source dedupe needs. */
+export interface KeyedEventRef {
+  id: string;
+  economicEventKey: string;
+  provider: string;
+  source: string;
+  externalReference: string;
+}
 
 /** Identity of an event that was actually inserted (not a duplicate). */
 export interface InsertedEventRef {
@@ -80,6 +90,8 @@ export interface IngestStore {
   ): Promise<string | null>;
   /** Inserts, ignoring rows that violate the natural key. Returns what was inserted. */
   insertEvents(rows: ReturnType<typeof usageRecordToInsert>[]): Promise<InsertedEventRef[]>;
+  /** Events of this user already carrying one of these economic keys. */
+  loadEventsByEconomicKey(userId: string, keys: readonly string[]): Promise<KeyedEventRef[]>;
   insertProofs(userId: string, proofs: readonly ProofDraft[]): Promise<void>;
   loadEventsForDays(userId: string, days: readonly string[]): Promise<NormalizedUsageRecord[]>;
   /** Events by epoch assignment, which is what scoring and settlement work on. */
@@ -162,7 +174,7 @@ export async function ingestRecords(
   // open one rather than vanishing into a settled allocation.
   const closedEpochs = await store.loadClosedEpochs();
   const ingestedAt = new Date().toISOString();
-  const records = inputRecords.map((record) => {
+  const assigned = inputRecords.map((record) => {
     const assignment = assignEpoch({
       occurredAt: record.occurredAt,
       ingestedAt,
@@ -174,6 +186,13 @@ export async function ingestRecords(
       carriedForward: assignment.carriedForward,
     };
   });
+
+  // ONE AUTHORITATIVE COMPUTE = AT MOST ONE CREDIT. A record whose economic
+  // key is already held by another event (a different source's view of the
+  // same request) is stored as evidence with its reward held. The natural
+  // key below still drops exact replays; this catches the cross-source case
+  // the natural key cannot see.
+  const records = await applyEconomicDedupe(store, userId, assigned);
 
   const rows = records.map((record) =>
     usageRecordToInsert(userId, record, connectionIds.get(record.provider) ?? null),

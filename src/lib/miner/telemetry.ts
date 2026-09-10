@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { describeTool, VERIFICATION_RANK, type VerificationLevel } from "./tools";
+import { compareEvidence, type ConflictField } from "@/lib/protocol/economic-unit";
 
 /**
  * Local observation ingestion: validate, verify, dedupe, correlate.
@@ -60,6 +61,13 @@ const FORBIDDEN_KEYS = [
   "proof_status", "proofStatus", "verification_type", "verificationType", "verification_status",
   "economic_status", "economicStatus", "reward", "reward_status", "rewardStatus", "eligible_compute_micros",
   "protocol_compute_micros", "points", "score", "pricing", "prompt", "response", "messages", "body",
+  // Funding and money are facts the provider states and the server records.
+  // A device naming them is not sending analytics; it is trying to be paid.
+  "funding_class", "fundingClass", "funding", "economic_source", "economicSource", "economic_source_class",
+  "actual_cost", "actualCost", "actual_cost_micros", "actualCostMicros", "cost", "cost_micros",
+  "reward_eligible", "rewardEligible", "economic_verified", "economicVerified", "economic_event_key",
+  "economicEventKey", "is_free_tier", "is_byok", "paid", "protocol_compute", "protocolCompute",
+  "mining_score", "usage_points",
 ];
 
 function optionalInt(value: unknown): number | null | undefined {
@@ -214,13 +222,34 @@ export interface CorrelationCandidate {
   eventId: string;
   verificationLevel: VerificationLevel | null;
   provenanceSources: readonly string[];
+  /** What the trusted record says happened, for the disagreement check. */
+  provider: string;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface CorrelationDecision {
-  /** Update for the observation. */
-  observation: { correlationStatus: "matched" | "unmatched" | "none"; level: VerificationLevel; correlatedEventId: string | null };
-  /** Update for the trusted event, if any. NEVER touches reward fields. */
-  event: { eventId: string; provenanceSources: string[]; correlationStatus: "matched" } | null;
+  /**
+   * Update for the observation. "pending" is the stored spelling of a
+   * conflict until the schema carries the word itself (migration 0018,
+   * prepared): the evidence disagrees and nothing is decided.
+   */
+  observation: {
+    correlationStatus: "matched" | "unmatched" | "none" | "pending";
+    level: VerificationLevel;
+    correlatedEventId: string | null;
+  };
+  /**
+   * Update for the trusted event, if any. A MATCH touches provenance only. A
+   * CONFLICT may do exactly one more thing: HOLD the reward. Holding can only
+   * reduce what is paid, so it is the one economic effect a device upload is
+   * allowed to have -- the same direction as a stated zero cost.
+   */
+  event:
+    | { kind: "match"; eventId: string; provenanceSources: string[]; correlationStatus: "matched" }
+    | { kind: "conflict"; eventId: string; correlationStatus: "pending"; conflicts: ConflictField[]; rewardHold: true }
+    | null;
 }
 
 /**
@@ -239,7 +268,14 @@ export interface CorrelationDecision {
  * change to them.
  */
 export function correlate(
-  observation: { upstreamRequestId: string | null; signatureVerified: boolean },
+  observation: {
+    upstreamRequestId: string | null;
+    signatureVerified: boolean;
+    provider?: string;
+    model?: string | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+  },
   candidate: CorrelationCandidate | null,
 ): CorrelationDecision {
   const base = initialLevel(observation.signatureVerified);
@@ -251,6 +287,36 @@ export function correlate(
     // provider import for the day), and a later pass can try again.
     return { observation: { correlationStatus: "unmatched", level: base, correlatedEventId: null }, event: null };
   }
+
+  // Same identity, different story: the device says one thing about the
+  // request and the trusted record says another. Neither is chosen. The
+  // unit is held until the trusted truth is deterministic, and the
+  // observation stays at its own level rather than rising.
+  const conflicts = compareEvidence(
+    {
+      authority: "device",
+      provider: observation.provider ?? candidate.provider,
+      model: observation.model ?? null,
+      inputTokens: observation.inputTokens ?? null,
+      outputTokens: observation.outputTokens ?? null,
+      actualCostMicros: null,
+    },
+    {
+      authority: "usage_gateway",
+      provider: candidate.provider,
+      model: candidate.model,
+      inputTokens: candidate.inputTokens,
+      outputTokens: candidate.outputTokens,
+      actualCostMicros: null,
+    },
+  );
+  if (conflicts.length > 0) {
+    return {
+      observation: { correlationStatus: "pending", level: base, correlatedEventId: candidate.eventId },
+      event: { kind: "conflict", eventId: candidate.eventId, correlationStatus: "pending", conflicts, rewardHold: true },
+    };
+  }
+
   const sources = new Set(candidate.provenanceSources);
   sources.add("local_telemetry");
   return {
@@ -259,6 +325,6 @@ export function correlate(
       level: VERIFICATION_RANK.provider_correlated > VERIFICATION_RANK[base] ? "provider_correlated" : base,
       correlatedEventId: candidate.eventId,
     },
-    event: { eventId: candidate.eventId, provenanceSources: [...sources].sort(), correlationStatus: "matched" },
+    event: { kind: "match", eventId: candidate.eventId, provenanceSources: [...sources].sort(), correlationStatus: "matched" },
   };
 }

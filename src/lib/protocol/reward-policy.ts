@@ -67,6 +67,8 @@ export type RewardReason =
   | "proof_not_confirmed"
   | "no_economic_weight"
   | "not_priced"
+  | "duplicate_evidence"
+  | "identity_conflict"
   | "legacy_pre_policy";
 
 export interface RewardPolicyVersion {
@@ -327,6 +329,10 @@ export const REWARD_REASON_COPY: Record<RewardReason, string> = {
   source_unknown: "USAGE has no trustworthy evidence of who paid, so the reward is held.",
   proof_not_confirmed: "USAGE does not attest to this as trusted evidence.",
   no_economic_weight: "Self-reported usage is shown in your history and never earns.",
+  duplicate_evidence:
+    "Another record already carries this request's authoritative identity, so this one is evidence for it and earns nothing itself.",
+  identity_conflict:
+    "Two sources claim this request but disagree about it, so the reward is held until the trusted record is settled.",
   not_priced:
     "No approved protocol price covers this model yet, so the reward is held until one does.",
   legacy_pre_policy: "Decided before reward policy existed; preserved unchanged.",

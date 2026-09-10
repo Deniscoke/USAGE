@@ -11,11 +11,17 @@ import {
 } from "@/lib/domain/receipt";
 import type { EconomicStatus, ProofStatus } from "@/lib/domain/types";
 import { CURRENT_PRICING_VERSION, protocolComputeValue } from "@/lib/pricing/compute";
+import { decideReward, type RewardPolicyVersion } from "@/lib/protocol/reward-policy";
 import {
-  decideReward,
-  deriveEconomicSource,
-  type RewardPolicyVersion,
-} from "@/lib/protocol/reward-policy";
+  classifyEconomicSource,
+  economicEventKey,
+  selectAuthoritativeIdentity,
+  verifyEconomically,
+  type EconomicUsageEvidence,
+  type EvidenceTrust,
+  type FundingEvidence,
+  type SourceAuthority,
+} from "@/lib/protocol/economic-unit";
 import type { NormalizedUsageRecord } from "@/lib/domain/types";
 import type {
   ConnectionContext,
@@ -177,13 +183,66 @@ export function normalizeGatewayObservation(
   // the trusted evidence of who funded it: a `connection:*` gateway used the
   // user's own credential, anything else spent USAGE's own budget.
   const usageFunded = !(observation.gatewayId ?? "").startsWith("connection:");
-  const economicSource = deriveEconomicSource({
+  // A custom endpoint the user typed is not a source of economic evidence.
+  const endpointControlledByUser = !usageFunded && observation.endpointTrusted !== true;
+  // Funding is a fact about the ACCOUNT, stated by the provider and carried
+  // here by the server. USAGE's own gateway key is its own budget.
+  const funding: FundingEvidence | null =
+    observation.funding ?? (usageFunded ? { class: "usage_credit", basis: "usage:gateway_credential" } : null);
+  const economicSource = classifyEconomicSource({
     gatewayId: observation.gatewayId ?? null,
     actualCostMicros: parsedCost ? parsedCost.micros : null,
-    actualCostBasis: costBasis,
+    actualCostAuthority: costBasis,
     usageFunded,
-    // A custom endpoint the user typed is not a source of economic evidence.
-    endpointControlledByUser: !usageFunded && observation.endpointTrusted !== true,
+    endpointControlledByUser,
+    funding,
+  });
+
+  // The economic unit's identity. This adapter is USAGE's own gateway, so
+  // the authority is usage_gateway and the trust follows the environment the
+  // observation was made in: hosted USAGE, somebody's laptop, or a fixture.
+  const providerName = observation.providerSlug ?? VERCEL_GATEWAY_PROVIDER;
+  const sourceAuthority: SourceAuthority = "usage_gateway";
+  const evidenceTrust: EvidenceTrust =
+    verification.trustEnvironment === "production"
+      ? "trusted_server"
+      : verification.verificationType === "reported"
+        ? "unknown"
+        : "device_reported";
+  const identity = selectAuthoritativeIdentity({
+    sourceAuthority,
+    authoritativeRequestId: observation.upstreamRequestId ?? null,
+    gatewayGenerationId: observation.generationId,
+    gatewayId: observation.gatewayId ?? VERCEL_GATEWAY_PROVIDER,
+    provider: providerName,
+  });
+  const unitKey = economicEventKey(providerName, identity);
+  const evidence: EconomicUsageEvidence = {
+    source: observation.providerSlug ? "gateway" : "vercel_ai_gateway",
+    sourceAuthority,
+    evidenceTrust,
+    provider: providerName,
+    model: observation.model,
+    authoritativeRequestId: observation.upstreamRequestId ?? null,
+    gatewayGenerationId: observation.generationId,
+    inputTokens: observation.usage.inputTokens ?? null,
+    outputTokens: observation.usage.outputTokens ?? null,
+    cacheReadTokens: observation.usage.inputTokenDetails?.cacheReadTokens ?? null,
+    cacheWriteTokens: observation.usage.inputTokenDetails?.cacheWriteTokens ?? null,
+    reasoningTokens,
+    actualCostMicros: parsedCost ? parsedCost.micros : null,
+    actualCostAuthority: costBasis,
+    fundingClass: funding?.class ?? null,
+    endpointControlledByUser,
+    occurredAt,
+  };
+  // Provisional: ingestion looks the key up against what is already stored
+  // and may downgrade this to duplicate, which also holds the reward.
+  const economicVerification = verifyEconomically({
+    evidence,
+    economicEventKey: unitKey,
+    dedupeStatus: unitKey ? "unique" : "unkeyed",
+    sourceClass: economicSource,
   });
   const reward = decideReward({
     proofStatus,
@@ -212,6 +271,20 @@ export function normalizeGatewayObservation(
     // Local telemetry from a tool that saw the same response carries the same
     // id, and exact equality here is the only correlation USAGE will accept.
     upstream_request_id: observation.upstreamRequestId ?? null,
+    // The economic unit, for auditors: which identity anchors it, who the
+    // evidence came from, what funded it, and what the verification policy
+    // concluded and why. All server-derived; none of it settable by a client.
+    economic_event_key: unitKey,
+    economic_identity_kind: identity?.kind ?? null,
+    economic_identity_authority: identity?.authority ?? null,
+    dedupe_status: unitKey ? "unique" : "unkeyed",
+    source_authority: sourceAuthority,
+    evidence_trust: evidenceTrust,
+    funding_class: funding?.class ?? null,
+    funding_basis: funding?.basis ?? null,
+    economic_verification_status: economicVerification.status,
+    economic_verification_reason: economicVerification.reason,
+    economic_verification_policy_version: economicVerification.policyVersion,
     adapter_version: VERCEL_GATEWAY_ADAPTER_VERSION,
     gateway_generation_id: observation.generationId,
     gateway_model: observation.model,

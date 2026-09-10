@@ -56,6 +56,8 @@ export interface TestDb {
   asUser<T = Record<string, unknown>>(userId: string, query: string, params?: unknown[]): Promise<T[]>;
   /** Runs as trusted server-side ingestion. */
   asServiceRole<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
+  /** Runs a multi-statement script as the superuser, e.g. a pending migration. */
+  exec(script: string): Promise<void>;
   /** Creates an auth user (firing the profile trigger) and returns its id. */
   createUser(email: string): Promise<string>;
   close(): Promise<void>;
@@ -95,6 +97,9 @@ export async function createTestDb(): Promise<TestDb> {
     },
     asUser: (userId, query, params) => asRole("authenticated", userId, query, params ?? []),
     asServiceRole: (query, params) => asRole("service_role", null, query, params ?? []),
+    exec: async (script) => {
+      await db.exec(script);
+    },
     async createUser(email: string) {
       const rows = await db.query<{ id: string }>(
         `insert into auth.users (email) values ($1) returning id`,

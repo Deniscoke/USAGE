@@ -1,4 +1,5 @@
 import type { TrustEnvironment } from "@/lib/domain/receipt";
+import type { FundingEvidence } from "@/lib/protocol/economic-unit";
 
 /**
  * What trusted USAGE infrastructure observed while an AI request went through
@@ -93,6 +94,13 @@ export interface GatewayObservation {
    * from the generation id: this is the value a tool's telemetry also sees.
    */
   upstreamRequestId?: string | null;
+  /**
+   * What funded the request, as the PROVIDER's account surface stated it.
+   * Set by the server from the connection that carried the request; never
+   * read from a request, a response body, or telemetry. Absent means
+   * unknown, and unknown is held.
+   */
+  funding?: FundingEvidence | null;
   occurredAt: string;
   usage: GatewayTokenUsage;
   /** Authoritative cost from the gateway. Absent means unknown, never zero. */

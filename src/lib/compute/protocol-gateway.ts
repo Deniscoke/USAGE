@@ -1,5 +1,6 @@
 import type { ComputeGateway, GatewayRequest, UpstreamCall } from "./gateway";
 import type { ProviderProtocol } from "@/lib/protocols/protocol";
+import type { FundingEvidence } from "@/lib/protocol/economic-unit";
 
 /**
  * A user's provider connection, presented as a ComputeGateway.
@@ -32,6 +33,8 @@ export function protocolGateway(input: {
   providerSlug: string;
   /** Whether the endpoint is one USAGE recognises. Economic evidence only. */
   endpointTrusted?: boolean;
+  /** What the provider said about the account's funding. Server-derived. */
+  funding?: FundingEvidence | null;
 }): ComputeGateway {
   const { protocol, baseUrl } = input;
   const id = connectionGatewayId(input.connectionId);
@@ -80,6 +83,7 @@ export function protocolGateway(input: {
         providerSlug: input.providerSlug,
         upstreamRequestId: observed.identity.upstreamRequestId ?? null,
         endpointTrusted: input.endpointTrusted ?? false,
+        funding: input.funding ?? null,
         clientType,
         servedByProvider: observed.identity.provider ?? input.providerSlug,
         occurredAt: occurredAt.toISOString(),

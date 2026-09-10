@@ -646,6 +646,138 @@ validated. TLS servername and Host still use the hostname, so certificates are
 unaffected. Tested against a real loopback server: the flipped answer is never
 even requested, and the local service records zero connections.
 
+## Proof of economic usage (M14)
+
+```
+src/lib/protocol/economic-unit.ts   the unit, its identity, evidence, verification policy
+src/lib/protocol/funding.ts         funding evidence from the connection row
+src/lib/protocol/snapshot.ts        what a future settled snapshot may read
+src/lib/db/economic-dedupe.ts       at most one credit per economic key
+supabase/pending/0018_economic_unit.sql   prepared, NOT applied
+```
+
+### The unit
+
+One **EconomicComputeUnit** is one unique AI inference that may earn at most
+one reward. A local telemetry event, a receipt, a gateway log line and a
+provider import row are *evidence about* a unit, never units themselves. The
+canonical unit is a `usage_events` row; there is no second table, because a
+second truth eventually disagrees with the first.
+
+Three questions are answered independently and never collapsed:
+
+| Question | Column / field |
+| --- | --- |
+| Did compute happen? | `verification_status`, `proof_status` |
+| Is it unique, not already rewarded? | `dedupe_status` (`unique` / `duplicate` / `conflict` / `unkeyed`) |
+| Is its funding reward-eligible? | economic verification → `economic_source_class` → `reward_status` |
+
+### Identity
+
+`economic_event_key = "ecu1:" + sha256(version, namespace, provider, kind, id)`,
+derived **only** from an authoritative identity: the provider's own request id
+(`request-id` / `x-request-id` on the upstream response) first, the gateway's
+generation id second, an import bucket identity last. The namespace is the
+system that *issued* the id, not the one that observed it, so USAGE's gateway
+and a provider import that both see `req_…` derive the same key. A device may
+report an id and be correlated by it; it never mints a key. Nothing else is an
+ingredient — not a timestamp, not token counts, not a local session or event
+id, not a device signature, not a client UUID — and a client-submitted hash is
+never accepted. No identity → `NULL` → the unit cannot become economically
+verified.
+
+### Evidence authority, by field
+
+Researched against the surfaces USAGE actually uses (September 2026). Authority
+is field-specific; a device is authoritative for exactly one fact.
+
+| Field | Order | Notes |
+| --- | --- | --- |
+| request identity | provider > usage_gateway > import > device | admin exports carry no per-request ids |
+| token usage | provider > usage_gateway > import > device | |
+| actual cost | provider > usage_gateway > import; **never device** | Claude Code's `cost_usd` is the tool's own estimate |
+| funding class | provider account surface > usage_gateway > import; **never device** | OpenRouter `/api/v1/key#is_free_tier`; USAGE's own key = `usage_credit` |
+| model | provider > usage_gateway > device | |
+| "it was observed" | device only | the whole of what an Ed25519 device signature proves |
+| protocol value, eligibility, reward status | USAGE policy, exclusively | |
+
+What each surface actually exposes (`AUTHORITATIVE SERVER` = hosted USAGE code
+read it off the wire; `PROVIDER` = the provider states it about itself;
+`DEVICE` = software on the user's machine says so):
+
+| Surface | Identity | Usage | Cost | Funding |
+| --- | --- | --- | --- | --- |
+| Vercel AI Gateway | `id` / `providerMetadata.gateway.generationId` (`gen_<ulid>`) — PROVIDER; upstream `request-id` — AUTHORITATIVE SERVER | response `usage` — AUTHORITATIVE SERVER; `/v1/generation` native counts — PROVIDER | `/v1/generation.total_cost` (debited from balance) — PROVIDER; `is_byok` — PROVIDER | `/v1/credits` gives balance and `total_used` only; **purchased vs free monthly credit is not distinguishable per request or per account via API** (BYOK requires purchased credit; the dashboard Routing filter shows system vs BYOK) → USAGE's own key is `usage_credit`, everything else UNKNOWN |
+| OpenRouter | completion `id` (`gen-…`) — PROVIDER; `x-request-id` — AUTHORITATIVE SERVER | `usage` — AUTHORITATIVE SERVER; `/generation` native counts — PROVIDER | `usage.cost` ("total amount charged to your account"), `/generation.total_cost`, `upstream_inference_cost`, `is_byok` — PROVIDER | `/api/v1/key.is_free_tier` = "whether the user has paid for credits before" — PROVIDER, **account-level, not per request**; `usage`/`usage_daily` aggregate spend — PROVIDER |
+| Anthropic / Claude Code | `request-id` header (`req_…`), unique per response, also in error bodies — PROVIDER; Claude Code OTel `request_id` — DEVICE | OTel token counts — DEVICE | OTel `cost_usd` — DEVICE (estimate) | UNKNOWN (no customer surface reconciles a request id; Admin usage API is aggregate) |
+| Codex 0.153.3 (real wire) | **none** — no request or response id on any event | `codex.sse_event(response.completed)` counts + shared `model` — DEVICE | `codex.turn_cost.usage.estimated_usd` — DEVICE (estimate, not read) | UNKNOWN (`auth_mode: Chatgpt` = subscription, not read as funding) |
+
+### Classification: cost > 0 is not payment
+
+`classifyEconomicSource` (economic-verification-v1) is stricter than the M9
+rule in front of which it sits. A positive list-price cost is charged against
+promotional credit exactly as it is against purchased credit, and the response
+looks identical, so cost proves that compute *happened* and what it was
+*worth* — never that anyone *paid*. Payment is a fact about the account, and
+only the provider's account surface can state it.
+
+| Funding class (server-derived) | Class | v1 |
+| --- | --- | --- |
+| USAGE's own key (`usage_credit`) | promotional | held |
+| provider says never purchased (`free_tier_account`) | promotional | held |
+| authoritative cost = 0 | free | **ineligible** |
+| user-controlled endpoint | byok | held |
+| provider says BYOK upstream (`byok_upstream`) | byok | held |
+| provider says paid account + authoritative cost > 0 + trusted endpoint | metered_paid | **eligible** |
+| flat plan | subscription | held |
+| anything else | unknown | held |
+
+Protocol compute value (`protocol_compute_micros`, from the frozen pricing
+snapshot), actual cost (`actual_cost_micros`, the provider's figure) and
+funding (`raw_metadata.funding_class`) remain three fields. A held record still
+says what it would be worth.
+
+### economic-verification-v1
+
+Decides whether the evidence is strong enough to hand the reward policy a class
+at all, and records `economic_verification_{status,reason,policy_version}` on
+every unit. `verified` needs an authoritative identity, trusted evidence,
+authoritative usage, uniqueness and — for `metered_paid` — provider-stated paid
+funding. `byok` is verified only when the upstream account is proven paid,
+which no surface USAGE uses can do today, so it is held. Device-only evidence
+is `not_verified` (`local_only`), signed or not. `usage-reward-policy-v1` is
+unchanged; it now receives classes it could not have been lied to about.
+
+### At most one credit
+
+`applyEconomicDedupe` runs before every insert: a record whose key is already
+held by another event (a different source's view of the same request) is stored
+as evidence with `reward_hold`, `eligible_compute_micros = 0`,
+`dedupe_status = duplicate` and a pointer to the unit. The natural key still
+drops exact replays. Correlation gained a third outcome: a device observation
+whose model or counts disagree with the trusted record beyond 1 % is a
+**conflict** — the observation does not rise, the event's reward is held, and
+the disagreement is recorded. Holding is the one economic effect a device
+upload can have, and it only ever reduces what is paid.
+
+Migration 0018 (prepared, not applied) gives the key and statuses real columns,
+a unique partial index on `(user_id, economic_event_key) where dedupe_status =
+'unique'`, a trigger making a settled row's economic columns immutable, and
+append-only triggers on the ledger and allocations. Until it is approved, the
+ingestion code is the enforcement and `src/lib/db/economic-unit.test.ts` holds
+it to the invariant: replay ×1000 → one unit; local + routed + import → three
+evidence rows, one unit, one credit; a signed 10⁸-token forgery → nothing
+economic anywhere; a spoofed funding class → rejected at every door.
+
+### What a future snapshot could read
+
+`src/lib/protocol/snapshot.ts` is not a snapshot. It states what a settled
+allocation must be able to name — allocation id, user, epoch, settled points,
+scoring version, reward policy version, economic verification policy version,
+proof reference — and which rows are refused: unconfirmed, reported-only,
+held, unpriced, unsettled, duplicate or conflict, free or promotional. Local
+observations are never candidates: their table has no economic column.
+
 ## Database
 
 `supabase/migrations/`:
@@ -754,4 +886,4 @@ than added to any total.
 | Anthropic Usage & Cost Admin API | Requires organization/admin credentials. |
 | Anthropic Claude Code Analytics API | Requires organization/admin access. |
 | OpenAI Organization Usage/Costs API | Requires organization/admin access. |
-| Local Claude Code / Codex telemetry | REPORTED until a stronger attestation design exists. |
+| Local Claude Code / Codex telemetry | Device-attested at most (M13). Claude Code carries the provider request id and can be correlated exactly; Codex 0.153.3 carries model and counts but no id (real wire capture, M14). |

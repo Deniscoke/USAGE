@@ -50,6 +50,9 @@ function observation(generationId: string, outputTokens: number): GatewayObserva
     // earns under usage-reward-policy-v1.
     gatewayId: "connection:11111111-1111-4111-8111-111111111111",
     endpointTrusted: true,
+    // SIMULATED: what OpenRouter's account surface would state for a paying
+    // account. A fixture, labelled as one; never a live paid proof.
+    funding: { class: "paid_account", basis: "fixture:SIMULATED paid_account" },
     occurredAt: `${DAY}T10:00:00.000Z`,
     usage: { inputTokens: 10_000, outputTokens },
     cost: { value: "0.05", currency: "USD" },
@@ -181,6 +184,9 @@ describe("epoch lifecycle", () => {
       servedByProvider: "anthropic",
       gatewayId: "connection:11111111-1111-4111-8111-111111111111",
     endpointTrusted: true,
+    // SIMULATED: what OpenRouter's account surface would state for a paying
+    // account. A fixture, labelled as one; never a live paid proof.
+    funding: { class: "paid_account", basis: "fixture:SIMULATED paid_account" },
       occurredAt,
       usage: { inputTokens: 5_000, outputTokens: 5_000 },
       cost: { value: "0.05", currency: "USD" },

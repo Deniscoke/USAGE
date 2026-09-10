@@ -1,5 +1,6 @@
 import { createGatewayRoute } from "@/lib/gateway/handler";
 import { protocolGateway } from "@/lib/compute/protocol-gateway";
+import { fundingEvidenceForConnection } from "@/lib/protocol/funding";
 import { createConnectionStore, ConnectionError } from "@/lib/providers/connections";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { SsrfError } from "@/lib/net/ssrf";
@@ -53,6 +54,9 @@ export const { POST, GET } = createGatewayRoute({
           baseUrl: resolved.baseUrl,
           providerSlug: resolved.connection.provider,
           endpointTrusted: resolved.endpointTrusted,
+          // What the provider told USAGE about this account when it was
+          // connected. Nothing in the request can change it.
+          funding: fundingEvidenceForConnection(resolved.connection),
         }),
         credential: resolved.credential,
         onOutcome: (outcome) => {

@@ -91,10 +91,10 @@ export const LOCAL_TOOLS: Record<string, LocalToolDescriptor> = {
     verificationCapability: "device_attested",
     carriesUpstreamIdentity: false,
     experimental: true,
-    reads: ["Token counts (input, output, cached, cache write, reasoning, tool)", "Timing"],
+    reads: ["Model", "Token counts (input, output, cached, cache write, reasoning)", "Timing"],
     neverReads: ["Prompts", "Responses", "Tool arguments and output", "File paths", "Source code"],
     availabilityNote:
-      "Codex telemetry reports token counts but neither the model nor a request id, so usage is tracked but cannot be verified.",
+      "Codex telemetry reports the model and token counts but no request id, so usage is tracked but cannot be correlated or verified.",
     acceptedAdapters: ["codex-otel-adapter-v1"],
   },
   cursor: {
