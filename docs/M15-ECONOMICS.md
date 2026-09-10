@@ -1143,3 +1143,16 @@ tests and documentation and is no longer used for the confirmed operation.
 
 Ordinary mining-dev-v1 settlement and the future mining-beta-v2 path are
 unchanged by this milestone.
+
+## Executed (2026-09-10 19:06:23 UTC)
+
+`npm run usage:close-calibration -- --epoch epoch-2026-09-10 --confirm` made
+exactly one RPC call. Result: epoch settled, development,
+mining-dev-calibration-v1, scoring v1, pricing v2, boundaries
+2026-09-10T00:00Z to 2026-09-11T00:00Z, network score 1.0000, scheduled 0,
+effective 0, undistributed 0, claimable false. The M14C event moved
+eligible → settled with every other column identical; its proof is
+unchanged. One allocation row with 0 points; ledger 1 row / 100,000 before
+and after; the owner's balance 0 before and after. `audit_epoch` reproduces
+all of it from persisted rows. A repeat dry run is refused ("epoch is
+settled"). v2 remains inactive.

@@ -2,6 +2,15 @@
 
 ## Current milestone
 
+epoch-2026-09-10 — **CLOSED / SETTLED DEVELOPMENT CALIBRATION, 2026-09-10 19:06 UTC**,
+by exactly one call to `close_development_calibration_epoch` (M15E atomic
+close: complete). Real M14C compute preserved (event `c75acc2e`, key
+`ecu1:cf605dfe…`, 1 micro-USD, proof `b60f5602`, score 1.0000); reward 0;
+allocation row with 0 points; ledger delta 0 (still 1 row / 100,000);
+claimable false; UTC boundaries 2026-09-10T00:00Z to 2026-09-11T00:00Z;
+`audit_epoch` explains it from persisted data. v2 is NOT active:
+mining-dev-v1 remains the sole active network protocol, mining-beta-v2 draft.
+
 0020 — atomic calibration close function. **Applied to production
 2026-09-10 with explicit owner approval (function only).** UTC-literal
 epoch boundaries, SECURITY INVOKER, service_role-only EXECUTE (anon and
