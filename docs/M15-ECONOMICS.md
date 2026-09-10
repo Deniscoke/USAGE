@@ -674,3 +674,219 @@ become reward arbitrage. No PoP integration.
 One parameter decides whether v2 can go live: **the baseline B (and floor
 F, possibly 0)**, that is, what network eligible compute per epoch unlocks the
 full 100,000-point schedule.
+
+
+---
+
+# M15C — v2 activation plan (prepared, not executed)
+
+## Owner decision (locked, 2026-09-10)
+
+| parameter | value |
+| --- | --- |
+| scoring | `usage_score_v2` = linear eligible protocol compute |
+| scheduled cap | 100,000 Usage Points per UTC epoch |
+| emission | `baseline-linear-v1`: `effective = scheduled × min(1, N / B)`, exact integer, floor of the quotient |
+| baseline B | $1,000.00 eligible protocol compute per UTC day = 1,000,000,000 micro-USD = 10^15 pico-USD |
+| floor F | 0 |
+| undistributed emission | never minted |
+| versioned as | `mining-beta-v2` (DRAFT in code; DRAFT row in the pending 0019) |
+
+Why F = 0: any positive floor emits a non-zero amount for arbitrarily tiny
+network compute, so points per protocol dollar are unbounded as N approaches
+0 (tested: a 1-point floor pays 10^12 points per dollar to a 1-pico miner).
+Early-user incentives, if ever wanted, are a separate, explicitly labelled
+beta incentive ledger and policy. They must not pretend to be compute-mined
+rewards. None is implemented.
+
+**This is a beta economic parameter. It is not a token price. It is not a
+1:1 future token conversion promise. It controls beta emission density
+only.** Future token claim or conversion economics are a separate owner
+decision.
+
+## Parameter table (from `effectivePoolBaselineLinear`, tested)
+
+| N | effective pool (whole points) | points per protocol $ |
+| --- | --- | --- |
+| $0 | 0 | n/a |
+| $0.001 | 0 | 0 (floors) |
+| $0.01 | 1 | 100 |
+| $0.10 | 10 | 100 |
+| $1 | 100 | 100 |
+| $10 | 1,000 | 100 |
+| $100 | 10,000 | 100 |
+| $1,000 | 100,000 | 100 |
+| $10,000 | 100,000 | 10 |
+| $100,000 | 100,000 | 1 |
+
+Maximum pre-baseline emission density is exactly `scheduled / B_usd =
+100,000 / 1,000 = 100` points per protocol dollar: for N ≤ B,
+`effective / N = scheduled × (N/B) / N = scheduled / B`. Above B it is
+`scheduled / N < scheduled / B`. Confirmed in `m15c.test.ts`.
+
+## Precision (pico-USD, authoritative for v2)
+
+- Authoritative v2 unit: `usage_events.eligible_compute_pico`, exact
+  integer pico-USD after the reward policy. `protocol_compute_pico` is the
+  pre-policy value. Both are new, nullable, and NULL on every v1/v2-priced
+  row; `protocol_compute_micros` and `eligible_compute_micros` stay
+  authoritative for v1 forever.
+- SQL type: `numeric(38,0)` with integral and non-negative checks. Audit:
+  `bigint` holds 9.22 × 10^18 pico = $9.2M, enough for any single event, but
+  not for a whale's day, a network day or an epoch total, and a later type
+  change on a settled table would fight the immutability triggers. `numeric`
+  is exact, unbounded in practice (10^26 USD), and is what `network_score`
+  already uses. No float anywhere.
+- Rounding exploit: eliminated. `value_pico = price × tokens`, no rounding;
+  10,000 requests equal 1 request to the last pico (tested).
+- Migration required: yes, `supabase/pending/0019_v2_economics.sql`
+  (prepared, not applied).
+
+## Pricing v3 (draft, unregistered)
+
+- Known price → exact pico valuation.
+- Unknown cache-read price → the cache-read component is pending.
+- Unknown cache-write price → the cache-write component is pending when the
+  request has cache-write tokens.
+- No fallback to the input rate, ever, unless a future snapshot states the
+  rate explicitly with the provider's authoritative pricing as source.
+- v1 and v2 snapshots are immutable and untouched.
+
+### Partial pricing decision: A, the whole event is pending
+
+An event with known input and output prices, an unknown cache price and
+cache tokens > 0 is **pending as a whole**, with
+`pricing_components_pending = {cacheRead}` recorded so the reason is explicit.
+
+Red team of B (known components eligible, unknown held): an economic unit
+is rewarded at most once (0018). Under B the same unit would have a rewarded
+part now and an unrewarded remainder that either is lost forever (settled
+rows are immutable) or must become a second rewardable object later, which
+is a second economic fate for one unit and a dedupe hazard by construction.
+B also invites "make the unknown part large" games only in the direction of
+under-valuing the attacker's own compute, which is harmless but pointless,
+and it needs a new partial status that every UI and report must learn.
+
+Red team of A: an attacker gains nothing by routing to a model with an
+unknown cache price (the whole event waits). An attacker cannot make anyone
+else's event pending. Honest users of that model wait until a pricing
+version states the rate, exactly as `pending_pricing` already works for
+unpriced models. The result is deterministic and explainable from one
+column. **Recommended: A.**
+
+Fact found on the way: no repricing path exists in the codebase today.
+`pending_pricing` events (two of them in production, both `:free`) stay
+pending until one is written. That is a v3 activation prerequisite, not an
+M15C change.
+
+## The open v1 epoch: epoch-2026-09-10
+
+Contains exactly one eligible unit, the M14C calibration event `c75acc2e`
+(1 micro-USD, score 1.0000 under v1). Epoch row not yet materialised; it
+opens on the first settlement pass. Under v1's fixed pool, settling it would
+credit **100,000 points to one user for $0.0000005 of compute**, the same
+size as the whole beta emission of a $1,000 day under v2.
+
+Options, all within the states the protocol supports (`open` → `finalizing`
+→ `settled`, `epoch_kind ∈ {development, production}`, `reward_pool_points ≥ 0`):
+
+| option | mechanism | supply created | history |
+| --- | --- | --- | --- |
+| A settle under v1, full pool | `settle-epoch` as-is | 100,000 dev points | honest but distorting: a $0.0000005 test equals a $1,000 v2 day |
+| B close without rewards | `finalizeEpoch` + `settleEpoch` with `rewardPoolPoints: 0`, `epoch_kind: development` | 0 (allocation row with 0 points; ledger untouched because credits with 0 points are skipped) | epoch settled, score record and M14C event preserved and frozen |
+| C preserve as calibration epoch excluded from claimable history | same as B, plus a documented rule that `epoch_kind = development` is never claimable | 0 | cleanest, and already true of epoch-2026-09-07 by kind |
+| D leave open | nothing | 0 | blocks the cutover: an open v1 epoch would keep accepting carried-forward units forever |
+
+**Recommended: C**, executed as B (pool 0, development kind). It uses only
+existing code paths and states, mints nothing, freezes the M14C event as a
+settled development unit, and leaves epoch-2026-09-07 (already settled with
+100,000 development points to the other user) as the one historical
+development distribution, which the owner may separately decide to exclude
+from any future claim. **Not performed. Separate owner approval required.**
+
+## Cutover
+
+Epochs are UTC days and every unit is assigned to exactly one epoch at
+ingestion (`assignEpoch`). The rule for v2:
+
+- `mining-beta-v2.effective_from_epoch = epoch-YYYY-MM-DD`, an explicit UTC
+  epoch id, at least one full day after the code deploy and after the v1
+  epoch is closed.
+- An epoch row is bound to `(scoring_version, pricing_version,
+  emission_version)` when it is first written and those columns become
+  immutable at settlement (0019 trigger). A unit is scored under **its
+  epoch's** versions, not under whatever is current at ingestion time.
+- Carried-forward units (occurred in a closed epoch, ingested late) land in
+  the first open epoch and are scored under that epoch's versions. This is
+  the existing carry-forward rule; it means a late v1-era unit can be scored
+  under v2, which is version-pure per epoch and never mixes versions inside
+  one epoch.
+- Ingestion must write `protocol_compute_pico` / `eligible_compute_pico` for
+  every new event from the deploy onward, whatever epoch it lands in, so a
+  v2 epoch never holds a unit without pico. The invariant check refuses to
+  settle otherwise.
+
+First eligible v2 epoch: **the epoch the owner names**, with the constraint
+`effective_from_epoch > epoch-2026-09-10`, and in practice ≥ two UTC days
+after the deploy. Mixed-version epochs: impossible by construction (one
+version triple per epoch row, checked before settlement).
+
+## 0019 (prepared only, `supabase/pending/0019_v2_economics.sql`)
+
+| item | content |
+| --- | --- |
+| tables | `usage_events`, `score_records`, `reward_epochs`, `mining_protocol_versions` |
+| columns | `usage_events.protocol_compute_pico`, `eligible_compute_pico` (numeric(38,0)), `pricing_components_pending text[]`; `score_records.weighted_compute_pico`; `reward_epochs.emission_version`, `network_compute_pico`, `effective_pool_points`, `undistributed_points`; `mining_protocol_versions.emission_algorithm`, `baseline_compute_pico`, `floor_points`, `undistributed_policy`, `effective_from_epoch` |
+| constraints | integral and non-negative pico; eligible ≤ protocol; effective ≤ scheduled; undistributed = scheduled − effective; baseline required for baseline-linear-v1; one active protocol version |
+| indexes | partial index on eligible pico units per epoch and user; unique partial index on the active protocol |
+| triggers | the two 0018 immutability functions re-created with the new columns included |
+| function | `check_v2_epoch_settleable(epoch_id)`: the database's own copy of the pre-settlement invariants; the settle script must call it |
+| backfill | none of economic value. mining-beta-v2 inserted as DRAFT. An analytics-only pico backfill is present as a commented-out template and would exclude settled rows and v1 epochs |
+| locking | ADD COLUMN and CHECK constraints only; brief ACCESS EXCLUSIVE on tables with 6 event rows |
+| rollback | listed in the file; only valid before the first v2 settlement |
+| economic impact | none at apply time |
+
+## Activation plan (ordered)
+
+| step | action | reversible? |
+| --- | --- | --- |
+| 1 | apply 0019 (owner approval, rule 13) | yes, by the listed rollback, until step 9 |
+| 2 | register `usage-pricing-v3` (frozen prices = v2, pending policy, pico valuation) in code and in `protocol_pricing_versions`; write a repricing path for pending events | yes: status only, until an event is priced with it |
+| 3 | flip `usage_score_v2` from `draft` to `active` in code; `CURRENT_SCORING_VERSION` stays v1 until step 4 binds epochs | yes |
+| 4 | set `mining_protocol_versions`: `mining-dev-v1 → superseded`, `mining-beta-v2 → active` with `effective_from_epoch`; ingestion scores by the epoch's versions from then on | yes, before any v2 epoch is finalized |
+| 5 | verification: `verify-0018`, a new `verify-0019`, hosted verify, `check_v2_epoch_settleable` on a dry epoch | n/a |
+| 6 | close epoch-2026-09-10 per the owner's separate decision (recommended: pool 0, development) | no: settlement is permanent |
+| 7 | production deploy of the code that writes pico and scores by epoch version | yes |
+| 8 | first v2 epoch runs; read-only observation of scores, effective pool preview, invariants | n/a |
+| 9 | owner-approved first v2 settlement | **no: from here the 0019 columns hold immutable history** |
+
+## Pre-settlement invariants (tests in `m15c.test.ts`, SQL in 0019)
+
+| invariant | status now |
+| --- | --- |
+| economic identity uniqueness healthy | pass (1 keyed unit, 1 distinct key in production) |
+| pricing version frozen | fail by design: v3 is a draft, not registered |
+| scoring version active | fail by design: v2 is a draft |
+| emission version active | fail by design: mining-beta-v2 is a draft |
+| epoch bound to exact versions | fail by design: columns do not exist until 0019 |
+| network eligible pico deterministic | pass (pure recomputation, order-independent, tested) |
+| effective pool deterministic | pass |
+| allocation sums exactly to effective pool | pass |
+| effective pool ≤ 100,000 | pass |
+| undistributed never inserted into ledger | pass (plan carries it as a number only) |
+| ledger delta = effective pool | pass |
+| no allocation to ineligible units | pass |
+| no double credit | pass (existing ledger rows refuse) |
+
+The four "fail by design" rows are exactly what activation flips.
+
+## M14C calibration under v2 (read-only)
+
+| | value |
+| --- | --- |
+| v1 score (production) | 1.0000 |
+| exact pico value | 500,000 (10 input tokens × 50,000 pico) |
+| v2 score | 500,000 pico |
+| effective pool for a 500,000-pico day | 0 of 100,000; 100,000 never minted |
+| points | 0 |
+| production modified | NO |

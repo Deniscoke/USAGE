@@ -73,7 +73,9 @@ async function main(): Promise<number> {
   }
 
   const { error: protocolError } = await admin.from("mining_protocol_versions").upsert(
-    listMiningProtocols().map((protocol) => ({
+    // Drafts never reach the database from here: the 0008 check constraint
+    // allows active|superseded, and activation is an explicit owner act.
+    listMiningProtocols().filter((protocol) => protocol.status !== "draft").map((protocol) => ({
       version: protocol.version,
       epoch_duration_seconds: protocol.epochDurationSeconds,
       epoch_emission_points: protocol.epochEmissionPoints,
@@ -81,7 +83,7 @@ async function main(): Promise<number> {
       pricing_version: protocol.pricingVersion,
       effective_from: protocol.effectiveFrom,
       network: protocol.network,
-      status: protocol.status,
+      status: protocol.status as "active" | "superseded",
       created_at: new Date().toISOString(),
     })),
     { onConflict: "version" },
