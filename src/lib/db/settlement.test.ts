@@ -318,3 +318,12 @@ describe("the ledger is not client writable", () => {
     void attacker;
   });
 });
+
+describe("draft scoring versions cannot settle (M15B)", () => {
+  it("finalize and settle both refuse usage_score_v2 while it is a draft", async () => {
+    const epoch = dailyEpochFor(new Date("2031-01-01T12:00:00Z"), 100_000);
+    await expect(finalizeEpoch(settlement, epoch, { algorithmVersion: "usage_score_v2" })).rejects.toThrow(/not an active scoring version/);
+    await expect(settleEpoch(settlement, epoch, { algorithmVersion: "usage_score_v2" })).rejects.toThrow(/not an active scoring version/);
+    await expect(settleEpoch(settlement, epoch, { algorithmVersion: "usage_score_v9" })).rejects.toThrow(/not an active scoring version/);
+  });
+});

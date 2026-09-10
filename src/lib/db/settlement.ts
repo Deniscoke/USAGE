@@ -6,6 +6,7 @@ import {
   type EpochState,
   type RewardEpoch,
 } from "@/lib/domain/epoch";
+import { isActiveScoringVersion } from "@/lib/domain/scoring";
 
 /**
  * Epoch settlement.
@@ -54,6 +55,17 @@ export interface SettlementResult {
   allocations: { userId: string; points: number; networkShare: number }[];
 }
 
+/**
+ * A DRAFT scoring version (usage_score_v2 until an owner activates it) can be
+ * simulated and previewed, never settled. This is the guard that makes the
+ * registry's `status` mean something at the one place points become permanent.
+ */
+function assertActiveScoring(version: string): void {
+  if (!isActiveScoringVersion(version)) {
+    throw new EpochLifecycleError(`${version} is not an active scoring version; it cannot settle an epoch.`, "not_finalizing");
+  }
+}
+
 export function allocationId(epochId: string, userId: string): string {
   return `${epochId}:${userId}`;
 }
@@ -72,6 +84,7 @@ export async function finalizeEpoch(
   epoch: RewardEpoch,
   options: { algorithmVersion: string; epochKind?: string } = { algorithmVersion: "usage_score_v1" },
 ): Promise<{ epochId: string; state: EpochState; networkScore: number }> {
+  assertActiveScoring(options.algorithmVersion);
   const state = (await store.loadEpochState(epoch.id)) ?? "open";
   if (state === "settled") {
     throw new EpochLifecycleError(`${epoch.id} is already settled.`, "already_settled");
@@ -101,6 +114,7 @@ export async function settleEpoch(
   epoch: RewardEpoch,
   options: { algorithmVersion: string; epochKind?: string } = { algorithmVersion: "usage_score_v1" },
 ): Promise<SettlementResult> {
+  assertActiveScoring(options.algorithmVersion);
   assertSettleable(epoch.id, (await store.loadEpochState(epoch.id)) ?? "open");
 
   const day = epoch.startsAt.slice(0, 10);

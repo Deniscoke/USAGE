@@ -51,6 +51,14 @@ export interface DailyScore {
 
 export interface ScoringAlgorithm {
   version: string;
+  /**
+   * `active` is what production scores new epochs with. `draft` exists in
+   * the registry so it can be simulated, tested and previewed, and MUST NOT
+   * be selected for production scoring until an owner activates it.
+   */
+  status: "active" | "draft";
+  /** What one point means, so a number is never read without its unit. */
+  unit: string;
   weights: Readonly<Record<VerificationType, number>>;
   /** Score a single day's already trust-weighted spend. */
   pointsForWeightedMicros(weightedCostMicros: number): number;
@@ -58,6 +66,8 @@ export interface ScoringAlgorithm {
 
 const V1: ScoringAlgorithm = {
   version: CURRENT_SCORING_VERSION,
+  status: "active",
+  unit: "1000 × sqrt(daily eligible protocol USD), 4 decimals",
   weights: VERIFICATION_WEIGHTS_V1,
   pointsForWeightedMicros(weightedCostMicros) {
     if (weightedCostMicros <= 0) return 0;
@@ -66,9 +76,47 @@ const V1: ScoringAlgorithm = {
   },
 };
 
+/**
+ * usage_score_v2 — LINEAR. DRAFT (M15B). NOT ACTIVE.
+ *
+ * score = Σ eligible protocol compute, in integer micro-USD, per account per
+ * epoch. No sqrt, no log, no power, no cap of any kind. M15 showed that every
+ * strictly concave per-account transformation pays a Sybil bonus equal to its
+ * whale dampening (n·f(C/n) > f(C) for any n by Jensen), and that USAGE has
+ * no provable principal to aggregate across for most compute. Linear is the
+ * only function under which the number of accounts, devices, connections,
+ * keys, models, requests and days an actor uses is irrelevant to the reward.
+ *
+ * Unit: eligible protocol micro-USD. Integer in, integer out. The exact form
+ * (pico-USD, BigInt, see src/lib/pricing/exact.ts) needs a column production
+ * does not have; until then the score is exact to the per-request micro
+ * rounding of the pricing version that priced each event.
+ *
+ * Accepted trade-off, recorded by the owner in M15B: whales receive
+ * proportional influence.
+ */
+export const SCORING_VERSION_V2_DRAFT = "usage_score_v2";
+
+const V2_DRAFT: ScoringAlgorithm = {
+  version: SCORING_VERSION_V2_DRAFT,
+  status: "draft",
+  unit: "eligible protocol micro-USD (integer)",
+  weights: VERIFICATION_WEIGHTS_V1,
+  pointsForWeightedMicros(weightedCostMicros) {
+    if (!Number.isSafeInteger(weightedCostMicros)) throw new Error(`usage_score_v2 needs an integer micro-USD amount, got ${weightedCostMicros}`);
+    return weightedCostMicros <= 0 ? 0 : weightedCostMicros;
+  },
+};
+
 const ALGORITHMS: Readonly<Record<string, ScoringAlgorithm>> = Object.freeze({
   [V1.version]: V1,
+  [V2_DRAFT.version]: V2_DRAFT,
 });
+
+/** Draft algorithms may be simulated and previewed, never used to settle. */
+export function isActiveScoringVersion(version: string): boolean {
+  return ALGORITHMS[version]?.status === "active";
+}
 
 export function getScoringAlgorithm(version: string = CURRENT_SCORING_VERSION): ScoringAlgorithm {
   const algorithm = ALGORITHMS[version];

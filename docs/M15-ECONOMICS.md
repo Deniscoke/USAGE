@@ -437,3 +437,240 @@ risk holds for the rest. Nothing in between is honest.
    bursty ones) or move to longer epochs under linear (where it stops mattering)?
 
 None of these are implemented. Production scoring is unchanged.
+
+
+---
+
+# M15B — Linear beta decision, precision, cache pricing, bootstrap emission
+
+## Owner decision (locked, 2026-09-10)
+
+**Beta recommendation: `usage_score_v2` = LINEAR eligible protocol compute.**
+
+Reasons: account splitting neutral, device splitting neutral, connection and
+key splitting neutral, no identity dependency, deterministic, provider-neutral,
+privacy-neutral. **Accepted trade-off: whales receive proportional influence.**
+No account concavity. No principal concavity yet. No provider-principal
+requirement for beta participation. Epoch-2026-09-10 stays open.
+
+## usage_score_v2 (candidate, DRAFT, inactive)
+
+`score_v2 = Σ eligible_compute_micros` per account per epoch. Registered in
+`src/lib/domain/scoring.ts` with `status: "draft"` and `unit: "eligible
+protocol micro-USD (integer)"`. No sqrt/log/power, no cap of any kind.
+Integer in, integer out; non-integers are refused. `CURRENT_SCORING_VERSION`
+and `mining-dev-v1` still say `usage_score_v1`. `finalizeEpoch` and
+`settleEpoch` now refuse any non-active scoring version, so a draft can be
+simulated and previewed but cannot settle (tested).
+
+Invariants under linear (simulator, 99 honest, attacker $10; tests in
+`m15b.test.ts`):
+
+| dimension | 1 vs n | attacker score difference | reward difference |
+| --- | --- | --- | --- |
+| accounts | 1 vs 1000 | 0 | at most 0.2% (integer largest-remainder across 1000 rows) |
+| devices | 1 vs 100 | 0 | 0 |
+| connections / keys | 1 vs 100 | 0 | 0 |
+| models | 1 vs 50 | 0 | 0 |
+| requests | 1 vs 10,000 | 0 | 0 |
+
+The score difference is exactly zero because the linear rule is integer
+micros; the only non-zero figure is point rounding when a pool is split over
+1000 rows, which favours nobody in expectation.
+
+Whales (§11), 100 honest at $1, exactly as accepted:
+
+| whale compute share | 1% | 5% | 10% | 25% | 50% | 75% | 90% |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| whale reward share | 1.00% | 5.00% | 10.00% | 25.00% | 50.00% | 75.00% | 90.00% |
+
+## Precision: pico-USD exact valuation (`src/lib/pricing/exact.ts`)
+
+Prices are integer micro-USD per million tokens, so **one token is worth
+exactly `price` pico-USD** (10^-12 USD). `value_pico = price × tokens`: no
+division, no rounding, any integer price, any token count. Per-day sums are
+BigInt (a $100,000 day is 10^17 pico, beyond 2^53). Rounding to micro-USD, if
+a legacy column needs it, happens once per aggregate.
+
+| representation | exact for every integer price? | JS Number safe? | verdict |
+| --- | --- | --- | --- |
+| micro per request (today) | no: half-up per class per request | yes | the leak (at most 0.5 micro per class per request) |
+| nano-USD | only when `price × tokens` divides by 1000 (true for every current price, not guaranteed) | to about $9M/day | fragile |
+| **pico-USD** | **yes, always** | needs BigInt | **recommended** |
+| rational num/den | yes | needs BigInt | pico *is* this with a fixed denominator; two columns for nothing |
+| daily aggregate before rounding | yes, if the aggregate is kept in pico | n/a | this is how pico is used |
+
+Tests: ten 10-token requests equal one 100-token request (2× under micro
+rounding, exactly 1× under pico); 200 seeded random splits are all
+pico-neutral; every v1/v2 price is representable; results agree with the
+micro path whenever no rounding occurred. **Settled v1 history is not
+re-priced**: events keep `protocol_compute_micros` and their pricing version.
+
+**Migration needed (DESIGN ONLY; not written into `supabase/migrations`, not applied):**
+
+```sql
+-- 0019 (proposal): exact protocol compute
+alter table usage_events add column protocol_compute_pico bigint;   -- null for pre-v3 rows
+alter table score_records add column weighted_compute_pico numeric(38,0);
+-- the settled-row immutability triggers from 0018 already cover both tables
+```
+
+`bigint` holds 9.2 × 10^18 pico = $9.2M per event, which is enough; the daily
+aggregate is `numeric` because a network day can exceed that. Activation
+would pair this with pricing v3 and scoring v2; none of the three moves alone.
+
+## Cache pricing: unknown is not input
+
+Audit of both frozen snapshots (`auditUnknownCachePrices`):
+
+| snapshot | models with an absent cache-read price | of which positive-priced (live exposure) |
+| --- | --- | --- |
+| usage-pricing-v1 | several | none live (v1 is frozen and superseded) |
+| usage-pricing-v2 | `nvidia/nemotron-3-nano-30b-a3b`, `inclusionai/ling-3.0-flash-fin`, `inclusionai/ling-3.0-flash-sante` (cache read); `openai/gpt-5-nano`, `openai/gpt-5.4` (cache write only) | **nemotron** (cache reads valued at 50,000 micro/M, the full input rate) |
+
+Old fallback: `cacheReadRate = price.cacheReadMicrosPerMillion ?? price.inputMicrosPerMillion`.
+Recommended behaviour, implemented as `UnknownCachePolicy = "pending"` in
+`exact.ts`: the unknown component contributes 0 and is listed in
+`pendingComponents`, so the event's pricing status is `pending` for that
+component rather than silently priced. Requests without cache traffic are
+unaffected.
+
+`usage-pricing-v3` exists as a **draft file** (`usage-pricing-v3-draft.ts`):
+same prices as v2, `unknownCachePolicy: "pending"`, `valuation:
+"pico_exact"`, `status: "draft"`, and deliberately **absent from the pricing
+registry** (`getPricingSnapshot("usage-pricing-v3")` is null, tested). v1 and
+v2 are unchanged. gpt-5-nano's missing cache-write price is harmless today
+(OpenAI does not bill cache writes) but v3 should state it as 0 explicitly
+rather than fall back.
+
+## Bootstrap emission: the scheduled pool is a CAP
+
+Today (`mining-dev-v1`): 100,000 points per daily epoch, distributed in
+full to whoever is present. With one miner and 1 micro-USD (the real M14C
+day) that is **10^11 points per protocol dollar**, and the sole miner takes
+the whole epoch.
+
+Candidate A, fixed pool, one miner (from `npm run usage:m15b:emission`):
+
+| network compute | points per protocol $ | sole miner gets | break-even value per point |
+| --- | --- | --- | --- |
+| $0.000001 | 1.00e+11 | 100,000 | 1e-11 |
+| $0.001 | 1.00e+8 | 100,000 | 1e-8 |
+| $1 | 1.00e+5 | 100,000 | 1e-5 |
+| $100 | 1.00e+3 | 100,000 | 1e-3 |
+| $10,000 | 1.00e+1 | 100,000 | 1e-1 |
+| $100,000 | 1.00e+0 | 100,000 | 1 |
+
+### Candidates (exact forms; N = network eligible compute in micro-USD)
+
+| id | formula | points-per-dollar bound | sole 1-micro miner gets |
+| --- | --- | --- | --- |
+| A fixed | `effective = scheduled` | none (unbounded as N approaches 0) | 100,000 (100%) |
+| B baseline | `effective = scheduled × min(1, N/B)` | at most scheduled/B, always | 0 |
+| C difficulty | `effective = scheduled × N/(N+T)` | at most scheduled/T, always; never 100% | 0 |
+| D hybrid | `effective = F + (scheduled − F) × min(1, N/B)` | at most F/N + scheduled/B | F (1,000 = 1%) |
+| E minimum | `0 if N < M, else B(N)` | as B, with a step at M | 0 |
+
+Effective pool at B = T = $100/epoch, F = 1,000, M = $1:
+
+| network compute | A | B | C | D | E |
+| --- | --- | --- | --- | --- | --- |
+| $0.000001 | 100,000 | 0 | 0 | 1,000 | 0 |
+| $0.01 | 100,000 | 10 | 9 | 1,009 | 0 |
+| $1 | 100,000 | 1,000 | 990 | 1,990 | 1,000 |
+| $10 | 100,000 | 10,000 | 9,090 | 10,900 | 10,000 |
+| $100 | 100,000 | 100,000 | 50,000 | 100,000 | 100,000 |
+| $1,000 | 100,000 | 100,000 | 90,909 | 100,000 | 100,000 |
+| $100,000 | 100,000 | 100,000 | 99,900 | 100,000 | 100,000 |
+
+The baseline B = $100/epoch is a **placeholder for the tables**, not a
+recommendation; the parameter is the owner decision below.
+
+### The §9 invariant, formalised
+
+For every network state, an actor contributing `c` micro-USD of eligible
+compute to an epoch receives at most `scheduled × c / B` points. Equivalently,
+points per protocol dollar never exceed `scheduled / B`, however empty the
+network.
+
+Under linear scoring the actor gets `effective × c / N`, so the invariant is
+`effective(N) / N <= scheduled / B` for all `N > 0`. B and C satisfy it for
+all N (tested from N = 1 micro to $100); D satisfies it up to the explicit
+floor F; A violates it without bound. A 1-micro attacker on an empty network
+captures **0** under B and C, **1%** under D (the floor, by design), **100%**
+under A.
+
+### Farming equilibrium (§10)
+
+Entrants add wash compute while `P × points_per_dollar > 1`. Equilibria:
+
+| candidate | entry condition | equilibrium N* | points per $ at N* |
+| --- | --- | --- | --- |
+| A fixed | any P > N/scheduled; at tiny N, any P at all | `P × scheduled` | 1/P |
+| B baseline | `P × scheduled / B > 1` | `P × scheduled` (at least B) | 1/P |
+| C difficulty | `P × scheduled > T` | `P × scheduled − T` | 1/P |
+| D hybrid | slightly below B's threshold (the floor) | about `P × scheduled` | 1/P |
+
+Every candidate self-dilutes (points per dollar fall monotonically in N,
+tested) and none allows runaway farming. The difference is **where entry
+starts**: under A a farm is rational at any point value while the network is
+small; under B and C no farm is rational until a point is worth more than
+`B / scheduled` dollars. At P = 1e-3 with a $10 honest network, A attracts $90
+of wash compute; B and C attract none (table in the results script).
+
+### Undistributed emission (§8)
+
+| option | launch incentive | supply predictability | attack incentive | future dilution | whale incentive | threshold gaming |
+| --- | --- | --- | --- | --- | --- | --- |
+| A never minted | weakest | best (supply at most the schedule, known) | none | none | none | none |
+| B deferred to later epochs | strong later | worse (a growing overhang) | delay compute to the catch-up epoch | high | whales time the overhang | yes |
+| C treasury / reserve | governance-dependent | good if the reserve is capped | capture the governance | depends | depends | none |
+| D partially deferred, capped | moderate | acceptable | bounded by the cap | bounded | bounded | mild |
+
+For off-chain beta points the honest answer is **A: never minted**. Points
+that were not earned because the network was idle do not exist; nothing is
+owed to a future. If a token ever exists, its supply schedule is a separate
+decision and must not inherit an overhang from the beta.
+
+### Recommended emission model
+
+**D hybrid with a small floor, or B if the owner prefers zero floor:**
+
+```
+effective(N) = F + (scheduled − F) × min(1, N / B)
+```
+
+with `F` a few percent of `scheduled` at most, and `B` set from the
+observed honest network rather than guessed. Undistributed points are never
+minted. The floor exists only so the first honest miners on an empty network
+earn something visible; it is also the exact, bounded bootstrap
+over-emission (a sole tiny miner gets `F`, never more). C is the cleaner
+curve mathematically (no threshold, never 100%) but "never 100%" is hard to
+explain and B's `min(1, ·)` is the same bound with a corner.
+
+Precedent: Filecoin's baseline minting ties part of emission to network
+capacity crossing a growing baseline rather than to time alone. The lesson
+transfers; the parameters do not.
+
+### Provider principals and proof of personhood
+
+Unchanged from M15: keep `creator_user_id` (OpenRouter) and xAI
+`team_id` / `user_id` as **future** fraud and linking signals only. No provider
+gets different economics for exposing a principal; provider choice must not
+become reward arbitrage. No PoP integration.
+
+### M14C calibration (read-only)
+
+| | value |
+| --- | --- |
+| production v1 score | 1.0000 |
+| v2 (micro, as stored) | 1 |
+| exact pico value | 500,000 (the $0.0000005 the provider charged) |
+| v2 under B or C emission that day | 0 points; under D: 1,000; under A (today): 100,000 |
+| production modified | NO |
+
+### Open decision
+
+One parameter decides whether v2 can go live: **the baseline B (and floor
+F, possibly 0)**, that is, what network eligible compute per epoch unlocks the
+full 100,000-point schedule.
