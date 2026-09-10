@@ -1558,6 +1558,13 @@ Safe fix is the owner's: disable the two plugins, or make `python3` resolve
 to the installed Python 3.14 (App execution aliases). USAGE metering stays on
 native OTel; no hook is used.
 
+**Miner release.** The first `v0.4.5` tag failed in the GitHub release
+workflow at "Build and package": `Cannot find module 'rcedit'` — the
+packager loads it but `package.json` never declared it (the lockfile did),
+and every CI run of the public repository had failed the same way since it
+was stood up. Fixed by declaring `rcedit ^5.0.2`; the tag was moved to the
+fixed commit (no release had been produced) and the workflow re-run.
+
 **Tests.** Server: `route-session.test.ts` (round-trip, tamper, expiry,
 parent revocation, binding: other connection / other surface / funded
 gateway refused), `routes.test.ts` (both surfaces, same id, Codex vs Claude,
