@@ -27,6 +27,7 @@
     "usage:secrets:migrate": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/migrate-secrets-to-vault.ts",
     "usage:settle-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/settle-epoch.ts",
     "usage:connections": "node --env-file-if-exists=.env.local --import tsx scripts/inspect-connections.ts",
+    "usage:m15:simulate": "node --import tsx scripts/m15-simulate.ts",
     "usage:m14c:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/m14c-snapshot.ts",
     "usage:m14c:crosscheck": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/m14c-crosscheck.ts",
     "usage:e2e:openrouter": "node --env-file-if-exists=.env.local --import tsx scripts/e2e-openrouter.ts",
