@@ -37,6 +37,8 @@ export function protocolGateway(input: {
   funding?: FundingEvidence | null;
   /** From the provider profile; "" when the base already carries the version. */
   pathPrefix?: "v1" | "";
+  /** Registry family of the connection, when known. Decides privacy baselines. */
+  providerFamily?: string | null;
 }): ComputeGateway {
   const { protocol, baseUrl } = input;
   const id = connectionGatewayId(input.connectionId);
@@ -55,6 +57,8 @@ export function protocolGateway(input: {
         rawBody: request.rawBody,
         attributionUser: request.attribution.user,
         pathPrefix: input.pathPrefix ?? "v1",
+        // OpenRouter connections carry USAGE's privacy baseline in every body.
+        privacy: input.providerFamily === "openrouter" || input.providerSlug === "openrouter" ? "openrouter" : undefined,
       });
     },
 

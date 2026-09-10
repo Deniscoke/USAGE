@@ -1,5 +1,6 @@
 import { safeFetch } from "@/lib/net/ssrf";
 import { upstreamRequestIdFrom, type ObservedGeneration, type StreamObserver } from "@/lib/compute/gateway";
+import { applyOpenRouterPrivacy } from "@/lib/providers/openrouter-privacy";
 import type { GatewayCost, GatewayTokenUsage } from "@/lib/providers/vercel-gateway/observation";
 import {
   UNKNOWN_CAPABILITIES,
@@ -290,13 +291,18 @@ export const openAiCompatibleProtocol: ProviderProtocol = {
     headers.set("authorization", `Bearer ${context.credential}`);
 
     // Attribution is added server-side and overwrites anything the caller sent.
-    const body =
+    // For OpenRouter the privacy baseline is written into the body as well;
+    // a body that could not be parsed is not forwarded unrestricted.
+    const parsed =
       typeof context.body === "object" && context.body !== null && !Array.isArray(context.body)
-        ? JSON.stringify({
-            ...(context.body as Record<string, unknown>),
-            user: context.attributionUser,
-          })
-        : context.rawBody;
+        ? (context.body as Record<string, unknown>)
+        : null;
+    const body =
+      context.privacy === "openrouter"
+        ? JSON.stringify({ ...applyOpenRouterPrivacy(parsed ?? {}).body, user: context.attributionUser })
+        : parsed
+          ? JSON.stringify({ ...parsed, user: context.attributionUser })
+          : context.rawBody;
 
     return {
       url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path, context.pathPrefix ?? "v1")}`,

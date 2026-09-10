@@ -55,6 +55,7 @@ export const { POST, GET } = createGatewayRoute({
           providerSlug: resolved.connection.provider,
           endpointTrusted: resolved.endpointTrusted,
           pathPrefix: resolved.pathPrefix,
+          providerFamily: resolved.providerFamily,
           // What the provider told USAGE about this account when it was
           // connected. Nothing in the request can change it.
           funding: fundingEvidenceForConnection(resolved.connection),

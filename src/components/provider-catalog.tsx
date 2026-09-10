@@ -64,6 +64,7 @@ export function StatusRows({ view, compact = false }: { view: ProviderStatusView
     { label: "Pricing", value: view.pricing === "available" ? "AVAILABLE" : view.pricing === "pending" ? "PENDING" : "NONE", color: tone(view.pricing === "available", view.pricing === "pending") },
     { label: "Funding", value: view.funding.class === "paid_account" ? "PAID-ACCOUNT METERED" : view.funding.class === "free_tier_account" ? "FREE TIER" : view.funding.class === "byok_upstream" ? "BYOK — UNKNOWN" : view.funding.class.toUpperCase(), color: tone(view.funding.class === "paid_account", view.funding.class === "unknown") },
     { label: "Mining", value: view.mining.label.toUpperCase(), color: tone(view.mining.outcome === "eligible", view.mining.outcome === "held") },
+    ...(view.privacy ? [{ label: "Privacy", value: view.privacy.lines.join(" · ").toUpperCase(), color: "var(--verified)" }] : []),
   ];
   return (
     <dl className={`grid gap-x-4 gap-y-1 text-[11px] ${compact ? "grid-cols-[auto_1fr]" : "grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_1fr]"}`}>

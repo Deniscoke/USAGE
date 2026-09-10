@@ -94,6 +94,8 @@ export interface ProtocolRequestContext {
   attributionUser: string;
   /** From the provider profile. "" when the base URL already carries the version. */
   pathPrefix?: "v1" | "";
+  /** Server-enforced privacy baseline for the provider behind this connection. */
+  privacy?: "openrouter";
 }
 
 /**

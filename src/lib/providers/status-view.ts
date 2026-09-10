@@ -3,6 +3,7 @@ import { classifyEconomicSource, type FundingClass } from "@/lib/protocol/econom
 import { decideReward, type EconomicSourceClass } from "@/lib/protocol/reward-policy";
 import type { MiningEligibility, ProtocolCapabilities } from "@/lib/protocols/protocol";
 import type { ConnectionStatusDetailRow } from "@/lib/supabase/database.types";
+import { OPENROUTER_PRIVACY_COPY } from "./openrouter-privacy";
 
 /**
  * The one server-derived status of a provider connection, in six separate
@@ -34,6 +35,8 @@ export interface ProviderStatusView {
   funding: { class: FundingClass | "usage_credit_never" | "unknown"; label: string; basis: string | null };
   economicSource: EconomicSourceClass;
   mining: { outcome: MiningOutcome; label: string; reason: string };
+  /** Server-enforced privacy baseline, when the provider has one. */
+  privacy: { lines: readonly string[]; detail: string } | null;
 }
 
 export interface ProviderStatusInput {
@@ -141,6 +144,7 @@ export function deriveProviderStatusView(input: ProviderStatusInput): ProviderSt
     funding: { class: fundingClass, label: FUNDING_LABEL[fundingClass] ?? FUNDING_LABEL.unknown, basis: evidence?.basis ?? null },
     economicSource,
     mining,
+    privacy: input.provider === "openrouter" ? { lines: OPENROUTER_PRIVACY_COPY.lines, detail: OPENROUTER_PRIVACY_COPY.detail } : null,
   };
 }
 

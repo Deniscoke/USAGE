@@ -1,3 +1,4 @@
+import { applyOpenRouterPrivacy } from "@/lib/providers/openrouter-privacy";
 import type {
   ComputeGateway,
   GatewayRequest,
@@ -206,6 +207,16 @@ export class OpenRouterStreamObserver implements StreamObserver {
   }
 }
 
+/** A raw body we could not parse earlier: try once more, else start empty. */
+function parseRawBody(raw: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export const openRouterComputeGateway: ComputeGateway = {
   id: OPENROUTER_GATEWAY_ID,
   providerSlug: "openrouter",
@@ -223,14 +234,18 @@ export const openRouterComputeGateway: ComputeGateway = {
     headers.set("x-openrouter-title", "USAGE");
 
     // Attribution is added server-side from the authenticated identity and
-    // overwrites anything the caller sent. `user` is OpenAI-compatible.
-    const body =
+    // overwrites anything the caller sent. `user` is OpenAI-compatible. The
+    // privacy baseline (zdr, data_collection = deny) is written into the body
+    // on every request; a body that could not be parsed gets the baseline
+    // alone, which fails closed upstream rather than routing unrestricted.
+    const parsed =
       typeof request.body === "object" && request.body !== null && !Array.isArray(request.body)
-        ? JSON.stringify({
-            ...(request.body as Record<string, unknown>),
-            user: request.attribution.user,
-          })
-        : request.rawBody;
+        ? (request.body as Record<string, unknown>)
+        : parseRawBody(request.rawBody);
+    const body = JSON.stringify({
+      ...applyOpenRouterPrivacy(parsed).body,
+      user: request.attribution.user,
+    });
 
     return { url: `${openRouterBaseUrl()}/${request.path.join("/")}`, headers, body };
   },
