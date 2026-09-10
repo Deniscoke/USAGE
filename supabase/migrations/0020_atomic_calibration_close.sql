@@ -31,11 +31,14 @@
 -- existing event, score, protocol and epoch rows are additionally locked
 -- FOR UPDATE once the advisory lock is held.
 --
--- FAULT INJECTION. `current_setting('usage.calibration_fail_after', true)`
--- is read once; when it names a stage the function raises right after that
--- stage. Only a session that can already execute the function can set it,
--- it can only cause a refusal, and it exists so the atomicity of every
--- stage is provable in tests against a real PostgreSQL.
+-- EPOCH BOUNDARIES. Epochs are UTC days. The boundaries are written as
+-- explicit UTC timestamptz literals, never derived from a date cast, so no
+-- session or server TimeZone setting can move the economic epoch.
+--
+-- NO TEST HOOK. The production function carries no fault-injection switch.
+-- The atomicity tests build a test-only variant from this file by
+-- replacing the `-- @stage <name>` markers below with RAISE statements;
+-- the deployed function contains only the markers, which are comments.
 
 begin;
 
@@ -60,6 +63,9 @@ declare
   -- Owner-approved facts (M15D, 2026-09-10). Not parameters.
   c_epoch     constant text    := 'epoch-2026-09-10';
   c_day       constant date    := '2026-09-10';
+  -- Explicit UTC instants. Not date casts: independent of any TimeZone setting.
+  c_starts    constant timestamptz := timestamptz '2026-09-10 00:00:00+00';
+  c_ends      constant timestamptz := timestamptz '2026-09-11 00:00:00+00';
   c_event     constant uuid    := 'c75acc2e-7f79-4161-b18f-3d8783561394';
   c_key       constant text    := 'ecu1:cf605dfe61da51020d3e406fba288c137d4b1059268e68064322a44d3a1a2107';
   c_user      constant uuid    := 'da93cec8-8f02-4fc7-b86a-d70be521a19f';
@@ -70,7 +76,6 @@ declare
   c_scoring   constant text    := 'usage_score_v1';
   c_pricing   constant text    := 'usage-pricing-v2';
 
-  v_fail_after text;
   v_event   public.usage_events%rowtype;
   v_proof   public.proof_records%rowtype;
   v_score   numeric;
@@ -88,7 +93,6 @@ begin
       using errcode = 'restrict_violation';
   end if;
   perform pg_advisory_xact_lock(hashtext('usage:calibration-close'), hashtext(p_epoch_id));
-  v_fail_after := current_setting('usage.calibration_fail_after', true);
 
   -- 1. Preconditions, all under row locks.
   -- The epoch first: a repeat attempt is refused as "already settled" before
@@ -139,29 +143,29 @@ begin
     (id, starts_at, ends_at, reward_pool_points, scoring_version, pricing_version, protocol_version,
      network_score, epoch_kind, state, finalizing_at, claimable, effective_pool_points, undistributed_points)
   values
-    (c_epoch, c_day::timestamptz, (c_day + 1)::timestamptz, 0, c_scoring, c_pricing, c_protocol,
+    (c_epoch, c_starts, c_ends, 0, c_scoring, c_pricing, c_protocol,
      c_score, 'development', 'finalizing', now(), false, 0, 0)
   on conflict (id) do update
     set reward_pool_points = 0, scoring_version = c_scoring, pricing_version = c_pricing, protocol_version = c_protocol,
         network_score = c_score, epoch_kind = 'development', state = 'finalizing',
         finalizing_at = coalesce(public.reward_epochs.finalizing_at, now()), claimable = false,
         effective_pool_points = 0, undistributed_points = 0;
-  if v_fail_after = 'epoch' then raise exception 'calibration close: injected failure after epoch write'; end if;
-  if v_fail_after = 'finalizing' then raise exception 'calibration close: injected failure after finalizing'; end if;
+  -- @stage epoch
+  -- @stage finalizing
 
   update public.reward_epochs set state = 'settled', settled_at = now() where id = c_epoch;
-  if v_fail_after = 'settled' then raise exception 'calibration close: injected failure after settled write'; end if;
+  -- @stage settled
 
   -- Zero-point allocation for auditability; never a ledger row.
   insert into public.reward_allocations (epoch_id, user_id, score, network_share, points)
   values (c_epoch, c_user, c_score, 1, 0);
-  if v_fail_after = 'allocation' then raise exception 'calibration close: injected failure after allocation'; end if;
+  -- @stage allocation
 
   update public.usage_events set economic_status = 'settled'
    where id = c_event and economic_status = 'eligible' and epoch_id = c_epoch;
   get diagnostics v_rows = row_count;
   if v_rows <> 1 then raise exception 'calibration close: expected to settle exactly one event, settled %', v_rows using errcode = 'restrict_violation'; end if;
-  if v_fail_after = 'event' then raise exception 'calibration close: injected failure after event update'; end if;
+  -- @stage event
 
   -- 3. Postconditions, inside the transaction, from fresh reads.
   select * into v_event from public.usage_events where id = c_event;
@@ -177,6 +181,9 @@ begin
   if v_score is distinct from c_score then raise exception 'calibration close: postcondition failed on the score' using errcode = 'restrict_violation'; end if;
 
   select * into v_epoch from public.reward_epochs where id = c_epoch;
+  if v_epoch.starts_at <> c_starts or v_epoch.ends_at <> c_ends then
+    raise exception 'calibration close: postcondition failed: epoch boundaries are not the UTC day' using errcode = 'restrict_violation';
+  end if;
   if v_epoch.state <> 'settled' or v_epoch.epoch_kind <> 'development' or v_epoch.protocol_version <> c_protocol
      or v_epoch.claimable or v_epoch.reward_pool_points <> 0 or coalesce(v_epoch.effective_pool_points, -1) <> 0
      or coalesce(v_epoch.undistributed_points, -1) <> 0 or v_epoch.scoring_version <> c_scoring or v_epoch.pricing_version <> c_pricing
@@ -195,7 +202,7 @@ begin
   if (select coalesce(sum(amount), 0) from public.usage_point_ledger where user_id = c_user) <> v_balance then
     raise exception 'calibration close: postcondition failed: settled balance changed' using errcode = 'restrict_violation';
   end if;
-  if v_fail_after = 'postcondition' then raise exception 'calibration close: injected failure during final postcondition'; end if;
+  -- @stage postcondition
 
   -- 4. The persisted audit, consistent with audit_epoch().
   return query

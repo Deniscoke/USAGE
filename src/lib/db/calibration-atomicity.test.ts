@@ -62,7 +62,7 @@ async function stateOf(a: ApprovedCalibrationClose): Promise<State> {
 
 beforeAll(async () => {
   db = await createTestDb();
-  await db.exec(readFileSync(path.resolve(process.cwd(), "supabase/pending/0020_atomic_calibration_close.sql"), "utf8"));
+  // 0020 is part of the migration chain the test database applies.
 }, 120_000);
 
 afterAll(async () => {
@@ -190,32 +190,87 @@ describe("current application path: separate autocommitted writes", () => {
 
 /**
  * The function's approved facts are constants for the real production
- * epoch, so the test rewrites exactly those constants to the fixture's
- * ids. Everything else (locking, writes, postconditions, grants) is the
- * pending SQL verbatim.
+ * epoch, so the test rewrites exactly those constants (and the UTC
+ * boundaries) to the fixture's ids. With `withHooks`, every `-- @stage`
+ * comment marker becomes a RAISE guarded by a session setting: the
+ * TEST-ONLY variant. The deployed function keeps only the comments.
+ * Everything else (locking, writes, postconditions, grants) is the pending
+ * SQL verbatim.
  */
-async function installFunctionFor(a: ApprovedCalibrationClose): Promise<void> {
-  const sql = readFileSync(path.resolve(process.cwd(), "supabase/pending/0020_atomic_calibration_close.sql"), "utf8")
+const PENDING_0020 = path.resolve(process.cwd(), "supabase/migrations/0020_atomic_calibration_close.sql");
+
+function functionSqlFor(a: ApprovedCalibrationClose, withHooks: boolean): string {
+  const day = a.epochId.slice("epoch-".length);
+  const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  let sql = readFileSync(PENDING_0020, "utf8")
     .replace("'epoch-2026-09-10';", `'${a.epochId}';`)
-    .replace("'2026-09-10';", `'${a.epochId.slice("epoch-".length)}';`)
+    .replace("'2026-09-10';", `'${day}';`)
+    .replace("timestamptz '2026-09-10 00:00:00+00';", `timestamptz '${day} 00:00:00+00';`)
+    .replace("timestamptz '2026-09-11 00:00:00+00';", `timestamptz '${next} 00:00:00+00';`)
     .replace("'c75acc2e-7f79-4161-b18f-3d8783561394';", `'${a.eventId}';`)
     .replace("'ecu1:cf605dfe61da51020d3e406fba288c137d4b1059268e68064322a44d3a1a2107';", `'${a.economicEventKey}';`)
     .replace("'da93cec8-8f02-4fc7-b86a-d70be521a19f';", `'${a.userId}';`)
     .replace("'b60f5602-9ea5-4292-a1c8-fda3e874c025';", `'${a.proofId}';`);
-  await db.exec(sql);
+  if (withHooks) {
+    sql = sql.replace(/^\s*-- @stage (\w+)\s*$/gm, (_m, stage: string) =>
+      `  if current_setting('usage.test_fail_after', true) = '${stage}' then raise exception 'calibration close: injected failure after ${stage}'; end if;`);
+  }
+  return sql;
+}
+
+async function installFunctionFor(a: ApprovedCalibrationClose, withHooks = true): Promise<void> {
+  await db.exec(functionSqlFor(a, withHooks));
 }
 
 async function callWithInjectedFailure(epochId: string, stage: string): Promise<string> {
   // One explicit transaction: set the fault, call, and (on error) roll back,
   // exactly as PostgreSQL would for a failed RPC.
   try {
-    await db.exec(`begin; select set_config('usage.calibration_fail_after', '${stage}', true); select * from public.close_development_calibration_epoch('${epochId}'); commit;`);
+    await db.exec(`begin; select set_config('usage.test_fail_after', '${stage}', true); select * from public.close_development_calibration_epoch('${epochId}'); commit;`);
     return "committed";
   } catch (error) {
     await db.exec("rollback;");
     return (error as Error).message;
   }
 }
+
+describe("the production text of 0020 carries no fault hook", () => {
+  it("has only comment markers, no current_setting and no injected raise", () => {
+    const sql = readFileSync(PENDING_0020, "utf8");
+    expect(sql).not.toMatch(/current_setting\(/);
+    expect(sql).not.toMatch(/injected failure/);
+    expect(sql.match(/^\s*-- @stage \w+$/gm)?.length).toBe(6);
+    expect(sql).toMatch(/security invoker/);
+    expect(sql).toMatch(/set search_path = ''/);
+    for (const role of ["public", "anon", "authenticated"]) expect(sql).toMatch(new RegExp(`revoke execute on function public.close_development_calibration_epoch\\(text\\) from ${role};`));
+    expect(sql).toMatch(/grant execute on function public.close_development_calibration_epoch\(text\) to service_role;/);
+    expect(sql).toMatch(/timestamptz '2026-09-10 00:00:00\+00'/);
+    expect(sql).toMatch(/timestamptz '2026-09-11 00:00:00\+00'/);
+    expect(sql).not.toMatch(/c_day::timestamptz/);
+  });
+});
+
+describe("pending 0020: epoch boundaries are UTC regardless of session TimeZone", () => {
+  const zones: [string, string][] = [["UTC", "2027-06-01"], ["Europe/Prague", "2027-06-02"], ["America/New_York", "2027-06-03"], ["Asia/Tokyo", "2027-06-04"]];
+  for (const [zone, day] of zones) {
+    it(`${zone}: persisted starts_at/ends_at are exactly ${day}T00:00:00Z and the next UTC midnight`, async () => {
+      const u = await seedUnit(day, `m15e-tz-${day}@example.com`, `gen-m15e-tz-${day}`);
+      await installFunctionFor(u, false); // the production text, no hooks
+      await db.exec(`begin; set local TimeZone = '${zone}'; select * from public.close_development_calibration_epoch('${u.epochId}'); commit;`);
+      const [row] = await db.asServiceRole<{ starts: string; ends: string; tz: string }>(
+        `select to_char(starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as starts,
+                to_char(ends_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as ends,
+                current_setting('TimeZone') as tz
+           from reward_epochs where id = $1`, [u.epochId]);
+      expect(row.starts).toBe(`${day}T00:00:00.000Z`);
+      const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+      expect(row.ends).toBe(`${next}T00:00:00.000Z`);
+      const [epochSeconds] = await db.asServiceRole<{ s: string; e: string }>(`select extract(epoch from starts_at)::text as s, extract(epoch from ends_at)::text as e from reward_epochs where id = $1`, [u.epochId]);
+      expect(Number(epochSeconds.s)).toBe(Date.parse(`${day}T00:00:00Z`) / 1000);
+      expect(Number(epochSeconds.e) - Number(epochSeconds.s)).toBe(86_400);
+    });
+  }
+});
 
 describe("pending 0020: close_development_calibration_epoch is one transaction", () => {
   let a: ApprovedCalibrationClose;
