@@ -224,7 +224,7 @@ export const anthropicCompatibleProtocol: ProviderProtocol = {
     // The Anthropic messages API has no attribution field, so the body is
     // forwarded unchanged rather than having one invented into it.
     return {
-      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path)}`,
+      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path, context.pathPrefix ?? "v1")}`,
       headers,
       body: context.rawBody,
     };

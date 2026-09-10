@@ -29,12 +29,12 @@ const PROTOCOLS = [
   {
     id: "openai_compatible" as const,
     label: "OpenAI compatible",
-    blurb: "A /v1/chat/completions endpoint. Most providers speak this.",
+    blurb: "POST /v1/chat/completions with `Authorization: Bearer`. Validated with GET /v1/models.",
   },
   {
     id: "anthropic_compatible" as const,
     label: "Anthropic compatible",
-    blurb: "A /v1/messages endpoint.",
+    blurb: "POST /v1/messages with `x-api-key` and `anthropic-version`. Validated with GET /v1/models.",
   },
 ];
 
@@ -162,17 +162,32 @@ export function AddProviderWizard({ presets }: { presets: ProviderPreset[] }) {
             />
           </Field>
 
-          <Field label="API base URL" hint="https only. USAGE will not connect to private addresses.">
+          <Field
+            label="API base URL"
+            hint={
+              preset
+                ? `Fixed by USAGE for ${preset.name}: the provider's documented API host, not its website.`
+                : "https only. USAGE will not connect to private addresses. Paste the API host (for example https://api.deepseek.com), not the provider's website. A path such as /some/path/openai is kept; a trailing /v1 is optional."
+            }
+          >
             <input
               name="baseUrl"
               type="url"
               defaultValue={preset?.baseUrl ?? ""}
               key={`url-${preset?.slug ?? "custom"}`}
               placeholder="https://api.deepseek.com"
+              readOnly={preset !== null}
               required
-              className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-xs outline-none focus:border-[var(--verified)]"
+              className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-xs outline-none focus:border-[var(--verified)] read-only:opacity-70"
             />
           </Field>
+          {preset === null && (
+            <p className="text-[11px] leading-relaxed text-[var(--faint)]">
+              Custom providers are supported when they use one of the two protocols above with its
+              documented auth header. Other authentication schemes (custom headers, query-string keys)
+              are not supported — USAGE is not a general credential proxy.
+            </p>
+          )}
 
           <Field
             label="API key"
@@ -200,8 +215,11 @@ export function AddProviderWizard({ presets }: { presets: ProviderPreset[] }) {
             {pending ? "Validating…" : "Connect and validate"}
           </button>
           <p className="text-[11px] text-[var(--faint)]">
-            USAGE checks the credential with a models request. Nothing is generated, so this cannot
-            cost you provider credit.
+            USAGE checks the credential with the provider&apos;s documented non-generative endpoint
+            (a model list, or OpenRouter&apos;s key endpoint). Nothing is generated, so this cannot
+            cost you provider credit. A key is reported as rejected only when the provider itself
+            answers 401 or 403; anything USAGE cannot conclude is saved as &quot;validation
+            incomplete&quot;, never as an invalid key.
           </p>
           {state.error && <p className="text-[11px] text-[var(--warn)]">{state.error}</p>}
         </div>
@@ -255,13 +273,35 @@ const OUTCOME: Record<string, { title: string; detail: string; tone: string }> =
 
 function ConnectedSummary({ state }: { state: ConnectProviderState }) {
   const outcome = OUTCOME[state.eligibility ?? "unsupported"] ?? OUTCOME.unsupported;
+  const inconclusive = state.verdict === "inconclusive";
+  const rows: [string, string][] = [
+    ["Connection", inconclusive ? "Credential saved — validation incomplete" : "✓ API credential accepted"],
+    ["Protocol", state.protocol ?? "—"],
+    [
+      "Usage evidence",
+      state.usageEvidence === "documented"
+        ? "Documented by the provider; confirmed on the first observed request"
+        : "Pending first observed request",
+    ],
+    ["Models", state.modelCount ? `${state.modelCount} discovered` : "Not listed by this endpoint"],
+    ["Pricing", state.eligibility === "eligible_route" ? "Approved price available" : "Pending — no approved price for these models yet"],
+    ["Mining", state.eligibility === "eligible_route" ? "Eligible when routed through USAGE" : "Not yet eligible"],
+  ];
 
   return (
     <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-      <p className="text-sm" style={{ color: outcome.tone }}>
-        {outcome.title}
+      <p className="text-sm" style={{ color: inconclusive ? "var(--warn)" : outcome.tone }}>
+        {inconclusive ? "Saved — validation incomplete" : outcome.title}
       </p>
       <p className="text-xs leading-relaxed text-[var(--muted)]">{state.message}</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[11px]">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-[var(--faint)]">{label}</dt>
+            <dd className="text-[var(--foreground)]">{value}</dd>
+          </div>
+        ))}
+      </dl>
       <p className="text-[11px] leading-relaxed text-[var(--faint)]">{outcome.detail}</p>
       <div className="flex flex-wrap gap-3 pt-1">
         <Link

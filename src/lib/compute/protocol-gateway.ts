@@ -35,6 +35,8 @@ export function protocolGateway(input: {
   endpointTrusted?: boolean;
   /** What the provider said about the account's funding. Server-derived. */
   funding?: FundingEvidence | null;
+  /** From the provider profile; "" when the base already carries the version. */
+  pathPrefix?: "v1" | "";
 }): ComputeGateway {
   const { protocol, baseUrl } = input;
   const id = connectionGatewayId(input.connectionId);
@@ -52,6 +54,7 @@ export function protocolGateway(input: {
         body: request.body,
         rawBody: request.rawBody,
         attributionUser: request.attribution.user,
+        pathPrefix: input.pathPrefix ?? "v1",
       });
     },
 

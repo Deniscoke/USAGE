@@ -299,7 +299,7 @@ export const openAiCompatibleProtocol: ProviderProtocol = {
         : context.rawBody;
 
     return {
-      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path)}`,
+      url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path, context.pathPrefix ?? "v1")}`,
       headers,
       body,
     };

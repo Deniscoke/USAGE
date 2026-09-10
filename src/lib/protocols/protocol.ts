@@ -92,6 +92,8 @@ export interface ProtocolRequestContext {
   rawBody: string;
   /** Stable internal user id, for provider-side attribution. Never PII. */
   attributionUser: string;
+  /** From the provider profile. "" when the base URL already carries the version. */
+  pathPrefix?: "v1" | "";
 }
 
 /**
@@ -108,9 +110,11 @@ export interface ProtocolRequestContext {
  * being down rather than a path being wrong. Accept both shapes instead of
  * making a user work out which kind of client they have.
  */
-export function upstreamPath(segments: readonly string[]): string {
+export function upstreamPath(segments: readonly string[], prefix: "v1" | "" = "v1"): string {
   const rest = segments[0] === "v1" ? segments.slice(1) : segments;
-  return `v1/${rest.join("/")}`;
+  // A base that already carries its version segment (Gemini's
+  // `/v1beta/openai`) gets no prefix; everything else gets `v1`.
+  return prefix ? `${prefix}/${rest.join("/")}` : rest.join("/");
 }
 
 export interface ProbeInput {

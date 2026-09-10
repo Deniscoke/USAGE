@@ -646,6 +646,48 @@ validated. TLS servername and Host still use the hostname, so certificates are
 unaffected. Tested against a real loopback server: the flipped answer is never
 even requested, and the local service records zero connections.
 
+## Provider connection profiles (provider ≠ protocol)
+
+```
+src/lib/providers/profiles.ts   server-controlled profiles: host, auth, probe, documented capabilities
+src/lib/providers/validate.ts   non-generative validation with three verdicts
+scripts/revalidate-connection.ts  re-check an existing connection with its stored key
+```
+
+A provider is a company; a protocol is a wire format. Two providers can both
+speak OpenAI's inference format and still differ in where their API lives,
+which header carries the key, whether a model list exists, and what a
+key-only probe can prove. Treating "OpenAI-compatible" as "api.openai.com
+semantics" is how a real OpenAI key entered against `https://openai.com` was
+reported as invalid: the website answered 403 and the probe called that a
+rejected credential.
+
+| Provider | Base URL (fixed) | Auth | Probe (non-generative) | Prefix | Verified |
+| --- | --- | --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com` | Bearer | `GET /v1/models` | `v1` | docs, 2026-09-10 |
+| Anthropic | `https://api.anthropic.com` | `x-api-key` + `anthropic-version` | `GET /v1/models` | `v1` | docs, 2026-09-10 |
+| OpenRouter | `https://openrouter.ai/api` | Bearer | `GET /v1/key` (model list is public, proves nothing) | `v1` | docs + live, 2026-09-10 |
+| Mistral | `https://api.mistral.ai` | Bearer | `GET /v1/models` | `v1` | docs, 2026-09-10 |
+| xAI | `https://api.x.ai` | Bearer | `GET /v1/models` | `v1` | docs (base/auth) + live 401 probe, 2026-09-10 |
+| Google Gemini (OpenAI surface) | `https://generativelanguage.googleapis.com/v1beta/openai` | Bearer | `GET /models` | *(none — base carries the version)* | docs, 2026-09-10 |
+| Custom | typed, normalised | protocol's documented header | `GET /v1/models` | `v1` | — |
+
+Rules: a known provider's host is fixed by the server (a typed URL whose host
+belongs to a known provider is treated as that provider); a custom endpoint
+keeps every path segment and loses only a trailing `/v1`; `upstreamPath` never
+doubles `/v1` and drops it where the profile says the base carries its
+version. Generation-time capabilities (usage, streaming, request identity)
+come from the profile's documentation or an observed generation — never from
+a successful model list. A recognised profile host counts as a trusted
+endpoint for economic evidence; a custom host is the user's.
+
+Three verdicts: **rejected** only on the documented probe's 401 (or 403 on
+the provider's real API); **inconclusive** for a missing model list, a 403
+from a non-API host, 429, timeouts and malformed bodies — the key is saved
+with status `validating` ("credential saved — validation incomplete");
+**accepted** otherwise. A rejection stores nothing and returns the user to
+the same form. "Test connection" re-runs the same probe with the stored key.
+
 ## Proof of economic usage (M14)
 
 ```

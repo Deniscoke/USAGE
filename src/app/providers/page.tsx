@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  */
 
 const STATUS_LABEL: Record<string, string> = {
-  validating: "Validating",
+  validating: "Saved — validation incomplete",
   active: "Connected",
   limited: "Limited",
   invalid_credentials: "Invalid credentials",

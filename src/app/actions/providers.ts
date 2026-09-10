@@ -26,6 +26,14 @@ export interface ConnectProviderState {
   message?: string;
   connectionId?: string;
   eligibility?: MiningEligibility;
+  /** "accepted" or "inconclusive" once stored; a rejection is an error. */
+  verdict?: "accepted" | "inconclusive";
+  status?: string;
+  protocol?: string;
+  modelCount?: number;
+  /** Generation-time evidence is documented for known providers; pending for custom. */
+  usageEvidence?: "documented" | "pending";
+  pricedModelCount?: number;
 }
 
 async function requireUser() {
@@ -86,6 +94,12 @@ export async function connectProvider(
       connectionId: result.connectionId,
       eligibility: result.eligibility,
       message: result.message,
+      verdict: result.validation.verdict === "accepted" ? "accepted" : "inconclusive",
+      status: result.status,
+      protocol: protocol.label,
+      modelCount: result.validation.models.length,
+      usageEvidence: result.validation.capabilities.usage ? "documented" : "pending",
+      pricedModelCount: result.eligibility === "eligible_route" ? 1 : 0,
     };
   } catch (error) {
     if (error instanceof SsrfError) return { error: error.message };
@@ -144,22 +158,16 @@ export async function testProviderConnection(
   if (!connectionId) return { error: "No connection selected." };
 
   try {
+    // Re-validates with the STORED credential through the provider profile's
+    // documented, non-generative probe, and records what actually came back.
+    // Nothing is generated and the credential is never returned.
     const store = createConnectionStore(createAdminSupabase());
-    const resolved = await store.resolveForRequest(connectionId, session.user.id);
-    const probe = await resolved.protocol.probe({
-      baseUrl: resolved.baseUrl,
-      credential: resolved.credential,
-    });
-
-    await store.recordOutcome(connectionId, {
-      ok: probe.ok,
-      errorCode: probe.failure,
-    });
+    const result = await store.revalidate(connectionId, session.user.id);
     revalidatePath("/providers");
 
-    return probe.ok
-      ? { message: probe.message ?? "Connection is working." }
-      : { error: probe.message ?? "That connection is not working." };
+    if (result.validation.verdict === "accepted") return { message: result.validation.message };
+    if (result.validation.verdict === "rejected") return { error: result.validation.message };
+    return { message: `Credential saved — validation incomplete. ${result.validation.message}` };
   } catch (error) {
     if (error instanceof SsrfError) return { error: error.message };
     if (error instanceof ConnectionError) return { error: error.message };

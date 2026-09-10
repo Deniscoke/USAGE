@@ -13,6 +13,8 @@ import {
   type ProviderProtocolId,
 } from "@/lib/protocols/protocol";
 import { findModelPrice, CURRENT_PRICING_VERSION } from "@/lib/pricing/compute";
+import { customProfile, isRecognisedEndpoint, profileForFamily, profileForUrl, resolveBaseUrl, type ProviderConnectionProfile } from "./profiles";
+import { validateConnection, type ValidationResult } from "./validate";
 import type {
   ConnectionStatusDetailRow,
   Database,
@@ -77,6 +79,8 @@ export class ConnectionError extends Error {
       | "unknown_protocol"
       | "unsafe_url"
       | "probe_failed"
+      | "credential_rejected"
+      | "unreachable"
       | "not_found"
       | "revoked"
       | "no_credential"
@@ -155,7 +159,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
      * decides the status. A connection that never worked is recorded as broken
      * rather than quietly offered as working.
      */
-    async create(input: CreateConnectionInput): Promise<{ connectionId: string; status: ConnectionStatus; eligibility: MiningEligibility; message: string }> {
+    async create(input: CreateConnectionInput): Promise<{ connectionId: string; status: ConnectionStatus; eligibility: MiningEligibility; message: string; validation: ValidationResult }> {
       const protocol = getProtocol(input.protocol);
       if (!protocol) {
         // usage_import and custom_unsupported are real answers, but they are
@@ -165,21 +169,54 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           "USAGE cannot route that protocol yet. Your provider is recorded, but nothing will be mined.",
         );
       }
+      if (protocol.id !== "openai_compatible" && protocol.id !== "anthropic_compatible") {
+        throw new ConnectionError("not_routable", "USAGE cannot route that protocol yet.");
+      }
 
-      const baseUrl = protocol.normalizeBaseUrl(input.baseUrl);
+      // PROVIDER != PROTOCOL. A known provider gets its server-controlled
+      // profile (fixed API host, documented auth header, documented probe);
+      // anything else is a custom endpoint with the protocol's generic shape.
+      // A typed URL whose host belongs to a known provider is treated as that
+      // provider, so `https://openai.com` becomes OpenAI's real API rather
+      // than a 403 from a website.
+      const profile: ProviderConnectionProfile =
+        profileForFamily(input.providerFamily) ??
+        profileForUrl(input.baseUrl) ??
+        customProfile(protocol.id, input.baseUrl);
+      if (profile.family !== "custom" && profile.protocol !== protocol.id) {
+        throw new ConnectionError("unknown_protocol", `${profile.displayName} speaks ${profile.protocol.replace("_", "-")}; choose that protocol.`);
+      }
+      const baseUrl = resolveBaseUrl(profile, input.baseUrl);
       // Throws SsrfError, which the caller surfaces as a user-safe message.
-      await assertSafeUrl(`${baseUrl}/v1/models`);
+      await assertSafeUrl(`${baseUrl}${profile.modelsPath}`);
 
-      const probe = await protocol.probe({
+      const validation = await validateConnection({
+        profile,
         baseUrl,
         credential: input.credential,
         fetchImpl: input.fetchImpl,
       });
 
+      // A conclusive rejection stores nothing: the user corrects the same
+      // form. Only an accepted or INCONCLUSIVE result is worth keeping, and an
+      // inconclusive one is labelled as such rather than as a bad key.
+      if (validation.verdict === "rejected") {
+        throw new ConnectionError("credential_rejected", validation.message);
+      }
+      if (validation.failure === "unreachable") {
+        throw new ConnectionError("unreachable", validation.message);
+      }
+      const probe = {
+        ok: validation.verdict === "accepted",
+        capabilities: validation.capabilities,
+        models: validation.models,
+        failure: validation.failure ?? undefined,
+        message: validation.message,
+      };
+
       // The credential goes straight into the secret store -- Vault in
       // production, application AES elsewhere -- and this module never learns
-      // which. It is stored even when the probe failed: a wrong-looking key may
-      // simply be a provider that was down, and re-entry should not be required.
+      // which.
       const secretStore = await resolveSecretStore(admin);
       const secret = await secretStore.create({
         userId: input.userId,
@@ -187,6 +224,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
         label: `${input.displayName} API key`,
       });
 
+      const providerFamily = profile.family === "custom" ? (input.providerFamily ?? null) : profile.family;
       const definitionId =
         input.definitionId ??
         (await this.createCustomDefinition({
@@ -194,27 +232,21 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           displayName: input.displayName,
           protocol: input.protocol,
           baseUrl,
-          providerFamily: input.providerFamily ?? null,
+          providerFamily,
           capabilities: probe.capabilities,
           authMethod: input.authMethod,
         }));
 
-      const models = await this.recordModels(
-        definitionId,
-        input.providerFamily ?? null,
-        probe.models,
-      );
+      const models = await this.recordModels(definitionId, providerFamily, probe.models);
       const eligibility = deriveMiningEligibility({
         routable: protocol.routable,
         capabilities: probe.capabilities,
         hasPricedModel: models.priced > 0,
       });
-      const status = deriveConnectionStatus({
-        ok: probe.ok,
-        failure: probe.failure,
-        capabilities: probe.capabilities,
-        eligibility,
-      });
+      // Inconclusive is its own state: saved, not proven, not "invalid".
+      const status: ConnectionStatus = probe.ok
+        ? deriveConnectionStatus({ ok: true, capabilities: probe.capabilities, eligibility })
+        : "validating";
 
       const { data: connection, error } = await admin
         .from("provider_connections")
@@ -234,6 +266,9 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           mining_eligibility: eligibility,
           validated_at: probe.ok ? new Date().toISOString() : null,
           last_error_code: probe.ok ? null : (probe.failure ?? "error"),
+          // What the provider's account surface said (OpenRouter: is_free_tier).
+          // Funding evidence for the economic policy; never a credential.
+          account_context: validation.accountContext,
         })
         .select("id")
         .single();
@@ -245,7 +280,78 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
         status,
         eligibility,
         message: probe.message ?? "Connection recorded.",
+        validation,
       };
+    },
+
+    /**
+     * Re-check an existing connection with its STORED credential.
+     *
+     * For a connection created before provider profiles existed, or one whose
+     * validation was inconclusive. The owner may name the provider family
+     * (e.g. "openai") so the fixed API host replaces a mistyped one; the
+     * credential itself is read server-side and never returned.
+     */
+    async revalidate(
+      connectionId: string,
+      userId: string,
+      options: { providerFamily?: string | null; fetchImpl?: typeof fetch } = {},
+    ): Promise<{ status: ConnectionStatus; eligibility: MiningEligibility; validation: ValidationResult; baseUrl: string }> {
+      const resolved = await this.resolveForRequest(connectionId, userId);
+      const protocol = resolved.protocol;
+      if (protocol.id !== "openai_compatible" && protocol.id !== "anthropic_compatible") {
+        throw new ConnectionError("not_routable", "That connection cannot be validated.");
+      }
+      const { data: definition } = await admin
+        .from("provider_definitions")
+        .select("id, provider_family, default_base_url, owner_user_id")
+        .eq("id", resolved.connection.definition_id ?? "")
+        .maybeSingle();
+      const profile =
+        profileForFamily(options.providerFamily ?? definition?.provider_family) ??
+        profileForUrl(resolved.baseUrl) ??
+        customProfile(protocol.id, resolved.baseUrl);
+      if (profile.family !== "custom" && profile.protocol !== protocol.id) {
+        throw new ConnectionError("unknown_protocol", `${profile.displayName} speaks ${profile.protocol.replace("_", "-")}.`);
+      }
+      const baseUrl = resolveBaseUrl(profile, resolved.baseUrl);
+      await assertSafeUrl(`${baseUrl}${profile.modelsPath}`);
+
+      const validation = await validateConnection({ profile, baseUrl, credential: resolved.credential, fetchImpl: options.fetchImpl });
+      const providerFamily = profile.family === "custom" ? (definition?.provider_family ?? null) : profile.family;
+      const models = definition ? await this.recordModels(definition.id, providerFamily, validation.models) : { total: 0, priced: 0 };
+      const ok = validation.verdict === "accepted";
+      const eligibility = deriveMiningEligibility({ routable: protocol.routable, capabilities: validation.capabilities, hasPricedModel: models.priced > 0 });
+      const status: ConnectionStatus = ok
+        ? deriveConnectionStatus({ ok: true, capabilities: validation.capabilities, eligibility })
+        : validation.verdict === "rejected"
+          ? "invalid_credentials"
+          : "validating";
+
+      // The definition the user owns learns the corrected host and family.
+      if (definition && definition.owner_user_id === userId) {
+        await admin
+          .from("provider_definitions")
+          .update({ default_base_url: baseUrl, provider_family: providerFamily })
+          .eq("id", definition.id)
+          .eq("owner_user_id", userId);
+      }
+      const { error } = await admin
+        .from("provider_connections")
+        .update({
+          base_url: baseUrl,
+          status: ok ? "active" : "error",
+          connection_status: status,
+          capabilities: validation.capabilities as unknown as Record<string, boolean>,
+          mining_eligibility: eligibility,
+          validated_at: ok ? new Date().toISOString() : resolved.connection.validated_at,
+          last_error_code: ok ? null : (validation.failure ?? "error"),
+          account_context: validation.accountContext ?? resolved.connection.account_context,
+        })
+        .eq("id", connectionId)
+        .eq("user_id", userId);
+      fail("revalidate", error);
+      return { status, eligibility, validation, baseUrl };
     },
 
     /**
@@ -358,6 +464,10 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
        * URL the user typed. Only the former can be economic evidence.
        */
       endpointTrusted: boolean;
+      /** Registry family from the definition, when known. */
+      providerFamily: string | null;
+      /** From the provider profile; "" when the base carries its version. */
+      pathPrefix: "v1" | "";
     }> {
       const { data, error } = await admin
         .from("provider_connections")
@@ -398,19 +508,28 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
       });
 
       // A custom definition is an endpoint the user chose; an official or
-      // community-supported one is a provider USAGE knows.
+      // community-supported one is a provider USAGE knows. So is a user-owned
+      // definition whose family and host match a server-controlled profile:
+      // the user picked "OpenAI", and the server fixed the host.
       const { data: definition } = await admin
         .from("provider_definitions")
-        .select("origin")
+        .select("origin, provider_family")
         .eq("id", connection.definition_id ?? "")
         .maybeSingle();
+      const providerFamily = definition?.provider_family ?? null;
+      const profile = profileForFamily(providerFamily);
 
       return {
         connection,
         protocol,
         credential,
         baseUrl: connection.base_url,
-        endpointTrusted: definition?.origin === "official" || definition?.origin === "community_supported",
+        providerFamily,
+        pathPrefix: profile?.apiPathPrefix ?? "v1",
+        endpointTrusted:
+          definition?.origin === "official" ||
+          definition?.origin === "community_supported" ||
+          isRecognisedEndpoint(providerFamily, connection.base_url),
       };
     },
 
