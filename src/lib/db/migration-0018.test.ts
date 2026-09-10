@@ -67,6 +67,26 @@ describe("migration 0018 (prepared)", () => {
     expect(rows[1].eligible_compute_micros).toBe("0");
   });
 
+  it("refuses the same key as a unit for ANOTHER user, and keeps the first owner", async () => {
+    const other = await db.createUser("m18-other@example.com");
+    const [primary] = await db.asServiceRole<{ economic_event_key: string; user_id: string }>(
+      `select economic_event_key, user_id from usage_events where user_id = $1 and dedupe_status = 'unique'`,
+      [user],
+    );
+    await expect(
+      db.asServiceRole(
+        `insert into usage_events (user_id, provider, source, external_reference, model, occurred_at, normalized_cost_micros, verification_type, economic_event_key, dedupe_status)
+         values ($1, 'openai', 'gateway', 'live:other_users_claim', 'openai/gpt-5.4', now(), 0, 'routed', $2, 'unique')`,
+        [other, primary.economic_event_key],
+      ),
+    ).rejects.toThrow(/usage_events_one_unit_per_key|duplicate key/i);
+    // Nor can the unit be handed over.
+    await expect(
+      db.asServiceRole(`update usage_events set user_id = $1 where economic_event_key = $2 and dedupe_status = 'unique'`, [other, primary.economic_event_key]),
+    ).rejects.toThrow(/user_id is immutable/);
+    expect(primary.user_id).toBe(user);
+  });
+
   it("refuses a second primary unit for the same key, even from the service role", async () => {
     const [primary] = await db.asServiceRole<{ economic_event_key: string; id: string }>(
       `select economic_event_key, id from usage_events where user_id = $1 and dedupe_status = 'unique'`,
@@ -120,6 +140,16 @@ describe("migration 0018 (prepared)", () => {
     );
   });
 
+  it("refuses to delete a settled unit, and allows deleting an unsettled evidence row", async () => {
+    await expect(db.asServiceRole(`delete from usage_events where user_id = $1 and economic_status = 'settled'`, [user])).rejects.toThrow(/cannot be deleted/);
+    await db.asServiceRole(
+      `insert into usage_events (user_id, provider, source, external_reference, model, occurred_at, normalized_cost_micros, verification_type)
+       values ($1, 'openai', 'gateway', 'live:throwaway', 'openai/gpt-5.4', now(), 0, 'routed')`,
+      [user],
+    );
+    await db.asServiceRole(`delete from usage_events where user_id = $1 and external_reference = 'live:throwaway'`, [user]);
+  });
+
   it("makes the ledger and allocations append-only", async () => {
     await db.asServiceRole(
       `insert into reward_epochs (id, starts_at, ends_at, reward_pool_points, scoring_version, settled_at)
@@ -131,6 +161,68 @@ describe("migration 0018 (prepared)", () => {
     await expect(db.asServiceRole(`delete from usage_point_ledger where user_id = $1`, [user])).rejects.toThrow(/append-only/);
     await expect(db.asServiceRole(`update reward_allocations set points = 1 where user_id = $1`, [user])).rejects.toThrow(/append-only/);
     await expect(db.asServiceRole(`delete from reward_allocations where user_id = $1`, [user])).rejects.toThrow(/append-only/);
+  });
+
+  it("freezes a settled epoch, and leaves an open one free", async () => {
+    for (const set of [
+      `reward_pool_points = 1`,
+      `network_score = 5`,
+      `scoring_version = 'usage_score_v9'`,
+      `starts_at = '2000-01-01'`,
+      `ends_at = '2100-01-01'`,
+      `state = 'finalizing'`,
+      `settled_at = null`,
+      `epoch_kind = 'production'`,
+    ]) {
+      await expect(db.asServiceRole(`update reward_epochs set ${set} where id = 'epoch-m18'`), set).rejects.toThrow(/immutable/);
+    }
+    await expect(db.asServiceRole(`delete from reward_epochs where id = 'epoch-m18'`)).rejects.toThrow(/cannot be deleted/);
+    await db.asServiceRole(
+      `insert into reward_epochs (id, starts_at, ends_at, reward_pool_points, scoring_version) values ('epoch-m18-open', '2026-07-12T00:00:00Z', '2026-07-13T00:00:00Z', 1, 'usage_score_v1')`,
+    );
+    await db.asServiceRole(`update reward_epochs set reward_pool_points = 2, state = 'finalizing', finalizing_at = now() where id = 'epoch-m18-open'`);
+    await db.asServiceRole(`delete from reward_epochs where id = 'epoch-m18-open'`);
+  });
+
+  it("freezes the scores a settled epoch was distributed from, and only those", async () => {
+    // The score for 2026-07-10 exists from ingestion, and epoch-m18 (settled)
+    // covers that day under usage_score_v1.
+    await expect(db.asServiceRole(`update score_records set points = 999 where user_id = $1 and day = '2026-07-10'`, [user])).rejects.toThrow(/immutable/);
+    await expect(db.asServiceRole(`delete from score_records where user_id = $1 and day = '2026-07-10'`, [user])).rejects.toThrow(/immutable/);
+    // A different algorithm version on the same day is not what was settled.
+    await db.asServiceRole(`insert into score_records (user_id, day, algorithm_version, points) values ($1, '2026-07-10', 'usage_score_v2', 1)`, [user]);
+    await db.asServiceRole(`update score_records set points = 2 where user_id = $1 and day = '2026-07-10' and algorithm_version = 'usage_score_v2'`, [user]);
+    // An open day recomputes freely.
+    await db.asServiceRole(`insert into score_records (user_id, day, algorithm_version, points) values ($1, '2026-07-20', 'usage_score_v1', 1)`, [user]);
+    await db.asServiceRole(`update score_records set points = 2 where user_id = $1 and day = '2026-07-20'`, [user]);
+    await db.asServiceRole(`delete from score_records where user_id = $1 and day = '2026-07-20'`, [user]);
+  });
+
+  it("freezes published rates and versions; republishing the same rates is allowed", async () => {
+    await db.asServiceRole(
+      `insert into protocol_pricing_versions (version, source, effective_from, captured_at) values ('usage-pricing-test', 'fixture', '2026-07-01', now())`,
+    );
+    await db.asServiceRole(
+      `insert into protocol_model_prices (pricing_version, model, provider_family, input_micros_per_million, output_micros_per_million) values ('usage-pricing-test', 'openai/gpt-5.4', 'openai', 2500000, 15000000)`,
+    );
+    const [v] = await db.asServiceRole<{ version: string }>(`select version from protocol_pricing_versions where version = 'usage-pricing-test'`);
+    const [price] = await db.asServiceRole<{ model: string; input_micros_per_million: string }>(
+      `select model, input_micros_per_million::text from protocol_model_prices where pricing_version = $1 limit 1`,
+      [v.version],
+    );
+    await expect(db.asServiceRole(`update protocol_model_prices set input_micros_per_million = input_micros_per_million + 1 where pricing_version = $1 and model = $2`, [v.version, price.model])).rejects.toThrow(/immutable/);
+    await expect(db.asServiceRole(`delete from protocol_model_prices where pricing_version = $1 and model = $2`, [v.version, price.model])).rejects.toThrow(/cannot be deleted/);
+    // The publish script upserts identical rows: a no-op update passes.
+    await db.asServiceRole(`update protocol_model_prices set input_micros_per_million = $3 where pricing_version = $1 and model = $2`, [v.version, price.model, price.input_micros_per_million]);
+    await expect(db.asServiceRole(`update protocol_pricing_versions set effective_from = '2000-01-01' where version = $1`, [v.version])).rejects.toThrow(/immutable/);
+    await expect(db.asServiceRole(`delete from protocol_pricing_versions where version = $1`, [v.version])).rejects.toThrow(/cannot be deleted/);
+    await db.asServiceRole(`update protocol_pricing_versions set status = 'frozen' where version = $1`, [v.version]);
+  });
+
+  it("keeps every policy version resolvable: superseded, never edited or removed", async () => {
+    await expect(db.asServiceRole(`update reward_policy_versions set effective_from = '2000-01-01' where version = 'usage-reward-policy-v1'`)).rejects.toThrow(/immutable/);
+    await expect(db.asServiceRole(`delete from reward_policy_versions where version = 'usage-reward-policy-v1'`)).rejects.toThrow(/cannot be deleted/);
+    await db.asServiceRole(`update reward_policy_versions set status = status where version = 'usage-reward-policy-v1'`);
   });
 
   it("gives correlation_status the word conflict", async () => {

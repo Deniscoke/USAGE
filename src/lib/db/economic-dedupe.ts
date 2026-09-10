@@ -25,11 +25,16 @@ import type { KeyedEventRef } from "./ingest";
  * the enforcement, and the PGlite tests hold it to the invariant.
  */
 export interface DedupeStore {
-  loadEventsByEconomicKey(userId: string, keys: readonly string[]): Promise<KeyedEventRef[]>;
+  loadEventsByEconomicKey(keys: readonly string[]): Promise<KeyedEventRef[]>;
 }
 
-function naturalKey(record: { provider: string; source: string; externalReference: string }): string {
-  return `${record.provider}|${record.source}|${record.externalReference}`;
+/**
+ * The natural key is per user (user_id is part of the constraint). Two users
+ * presenting the same generation are two rows under it -- which is exactly
+ * why the economic key, which carries no user id, has to be checked here.
+ */
+function naturalKey(record: { userId: string; provider: string; source: string; externalReference: string }): string {
+  return `${record.userId}|${record.provider}|${record.source}|${record.externalReference}`;
 }
 
 export function markDuplicate<T extends NormalizedUsageRecord>(record: T, primaryEventId: string | null): T {
@@ -59,7 +64,7 @@ export async function applyEconomicDedupe<T extends NormalizedUsageRecord>(
   const keys = [...new Set(records.map((record) => economicKeyOf(record.rawMetadata)).filter((k): k is string => k !== null))];
   if (keys.length === 0) return [...records];
 
-  const existing = await store.loadEventsByEconomicKey(userId, keys);
+  const existing = await store.loadEventsByEconomicKey(keys);
   const primaryByKey = new Map<string, KeyedEventRef>();
   for (const event of existing) {
     // The earliest stored event is the unit. Stores return them in insertion
@@ -71,13 +76,14 @@ export async function applyEconomicDedupe<T extends NormalizedUsageRecord>(
   return records.map((record) => {
     const key = economicKeyOf(record.rawMetadata);
     if (!key) return record;
-    const own = naturalKey(record);
+    const own = naturalKey({ userId, ...record });
 
     const prior = primaryByKey.get(key);
     if (prior) {
       // The same natural key is an exact replay: the insert will be ignored
       // by the unique constraint, so there is nothing to mark. A different
-      // natural key is another source's view of the unit.
+      // natural key is another source's -- or another USER's -- view of the
+      // unit, and the unit already has an owner.
       return naturalKey(prior) === own ? record : markDuplicate(record, prior.id);
     }
     const first = seenInBatch.get(key);

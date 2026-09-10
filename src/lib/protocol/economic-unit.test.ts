@@ -87,7 +87,44 @@ describe("economic identity is derived only from authoritative ids", () => {
     const fallback = selectAuthoritativeIdentity({
       sourceAuthority: "usage_gateway", authoritativeRequestId: null, gatewayGenerationId: "gen_1", gatewayId: "openrouter", provider: "anthropic",
     });
-    expect(fallback).toEqual({ kind: "gateway_generation_id", value: "gen_1", authority: "usage_gateway", namespace: "openrouter" });
+    expect(fallback).toEqual({ kind: "gateway_generation_id", value: "gen_1", authority: "usage_gateway", namespace: "anthropic" });
+  });
+
+  it("uses a provider request id only where the provider documents one as unique", () => {
+    // OpenRouter documents no request-id header; whatever `x-request-id` it
+    // sent is a proxy's, so the documented generation id anchors the unit.
+    const viaOpenRouter = selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "cf-ray-like", gatewayGenerationId: "gen-abc", gatewayId: "connection:c1", provider: "openrouter",
+    });
+    expect(viaOpenRouter).toEqual({ kind: "gateway_generation_id", value: "gen-abc", authority: "usage_gateway", namespace: "openrouter" });
+  });
+
+  it("scopes a user-controlled endpoint's ids to its connection, and never to a label", () => {
+    const a = selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "req_X", gatewayGenerationId: "chatcmpl-1", gatewayId: "connection:aaaa", provider: "anthropic", endpointControlledByUser: true,
+    });
+    const b = selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "req_X", gatewayGenerationId: "chatcmpl-1", gatewayId: "connection:bbbb", provider: "anthropic", endpointControlledByUser: true,
+    });
+    expect(a?.namespace).toBe("connection:aaaa");
+    expect(b?.namespace).toBe("connection:bbbb");
+    expect(economicEventKey("anthropic", a)).not.toBe(economicEventKey("anthropic", b));
+    // Without a server-issued connection scope a user-controlled id is nothing.
+    expect(selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "req_X", gatewayGenerationId: null, gatewayId: null, provider: "anthropic", endpointControlledByUser: true,
+    })).toBeNull();
+  });
+
+  it("gives a trusted provider's global id the same key whichever connection or user saw it", () => {
+    const seenByA = selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "req_GLOBAL", gatewayGenerationId: "msg_1", gatewayId: "connection:aaaa", provider: "anthropic",
+    });
+    const seenByB = selectAuthoritativeIdentity({
+      sourceAuthority: "usage_gateway", authoritativeRequestId: "req_GLOBAL", gatewayGenerationId: "msg_2", gatewayId: "connection:bbbb", provider: "anthropic",
+    });
+    expect(economicEventKey("anthropic", seenByA)).toBe(economicEventKey("anthropic", seenByB));
+    // And the key contains no USAGE user at all: there is no such input.
+    expect(String(economicEventKey("anthropic", seenByA))).not.toContain("aaaa");
   });
 
   it("does not accept a client-shaped key from metadata unless it is one of ours", () => {

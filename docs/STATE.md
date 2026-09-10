@@ -2,7 +2,21 @@
 
 ## Current milestone
 
-M14 — Proof of economic usage. **Code complete; migration 0018 prepared and awaiting approval.**
+M14B — Economic foundation hardening. **Code deployed; migration 0018 revised, preflighted and awaiting approval.**
+
+The M14 key never contained a USAGE user id, but 0018 enforced uniqueness per
+user — which would have let one authoritative compute become a unit for two
+accounts. Every identity was researched for its real scope (all trusted ones
+are global or tenant-scoped; a user-controlled endpoint's ids are now scoped
+to the server-issued connection id), dedupe became global, the unique index
+became global, and the reward owner is the unit row's `user_id`, immutable at
+the database. Settled history — events, epochs, scores, allocations, ledger,
+pricing, policies — is frozen by triggers; corrections are append-only records
+(see `docs/ARCHITECTURE.md` → *Immutable history*). `npm run
+usage:preflight-0018` (read-only) found 0 collisions on production; `npm run
+test:chain` runs the entire suite on 0001–0017 **plus** the pending 0018.
+
+M14 — Proof of economic usage. **Live.**
 
 USAGE now has an explicit economic unit: one `usage_events` row per unique,
 authoritatively identified AI compute, rewarded at most once. The key is
@@ -33,12 +47,15 @@ applies it to PGlite on top of 0001–0017 and proves what it enforces.
 
 | | |
 |---|---|
-| Why | Move the economic key, dedupe status and verification verdict from `raw_metadata` into columns so the **database** refuses a second unit for one key and refuses changes to a settled row's economics. Today ingestion code enforces both and tests hold it to that. |
+| Why | Move the economic key, dedupe status and verification verdict from `raw_metadata` into columns so the **database** refuses a second unit for one key — across all users — and refuses any change to settled history. Today ingestion code enforces the first and nothing enforces the second. |
 | Tables/columns | `usage_events` + `economic_event_key`, `dedupe_status` (new enum `economic_dedupe_status`), `economic_verification_status`, `economic_verification_policy_version`; `correlation_status` enum + `conflict`. |
-| Constraints/indexes | check on key shape and status vocabulary; unique partial index `usage_events_one_unit_per_key (user_id, economic_event_key) where dedupe_status = 'unique'`; trigger `usage_events_settled_immutable`; append-only triggers on `usage_point_ledger` and `reward_allocations`. |
-| Rows rewritten | Every `usage_events` row: the four new columns backfilled from `raw_metadata`. No economic column, no ledger row, no epoch is read or written. `pending`-spelled conflicts are not relabelled (new enum values cannot be used in the same transaction). |
-| Economic impact | None on any settled value. Prospectively: duplicate units and edits to settled economics become database errors. |
-| Rollback | Drop the two triggers and functions, the partial index, the four columns and the enum type; `raw_metadata` still holds everything. The added enum value `conflict` stays (Postgres cannot drop one) and is harmless once unused. |
+| Indexes | `usage_events_one_unit_per_key` UNIQUE `(economic_event_key) where key not null and dedupe_status = 'unique'` — **global**; `usage_events_economic_key_idx` for lookups. |
+| Triggers | `usage_events_settled_immutable` (settled economics/identity/owner frozen, DELETE refused, `user_id` frozen on every row); `reward_epochs_settled_immutable`; `score_records_settled_immutable`; append-only on `usage_point_ledger`, `reward_allocations`; `protocol_model_prices_frozen`; `protocol_pricing_versions_frozen` (status only); `reward_policy_versions_frozen` (status/description only). |
+| Rows rewritten | Every `usage_events` row: the four new columns backfilled from `raw_metadata` (today: 5 rows, all stay `unkeyed` — every production event predates the key). No economic column, ledger row, epoch or score is read or written. |
+| Economic impact | None on any settled value. Prospectively: a second unit per key, or any edit/delete of settled history, becomes a database error for every role. |
+| Locking | One `db push` transaction. ADD COLUMN with constant defaults is a catalog change; the unique index is a plain CREATE INDEX (SHARE lock for the build — 5 rows; CONCURRENTLY cannot run in a transaction and would be ceremony); backfill UPDATE touches every row once under ROW EXCLUSIVE; triggers are catalog changes. |
+| Preflight | `npm run usage:preflight-0018` (read-only), 2026-09-10: 5 events, 0 would carry a key, 0 invalid shapes, 0 keys with >1 unit, 0 cross-user, 0 settled rows missing reward policy or pricing version; 2 settled rows predate economic-verification-v1 (left as they are). Snapshot: settled events 2, allocations 1, ledger 100000, settled epochs 1, settled-period score records 1, pricing v1 frozen / v2 active, 18 live credentials. |
+| Rollback | Drop the eight triggers and five functions, the two indexes, the four columns and the enum type; `raw_metadata` still holds everything. The enum value `conflict` stays (Postgres cannot drop one) and is harmless once unused. |
 
 After approval: copy it into `supabase/migrations/`, `npx supabase db push --linked`, then deploy.
 

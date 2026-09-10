@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -17,6 +17,13 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
  */
 
 const MIGRATIONS_DIR = path.resolve(process.cwd(), "supabase/migrations");
+const PENDING_DIR = path.resolve(process.cwd(), "supabase/pending");
+/**
+ * `USAGE_TEST_PENDING=1` also applies supabase/pending/*.sql after the chain,
+ * so the entire suite can be run against the schema a prepared migration
+ * would produce -- without moving it into the chain production reads.
+ */
+const APPLY_PENDING = process.env.USAGE_TEST_PENDING === "1";
 
 const SUPABASE_SHIM = `
 create role anon nologin noinherit;
@@ -71,6 +78,11 @@ export async function createTestDb(): Promise<TestDb> {
 
   for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
     await db.exec(readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
+  }
+  if (APPLY_PENDING && existsSync(PENDING_DIR)) {
+    for (const file of readdirSync(PENDING_DIR).filter((f) => f.endsWith(".sql")).sort()) {
+      await db.exec(readFileSync(path.join(PENDING_DIR, file), "utf8"));
+    }
   }
 
   async function asRole<T>(

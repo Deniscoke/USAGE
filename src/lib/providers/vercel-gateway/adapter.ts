@@ -215,6 +215,7 @@ export function normalizeGatewayObservation(
     gatewayGenerationId: observation.generationId,
     gatewayId: observation.gatewayId ?? VERCEL_GATEWAY_PROVIDER,
     provider: providerName,
+    endpointControlledByUser,
   });
   const unitKey = economicEventKey(providerName, identity);
   const evidence: EconomicUsageEvidence = {

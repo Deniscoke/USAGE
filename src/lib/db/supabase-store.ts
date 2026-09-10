@@ -60,20 +60,20 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
       }));
     },
 
-    async loadEventsByEconomicKey(userId, keys) {
+    async loadEventsByEconomicKey(keys) {
       if (keys.length === 0) return [];
       // The key lives in raw_metadata until migration 0018 gives it a column.
+      // No user filter: uniqueness is global, ownership is the row's user_id.
       const { data, error } = await admin
         .from("usage_events")
-        .select("id, provider, source, external_reference, raw_metadata, created_at")
-        .eq("user_id", userId)
+        .select("id, user_id, provider, source, external_reference, raw_metadata, created_at")
         .in("raw_metadata->>economic_event_key", [...keys])
         .order("created_at", { ascending: true });
       fail("loadEventsByEconomicKey", error);
       return (data ?? []).flatMap((row) => {
         const key = economicKeyOf(row.raw_metadata as Record<string, unknown>);
         return key
-          ? [{ id: row.id, economicEventKey: key, provider: row.provider, source: row.source, externalReference: row.external_reference }]
+          ? [{ id: row.id, userId: row.user_id, economicEventKey: key, provider: row.provider, source: row.source, externalReference: row.external_reference }]
           : [];
       });
     },

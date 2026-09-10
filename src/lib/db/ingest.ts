@@ -46,6 +46,8 @@ export type ProofOverride = Omit<ProofDraft, "usageEventId" | "verificationType"
 /** An existing event, reduced to what cross-source dedupe needs. */
 export interface KeyedEventRef {
   id: string;
+  /** The account that owns the reward for this row. */
+  userId: string;
   economicEventKey: string;
   provider: string;
   source: string;
@@ -90,8 +92,12 @@ export interface IngestStore {
   ): Promise<string | null>;
   /** Inserts, ignoring rows that violate the natural key. Returns what was inserted. */
   insertEvents(rows: ReturnType<typeof usageRecordToInsert>[]): Promise<InsertedEventRef[]>;
-  /** Events of this user already carrying one of these economic keys. */
-  loadEventsByEconomicKey(userId: string, keys: readonly string[]): Promise<KeyedEventRef[]>;
+  /**
+   * Events ACROSS ALL USERS already carrying one of these economic keys, in
+   * insertion order. Global on purpose: the same compute claimed by two
+   * accounts is one unit, owned by whoever established it first.
+   */
+  loadEventsByEconomicKey(keys: readonly string[]): Promise<KeyedEventRef[]>;
   insertProofs(userId: string, proofs: readonly ProofDraft[]): Promise<void>;
   loadEventsForDays(userId: string, days: readonly string[]): Promise<NormalizedUsageRecord[]>;
   /** Events by epoch assignment, which is what scoring and settlement work on. */

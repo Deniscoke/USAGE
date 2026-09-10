@@ -142,17 +142,18 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
       }
     },
 
-    async loadEventsByEconomicKey(userId, keys) {
+    async loadEventsByEconomicKey(keys) {
       if (keys.length === 0) return [];
-      const rows = await db.asServiceRole<{ id: string; key: string; provider: string; source: string; external_reference: string }>(
-        `select id, raw_metadata->>'economic_event_key' as key, provider, source, external_reference
+      const rows = await db.asServiceRole<{ id: string; user_id: string; key: string; provider: string; source: string; external_reference: string }>(
+        `select id, user_id, raw_metadata->>'economic_event_key' as key, provider, source, external_reference
          from usage_events
-         where user_id = $1 and raw_metadata->>'economic_event_key' = any($2::text[])
+         where raw_metadata->>'economic_event_key' = any($1::text[])
          order by created_at asc`,
-        [userId, keys],
+        [keys],
       );
       return rows.map((row) => ({
         id: row.id,
+        userId: row.user_id,
         economicEventKey: row.key,
         provider: row.provider,
         source: row.source,

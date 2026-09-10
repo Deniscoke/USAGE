@@ -190,6 +190,101 @@ describe("replay protection", () => {
   });
 });
 
+describe("cross-user replay: the same compute claimed by two accounts", () => {
+  it("by provider request id: one unit, owned by the first claimant; the second is held evidence", async () => {
+    const alice = await db.createUser("ecu-xu-a@example.com");
+    const bob = await db.createUser("ecu-xu-b@example.com");
+    await ingestGatewayObservations(store, alice, [paid("2026-07-08", "gen_a_side", "req_shared_1")], { issuance: ISSUANCE });
+    const bobResult = await ingestGatewayObservations(store, bob, [paid("2026-07-08", "gen_b_side", "req_shared_1", { gatewayId: "connection:22222222-2222-4222-8222-222222222222" })], { issuance: ISSUANCE });
+    expect(bobResult.inserted).toBe(1);
+    const [a] = await events(alice);
+    const [b] = await events(bob);
+    expect(b.raw_metadata.economic_event_key).toBe(a.raw_metadata.economic_event_key);
+    expect(a.raw_metadata.dedupe_status).toBe("unique");
+    expect(a.reward_status).toBe("eligible");
+    expect(b.raw_metadata.dedupe_status).toBe("duplicate");
+    expect(b.raw_metadata.economic_duplicate_of).toBe(a.id);
+    expect(b.reward_hold).toBe(true);
+    expect(Number(b.eligible_compute_micros)).toBe(0);
+    expect((await credits(alice)).credited + (await credits(bob)).credited).toBe(1);
+  });
+
+  it("by gateway generation id (OpenRouter): one unit across accounts", async () => {
+    const alice = await db.createUser("ecu-xg-a@example.com");
+    const bob = await db.createUser("ecu-xg-b@example.com");
+    const viaOpenRouter = (gatewayId: string) =>
+      paid("2026-07-08", "gen-orshared", "cf-proxy-id", { providerSlug: "openrouter", model: "openai/gpt-5.4", gatewayId });
+    await ingestGatewayObservations(store, alice, [viaOpenRouter("connection:33333333-3333-4333-8333-333333333333")], { issuance: ISSUANCE });
+    await ingestGatewayObservations(store, bob, [viaOpenRouter("connection:44444444-4444-4444-8444-444444444444")], { issuance: ISSUANCE });
+    const [a] = await events(alice);
+    const [b] = await events(bob);
+    expect(a.raw_metadata.economic_identity_kind).toBe("gateway_generation_id");
+    expect(b.raw_metadata.economic_event_key).toBe(a.raw_metadata.economic_event_key);
+    expect(b.raw_metadata.dedupe_status).toBe("duplicate");
+    expect((await credits(alice)).credited + (await credits(bob)).credited).toBe(1);
+  });
+
+  it("by import identity: the same organization bucket imported by two accounts is one unit", async () => {
+    const alice = await db.createUser("ecu-xi-a@example.com");
+    const bob = await db.createUser("ecu-xi-b@example.com");
+    const bucket = (): NormalizedUsageRecord => ({
+      provider: "openai", source: "org_analytics_api", externalReference: "openai-org:org_shared:1d:1780000000:gpt-5.4",
+      model: "openai/gpt-5.4", occurredAt: "2026-07-08T00:00:00.000Z", inputTokens: 100, cachedInputTokens: 0, outputTokens: 10, requests: 1,
+      actualCostMicros: 1000, actualCostBasis: "provider_reported", normalizedCostMicros: 1000,
+      verificationType: "verified", verificationStatus: "confirmed", economicStatus: "eligible",
+      protocolComputeMicros: 900, protocolPricingVersion: CURRENT_PRICING_VERSION,
+      rawMetadata: { adapter_version: "import@fixture", granularity: "provider_aggregate" },
+    });
+    await ingestImportedUsage(store, alice, [bucket()], { issuance: ISSUANCE });
+    await ingestImportedUsage(store, bob, [bucket()], { issuance: ISSUANCE });
+    const [a] = await events(alice);
+    const [b] = await events(bob);
+    expect(a.raw_metadata.economic_identity_kind).toBe("provider_import_identity");
+    expect(b.raw_metadata.economic_event_key).toBe(a.raw_metadata.economic_event_key);
+    expect(b.raw_metadata.dedupe_status).toBe("duplicate");
+    expect(b.reward_hold).toBe(true);
+  });
+
+  it("cannot be reassigned: the unit's owner is its row", async () => {
+    const alice = await db.createUser("ecu-own-a@example.com");
+    const bob = await db.createUser("ecu-own-b@example.com");
+    await ingestGatewayObservations(store, alice, [paid("2026-07-08", "gen_own", "req_own")], { issuance: ISSUANCE });
+    const [a] = await events(alice);
+    await expect(db.asUser(bob, `update usage_events set user_id = $1 where id = $2`, [bob, a.id])).rejects.toThrow(/permission denied/i);
+    await expect(db.asUser(alice, `update usage_events set user_id = $1 where id = $2`, [bob, a.id])).rejects.toThrow(/permission denied/i);
+    expect((await events(alice)).length).toBe(1);
+  });
+});
+
+describe("legitimate authority-scope collision", () => {
+  it("the same request id from two user-controlled endpoints is two units", async () => {
+    const alice = await db.createUser("ecu-scope-a@example.com");
+    const bob = await db.createUser("ecu-scope-b@example.com");
+    const custom = (gatewayId: string) =>
+      paid("2026-07-09", "chatcmpl-same", "req_custom_same", { providerSlug: "my-llm", model: "my-llm/local-70b", gatewayId, endpointTrusted: false });
+    await ingestGatewayObservations(store, alice, [custom("connection:55555555-5555-4555-8555-555555555555")], { issuance: ISSUANCE });
+    await ingestGatewayObservations(store, bob, [custom("connection:66666666-6666-4666-8666-666666666666")], { issuance: ISSUANCE });
+    const [a] = await events(alice);
+    const [b] = await events(bob);
+    expect(a.raw_metadata.economic_event_key).not.toBe(b.raw_metadata.economic_event_key);
+    expect(a.raw_metadata.dedupe_status).toBe("unique");
+    expect(b.raw_metadata.dedupe_status).toBe("unique");
+    // Two units -- and, being user-controlled, both byok and held. Scope
+    // distinguishes compute; it does not make anything paid.
+    expect(a.reward_status).toBe("held");
+    expect(b.reward_status).toBe("held");
+  });
+
+  it("the same request id from one user-controlled endpoint twice is one unit", async () => {
+    const alice = await db.createUser("ecu-scope-c@example.com");
+    const custom = (gen: string) =>
+      paid("2026-07-09", gen, "req_custom_twice", { providerSlug: "my-llm", model: "my-llm/local-70b", gatewayId: "connection:77777777-7777-4777-8777-777777777777", endpointTrusted: false });
+    await ingestGatewayObservations(store, alice, [custom("chatcmpl-1"), custom("chatcmpl-2")], { issuance: ISSUANCE });
+    const rows = await events(alice);
+    expect(rows.map((r) => r.raw_metadata.dedupe_status).sort()).toEqual(["duplicate", "unique"]);
+  });
+});
+
 describe("three evidence sources, one unit, one credit", () => {
   let user: string;
   let device: string;

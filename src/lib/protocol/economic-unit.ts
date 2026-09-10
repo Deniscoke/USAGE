@@ -156,6 +156,37 @@ export interface AuthoritativeIdentity {
 const KEY_VERSION = "usage-economic-key-v1";
 
 /**
+ * AUTHORITY SCOPE -- what makes an id unique, researched (September 2026):
+ *
+ *   Anthropic `request-id`     "Every API response includes a unique
+ *                              request-id header" (req_...). Support locates
+ *                              a request from the id alone: GLOBAL.
+ *   OpenAI `x-request-id`      req_... "unique identifier" for reporting a
+ *                              request to OpenAI from the id alone: GLOBAL.
+ *   OpenRouter `gen-...`       `GET /api/v1/generation?id=` takes the id as
+ *                              its only parameter: GLOBAL. OpenRouter documents
+ *                              no per-response request-id header, so an
+ *                              `x-request-id` seen from it is NOT an identity.
+ *   Vercel `gen_<ulid>`        `GET /v1/generation?id=` takes the id alone;
+ *                              ULIDs are globally unique: GLOBAL.
+ *   OpenAI org import          bucket identity already carries the
+ *                              organization id the admin API authenticated:
+ *                              scoped to the TENANT by construction.
+ *   user-controlled endpoint   a custom connection's server may return any
+ *                              id it likes, so its ids are unique only within
+ *                              that connection. Scoped to the CONNECTION --
+ *                              a server-issued uuid, never a client label.
+ *
+ * Because every trusted identity is global (or tenant-scoped by
+ * construction), the key deliberately contains NO USAGE user id: the same
+ * compute claimed by two USAGE accounts must collide, and a second claim is a
+ * duplicate, never a second unit. Migration 0018 enforces that with a global
+ * unique index. The user who owns the reward is the user_id of the row that
+ * IS the unit; nothing may reassign it (see 0018's user_id trigger).
+ */
+export const DOCUMENTED_REQUEST_ID_PROVIDERS: ReadonlySet<string> = new Set(["anthropic", "openai"]);
+
+/**
  * The canonical identity of a compute unit, or null.
  *
  *   sha256( key version, namespace, canonical provider, identity kind, id )
@@ -201,14 +232,29 @@ export function selectAuthoritativeIdentity(evidence: {
   gatewayId?: string | null;
   importIdentity?: string | null;
   provider: string;
+  /**
+   * True for a custom connection whose server the user controls. Its ids are
+   * scoped to that connection; a trusted provider's ids are global.
+   */
+  endpointControlledByUser?: boolean;
 }): AuthoritativeIdentity | null {
   if (evidence.sourceAuthority === "device") return null;
-  if (evidence.authoritativeRequestId) {
+  const provider = evidence.provider.toLowerCase();
+  // A user-controlled server's ids are unique only within that connection.
+  // The connection id is issued by the server (`connection:<uuid>`), so the
+  // scope cannot be chosen by a client.
+  const scope = evidence.endpointControlledByUser ? (evidence.gatewayId ?? null) : null;
+  if (evidence.endpointControlledByUser && !scope) return null;
+
+  // A provider request id anchors the unit only where the provider documents
+  // it as a unique request identifier. Elsewhere the header may be a proxy's
+  // or CDN's, and a proxy id is not an identity.
+  if (evidence.authoritativeRequestId && (scope || DOCUMENTED_REQUEST_ID_PROVIDERS.has(provider))) {
     return {
       kind: "provider_request_id",
       value: evidence.authoritativeRequestId,
       authority: evidence.sourceAuthority,
-      namespace: evidence.provider.toLowerCase(),
+      namespace: scope ?? provider,
     };
   }
   if (evidence.gatewayGenerationId) {
@@ -216,7 +262,9 @@ export function selectAuthoritativeIdentity(evidence: {
       kind: "gateway_generation_id",
       value: evidence.gatewayGenerationId,
       authority: evidence.sourceAuthority,
-      namespace: evidence.gatewayId ?? evidence.provider.toLowerCase(),
+      // A trusted gateway's generation id is global within that gateway;
+      // the connection that relayed it is not part of the identity.
+      namespace: scope ?? provider,
     };
   }
   if (evidence.importIdentity) {
@@ -376,6 +424,33 @@ export interface ClassificationInput {
 
 const AUTHORITATIVE_COST = new Set(["gateway_reported", "provider_reported"]);
 
+/**
+ * WHAT `metered_paid` ASSERTS, exactly (M14B audit, September 2026):
+ *
+ *   OpenRouter `is_free_tier`  "whether the user has paid for credits before"
+ *                              -- an ACCOUNT fact. `usage.cost` / `total_cost`
+ *                              "the total amount charged to your account" --
+ *                              a per-inference CHARGE. `is_byok` says the
+ *                              user's own upstream key served it and
+ *                              `upstream_inference_cost` what that would have
+ *                              cost at list. None of them says which credit
+ *                              balance a specific inference was drawn from.
+ *   Vercel `/v1/credits`       balance + total_used only; no purchase flag,
+ *                              no per-generation funding source.
+ *
+ * So no surface USAGE uses can distinguish, per request, purchased credit
+ * from bonus / promotional / monthly free credit on an account that HAS
+ * purchased. `metered_paid` therefore means precisely:
+ *
+ *   paid-capable account (provider-stated) + positive charged inference
+ *   (provider-stated) + endpoint the user does not control
+ *
+ * -- "paid_account_metered", not source-of-funds provenance. The public
+ * class name is kept; M15 must read it with this meaning. The conservative
+ * rule follows: an account the provider has NOT stated as paid is
+ * promotional (held) whatever it was charged, and USAGE's own key is always
+ * promotional.
+ */
 export function classifyEconomicSource(input: ClassificationInput): EconomicSourceClass {
   if (input.subscription || input.funding?.class === "subscription") return "subscription";
 

@@ -686,6 +686,39 @@ id, not a device signature, not a client UUID — and a client-submitted hash is
 never accepted. No identity → `NULL` → the unit cannot become economically
 verified.
 
+### Authority scope and the reward owner (M14B)
+
+Every identity USAGE anchors a unit on was researched for *where* it is unique:
+
+| Identity | Scope | Basis |
+| --- | --- | --- |
+| Anthropic `request-id` (`req_…`) | global | "Every API response includes a unique request-id header"; support locates a request from the id alone |
+| OpenAI `x-request-id` (`req_…`) | global | documented unique request identifier for reporting to OpenAI |
+| OpenRouter `gen-…` | global | `GET /api/v1/generation?id=` takes the id as its only parameter. OpenRouter documents **no** request-id header, so an `x-request-id` seen from it is a proxy's and is never an identity |
+| Vercel `gen_<ulid>` | global | `GET /v1/generation?id=` by id alone; ULID |
+| OpenAI org import bucket | tenant | the bucket identity carries the organization id the admin API authenticated |
+| user-controlled endpoint (custom connection) | **connection** | the server may return any id; namespace = `connection:<server-issued uuid>`, never a client label |
+
+Because every trusted identity is global or tenant-scoped by construction, the
+key carries **no USAGE user id**. Consequences, all tested on PGlite:
+
+- **Cross-user replay:** the same request id, generation id or import identity
+  claimed by two accounts is one unit; the second claim is stored as held
+  evidence pointing at the first (`economic_duplicate_of`). Credits: 1.
+- **Legitimate scope collision:** the same request id from two user-controlled
+  endpoints is two units (both `byok`, both held — scope distinguishes compute,
+  it does not make anything paid).
+- **Reward owner** is the `user_id` of the row that *is* the unit. Nothing
+  reassigns it: clients cannot update `user_id` (grants), and 0018 makes
+  `user_id` immutable for every row at the database. No separate owner column:
+  it would be a second copy of the same fact.
+- A provider request id anchors a unit only for providers that document one
+  as unique (`DOCUMENTED_REQUEST_ID_PROVIDERS`); otherwise the gateway's
+  generation id does. A trusted gateway's generation id is namespaced by the
+  gateway provider, not by the connection that relayed it.
+
+Dedupe is therefore global: `loadEventsByEconomicKey(keys)` takes no user.
+
 ### Evidence authority, by field
 
 Researched against the surfaces USAGE actually uses (September 2026). Authority
@@ -768,6 +801,45 @@ ingestion code is the enforcement and `src/lib/db/economic-unit.test.ts` holds
 it to the invariant: replay ×1000 → one unit; local + routed + import → three
 evidence rows, one unit, one credit; a signed 10⁸-token forgery → nothing
 economic anywhere; a spoofed funding class → rejected at every door.
+
+### What `metered_paid` proves, and what it does not
+
+OpenRouter's `is_free_tier` is an *account* fact ("has paid for credits
+before"); `usage.cost` / `total_cost` is a per-inference *charge*; `is_byok`
+and `upstream_inference_cost` describe the user's own upstream key. Vercel's
+`/v1/credits` gives balance and lifetime spend only. **No surface USAGE uses
+can say, per request, whether purchased or bonus/promotional/monthly-free
+credit paid for it** on an account that has purchased. `metered_paid` means
+exactly *paid-capable account + positive charged inference + endpoint the
+user does not control* — "paid_account_metered", not source-of-funds
+provenance. The name is kept; M15 must read it with that meaning. The
+conservative rule follows: no provider statement of a paid account →
+promotional, held; USAGE's own key → promotional, always.
+
+### Immutable history and the corrections model (M14B)
+
+Once an epoch is settled, nothing that explains its points may move, and
+0018 makes the database refuse it whoever asks (service role included):
+
+| Table | After settlement |
+| --- | --- |
+| `usage_events` (settled row) | economic, identity, usage, model, epoch, verification and owner columns frozen; DELETE refused; `user_id` frozen on every row |
+| `reward_epochs` (settled) | pool, network score, scoring version, bounds, state, kind, settlement time frozen; DELETE refused; open epochs free |
+| `score_records` | rows whose `(day, algorithm_version)` fall in a settled epoch: UPDATE/DELETE refused; other versions and open days free |
+| `reward_allocations`, `usage_point_ledger` | append-only |
+| `protocol_model_prices` | rates frozen (identical republish allowed); DELETE refused |
+| `protocol_pricing_versions` | only `status` may change; DELETE refused |
+| `reward_policy_versions` | only `status`/`description` may change; DELETE refused |
+
+Allowed on purpose: provenance enrichment on a settled event
+(`provenance_sources`, `correlation_status`), status transitions of pricing
+and policy versions, and everything on open epochs and unsettled rows.
+
+**History is not edited.** A future correction is a new append-only record —
+a compensating ledger entry or allocation with an explicit reason, the policy
+version that authorised it, and a reference to what it corrects — settled
+under its own epoch. The correction system is not built; the schema now
+refuses the alternative.
 
 ### What a future snapshot could read
 
