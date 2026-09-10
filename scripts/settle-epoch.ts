@@ -22,6 +22,7 @@ import { finalizeEpoch, settleEpoch } from "../src/lib/db/settlement";
 import { dailyEpochFor, EpochLifecycleError } from "../src/lib/domain/epoch";
 import { epochEmissionPoints } from "../src/lib/protocol/emission";
 import { CURRENT_SCORING_VERSION } from "../src/lib/domain/scoring";
+import { approvedCalibrationClose } from "../src/lib/db/calibration-close";
 import { formatNumber } from "../src/lib/domain/money";
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -41,6 +42,14 @@ async function main(): Promise<number> {
   });
 
   const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), epochEmissionPoints());
+  // An owner-approved calibration epoch is closed by scripts/close-calibration-epoch.ts
+  // with ZERO emission. Settling it here would distribute the fixed
+  // mining-dev-v1 pool, which is exactly the error M15D exists to prevent.
+  if (approvedCalibrationClose(epoch.id)) {
+    line(`Refused: ${epoch.id} is an owner-approved development calibration epoch.`);
+    line("Use: npm run usage:close-calibration -- --epoch " + epoch.id + " --confirm");
+    return 1;
+  }
   const store = createSupabaseSettlementStore(admin);
   const options = {
     algorithmVersion: CURRENT_SCORING_VERSION,

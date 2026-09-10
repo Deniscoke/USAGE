@@ -890,3 +890,146 @@ The four "fail by design" rows are exactly what activation flips.
 | effective pool for a 500,000-pico day | 0 of 100,000; 100,000 never minted |
 | points | 0 |
 | production modified | NO |
+
+
+---
+
+# M15D — Development calibration disposition for epoch-2026-09-10
+
+## The conflict, proven from source
+
+- `scripts/settle-epoch.ts` builds the epoch with `dailyEpochFor(day,
+  epochEmissionPoints())`, and `epochEmissionPoints()` returns
+  `CURRENT_MINING_PROTOCOL.epochEmissionPoints` = **100,000** under
+  `mining-dev-v1` (`emissionAlgorithm: fixed-pool-v1`). Running it unchanged
+  for 2026-09-10 would credit 100,000 points to one user for $0.0000005.
+- `reward_epochs.reward_pool_points bigint check (>= 0)` accepts 0, and
+  `creditAllocations` only writes `usage_point_ledger` rows where
+  `points > 0`. A zero-reward close is therefore technically possible, but a
+  settled epoch saying "mining-dev-v1, pool 0" would contradict what
+  mining-dev-v1 means and be irreproducible from persisted data.
+
+`settle-epoch.ts` now refuses any epoch listed in the owner-approved
+calibration table and points at the guarded path instead.
+
+## Persisted solution: an explicit calibration protocol version
+
+Smallest additive representation, chosen over a free-text disposition
+column because it reuses the version machinery that already binds scoring
+and pricing:
+
+| | |
+| --- | --- |
+| protocol version | `mining-dev-calibration-v1` (row in `mining_protocol_versions`, inserted by 0019, `status = active`, `role = calibration`) |
+| emission algorithm | `zero-reward-calibration-v1`; constraint: `epoch_emission_points = 0`, `floor_points = 0`, `role = calibration` |
+| scoring | `usage_score_v1` (the M14C score stays 1.0000) |
+| pricing | `usage-pricing-v2` (what the M14C event was priced under; the close refuses any other) |
+| reward | 0 by definition of the version; `effective_pool_points = 0`, `undistributed_points = 0` |
+| claimable | `false`, persisted on both the version and the epoch; `check (epoch_kind <> 'development' or claimable = false)` |
+| binding | `reward_epochs.protocol_version` (the FK from 0008, previously unused) becomes the epoch's emission binding; settled epochs must have one; the immutability trigger freezes it |
+
+`role` separates "what the network mines under" (at most one active, enforced
+by a partial unique index) from "a disposition applied to one approved
+epoch". The calibration version is active so it can be applied, and is
+never the current protocol.
+
+Historical stamp, done once inside 0019 before the trigger learns the
+columns: every already-settled epoch (today: epoch-2026-09-07) gets
+`protocol_version = 'mining-dev-v1'`, `pricing_version = 'usage-pricing-v2'`,
+`effective_pool_points = reward_pool_points`, `claimable = false`. That
+records which rule emitted its points; it moves none.
+
+## Historical audit without source code
+
+`audit_epoch(epoch_id)` (0019) returns, from persisted rows only: scoring
+version, pricing version, protocol version, emission algorithm, scheduled
+and effective points, network score, distributed points (Σ allocations),
+ledger points (Σ ledger), epoch claimable, protocol claimable, protocol role.
+Tested on PGlite with 0019 applied:
+
+| question | epoch-2026-09-10 (calibration, test twin) | a normal mining-dev-v1 epoch |
+| --- | --- | --- |
+| why was the score positive? | `usage_score_v1`, network score 1.0000 | `usage_score_v1` |
+| why was the reward zero? | `zero-reward-calibration-v1`, scheduled 0 | n/a: `fixed-pool-v1`, scheduled 100,000, distributed 100,000 |
+| which pricing rule? | `usage-pricing-v2` | `usage-pricing-v2` |
+| which emission rule? | `mining-dev-calibration-v1` | `mining-dev-v1` |
+| future-token claimable? | false (epoch and version) | false |
+
+The two are told apart by `protocol_version` alone. No special case exists in
+code: the close is the ordinary finalize-then-settle with the calibration
+version's zero pool.
+
+## Future claimability invariant
+
+**DEVELOPMENT EPOCHS ARE NOT FUTURE TOKEN CLAIMS.** `isClaimableEpoch()` in
+`src/lib/domain/epoch.ts` returns true only for a `production` epoch whose
+persisted `claimable` flag is true; the database refuses `claimable = true`
+on any development epoch or development protocol version. Any future wallet
+snapshot, genesis allocation, airdrop, conversion or on-chain claim root must
+go through that predicate. The 100,000 development points credited by
+epoch-2026-09-07 stay in the off-chain ledger exactly as they are and are
+excluded by this invariant; only an owner-approved migration flipping a
+production epoch could ever change that. No blockchain or token code exists.
+
+## The guarded close (`src/lib/db/calibration-close.ts`, `npm run usage:close-calibration`)
+
+Not a generic pool override. It closes only an epoch present in
+`APPROVED_CALIBRATION_CLOSES`, whose single entry is epoch-2026-09-10 with the
+M14C facts (event id, economic key, owner, 1 micro-USD eligible, score
+1.0000, proof id). It fails closed, listing every reason, unless:
+
+- the epoch id is approved; the calibration protocol row exists, is active,
+  role calibration, zero emission, not claimable (i.e. 0019 is applied);
+- the event exists with exactly the approved owner, epoch, key, eligible
+  micros, `economic_status = eligible`, `reward_status = eligible`, pricing
+  version `usage-pricing-v2`;
+- the approved proof exists, is attached to that event and is signed;
+- the v1 score for the day equals the approved score;
+- the epoch is unmaterialised, open or finalizing, of kind development, with
+  no positive allocation.
+
+Then: finalize, settle with `rewardPoolPoints: 0`, `protocolVersion:
+mining-dev-calibration-v1`, `claimable: false`, `epochKind: development`;
+refuse if settlement reports any distributed or credited amount; re-snapshot
+and refuse unless the event keeps its identity, economics and pricing and is
+now `settled`, the proof is unchanged, the score is unchanged, the epoch is
+settled/development/calibration-bound/non-claimable, positive allocations =
+0, ledger rows and total unchanged, settled balance unchanged. A second run
+is refused by the epoch state. Without `--confirm` the script only prints the
+snapshot and the checks.
+
+PGlite tests (`calibration-close.test.ts`, 12): the fixture rebuilt through
+real ingestion reproduces M14C (1 micro, score 1.0000, `ecu1:` key); refusal
+of unapproved ids, of each mismatched fact, of a non-active calibration row;
+the close changes nothing of value; the settled epoch and the calibration
+version are immutable; the audit answers every question; a normal
+mining-dev-v1 epoch still emits exactly 100,000.
+
+## Order of operations
+
+**0019 before the close: YES.** The disposition needs the `claimable`
+column, the settled-epoch protocol binding and the calibration version row,
+none of which exist before 0019. 0019 is additive, activates nothing (the
+network protocol stays mining-dev-v1 active; mining-beta-v2 is inserted as
+draft) and stamps history without moving points. So:
+
+1. owner approves 0019 → apply while v1 remains active
+2. verify production (0018 invariants, audit of epoch-2026-09-07 shows
+   `mining-dev-v1` / `fixed-pool-v1` / 100,000, dry-run of the close)
+3. owner approves the close → `usage:close-calibration --epoch epoch-2026-09-10 --confirm`
+4. verify zero ledger delta, `audit_epoch('epoch-2026-09-10')`
+5. only then, at a named UTC epoch, activate v2 (unchanged parameters:
+   linear, cap 100,000, B = $1,000/day, F = 0, never minted)
+
+The earlier assumption that the epoch had to be closed before any schema
+change was wrong: it conflated schema migration with economic activation.
+
+## Pre/post capture for the eventual close
+
+Before: event id `c75acc2e…`, key `ecu1:cf605dfe…`, proof `b60f5602…`
+signed, score 1.0000, epoch unmaterialised, ledger 1 row / 100,000, 1
+allocation, settled balance 0. After, required: same event identity, proof
+and economics with `economic_status = settled`; score 1.0000; epoch settled,
+development, `mining-dev-calibration-v1`, claimable false; positive points 0;
+ledger 1 row / 100,000; balance 0. The script prints both and refuses on any
+deviation.

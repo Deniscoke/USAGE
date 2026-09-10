@@ -23,16 +23,37 @@ export function createSqlSettlementStore(db: TestDb): SettlementStore {
     },
 
     async upsertEpoch(epoch: RewardEpoch, networkScore, epochKind) {
+      if (epoch.claimable !== undefined) {
+        // 0019 shape (pending migration applied by the test).
+        await db.asServiceRole(
+          `insert into reward_epochs
+             (id, starts_at, ends_at, reward_pool_points, scoring_version, network_score,
+              epoch_kind, state, finalizing_at, settled_at, protocol_version, claimable)
+           values ($1, $2, $3, $4, $5, $6, $7, $8,
+                   case when $8 in ('finalizing', 'settled') then now() end,
+                   case when $8 = 'settled' then now() end, $9, $10)
+           on conflict (id) do update
+             set network_score = excluded.network_score,
+                 state = excluded.state,
+                 protocol_version = excluded.protocol_version,
+                 claimable = excluded.claimable,
+                 finalizing_at = coalesce(reward_epochs.finalizing_at, excluded.finalizing_at),
+                 settled_at = coalesce(reward_epochs.settled_at, excluded.settled_at)`,
+          [epoch.id, epoch.startsAt, epoch.endsAt, epoch.rewardPoolPoints, epoch.scoringVersion, networkScore, epochKind, epoch.state, epoch.protocolVersion ?? null, epoch.claimable ?? false],
+        );
+        return;
+      }
       await db.asServiceRole(
         `insert into reward_epochs
            (id, starts_at, ends_at, reward_pool_points, scoring_version, network_score,
-            epoch_kind, state, finalizing_at, settled_at)
+            epoch_kind, state, finalizing_at, settled_at, protocol_version)
          values ($1, $2, $3, $4, $5, $6, $7, $8,
                  case when $8 in ('finalizing', 'settled') then now() end,
-                 case when $8 = 'settled' then now() end)
+                 case when $8 = 'settled' then now() end, $9)
          on conflict (id) do update
            set network_score = excluded.network_score,
                state = excluded.state,
+               protocol_version = coalesce(excluded.protocol_version, reward_epochs.protocol_version),
                finalizing_at = coalesce(reward_epochs.finalizing_at, excluded.finalizing_at),
                settled_at = coalesce(reward_epochs.settled_at, excluded.settled_at)`,
         [
@@ -44,6 +65,7 @@ export function createSqlSettlementStore(db: TestDb): SettlementStore {
           networkScore,
           epochKind,
           epoch.state,
+          epoch.protocolVersion ?? null,
         ],
       );
     },

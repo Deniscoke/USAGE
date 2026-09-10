@@ -1,4 +1,5 @@
 import { CURRENT_SCORING_VERSION } from "./scoring";
+import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
 
 /**
  * Reward epochs.
@@ -36,6 +37,27 @@ export interface RewardEpoch {
   rewardPoolPoints: number;
   scoringVersion: string;
   state: EpochState;
+  /**
+   * mining_protocol_versions.version the epoch is bound to. Optional until
+   * 0019 makes the column part of settlement; a settled epoch never changes it.
+   */
+  protocolVersion?: string;
+  /** See `isClaimableEpoch`. Persisted so an auditor never has to infer it. */
+  claimable?: boolean;
+}
+
+/**
+ * DEVELOPMENT EPOCHS ARE NOT FUTURE TOKEN CLAIMS.
+ *
+ * Whatever a future wallet snapshot, genesis allocation, airdrop, conversion
+ * or on-chain claim root looks like, it must exclude every epoch of kind
+ * `development` by default. The only way that changes is an owner-approved
+ * migration that flips a production epoch's persisted `claimable` flag.
+ * Off-chain Usage Points stay exactly what they are today.
+ */
+export function isClaimableEpoch(epoch: { epochKind: string; claimable?: boolean | null }): boolean {
+  if (epoch.epochKind !== "production") return false;
+  return epoch.claimable === true;
 }
 
 export class EpochLifecycleError extends Error {
@@ -162,6 +184,10 @@ export function dailyEpochFor(
     rewardPoolPoints,
     scoringVersion: CURRENT_SCORING_VERSION,
     state,
+    // The emission rule the epoch is settled under. mining-dev-v1 today; a
+    // settled epoch never changes it (0019 trigger), so the record explains
+    // its own points forever.
+    protocolVersion: CURRENT_MINING_PROTOCOL.version,
   };
 }
 

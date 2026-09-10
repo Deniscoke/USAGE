@@ -62,10 +62,21 @@ export const MINING_DEV_V1: MiningProtocolVersion = {
  * conversion promise.
  */
 export interface EmissionParameters {
-  emissionAlgorithm: "fixed-pool-v1" | "baseline-linear-v1";
+  emissionAlgorithm: "fixed-pool-v1" | "baseline-linear-v1" | "zero-reward-calibration-v1";
   baselineComputePico: bigint | null;
   floorPoints: number;
   undistributedPolicy: "distributed" | "never_minted";
+  /**
+   * `network`: the protocol the network mines under. `calibration`: a
+   * disposition applied to one explicitly approved development epoch.
+   */
+  role: "network" | "calibration";
+  /**
+   * DEVELOPMENT EPOCHS ARE NOT FUTURE TOKEN CLAIMS. Every development
+   * version is `claimable: false`; a future production version may say
+   * otherwise only through an owner-approved migration.
+   */
+  claimable: boolean;
 }
 
 export const MINING_DEV_V1_EMISSION: EmissionParameters = Object.freeze({
@@ -73,6 +84,39 @@ export const MINING_DEV_V1_EMISSION: EmissionParameters = Object.freeze({
   baselineComputePico: null,
   floorPoints: 0,
   undistributedPolicy: "distributed",
+  role: "network",
+  claimable: false,
+});
+
+/**
+ * mining-dev-calibration-v1 — zero-reward development calibration (M15D).
+ *
+ * The disposition for epoch-2026-09-10: the real M14C unit is scored under
+ * usage_score_v1 and priced under usage-pricing-v2 exactly as recorded, the
+ * epoch settles, and the emission is ZERO by definition of this version,
+ * not by an unexplained override of mining-dev-v1's 100,000-point pool.
+ * An auditor reading reward_epochs.protocol_version and this row can
+ * reproduce the epoch without source code or prose.
+ *
+ * DRAFT in code until 0019 inserts the row; role `calibration`, so it is
+ * never "the current protocol" and never conflicts with the one active
+ * network version.
+ */
+export const MINING_DEV_CALIBRATION_V1: MiningProtocolVersion & EmissionParameters = Object.freeze({
+  version: "mining-dev-calibration-v1",
+  epochDurationSeconds: 86_400,
+  epochEmissionPoints: 0,
+  scoringVersion: "usage_score_v1",
+  pricingVersion: "usage-pricing-v2",
+  effectiveFrom: "2026-09-10",
+  network: "development",
+  status: "draft",
+  emissionAlgorithm: "zero-reward-calibration-v1",
+  baselineComputePico: null,
+  floorPoints: 0,
+  undistributedPolicy: "never_minted",
+  role: "calibration",
+  claimable: false,
 });
 
 export const MINING_BETA_V2_DRAFT: MiningProtocolVersion & EmissionParameters = Object.freeze({
@@ -88,6 +132,8 @@ export const MINING_BETA_V2_DRAFT: MiningProtocolVersion & EmissionParameters = 
   baselineComputePico: 1_000_000_000_000_000n,
   floorPoints: 0,
   undistributedPolicy: "never_minted",
+  role: "network",
+  claimable: false,
 });
 
 /** Only non-draft versions are listed; the draft is reachable by name for tests and previews. */
@@ -96,7 +142,9 @@ const VERSIONS: readonly MiningProtocolVersion[] = [MINING_DEV_V1];
 export const CURRENT_MINING_PROTOCOL = MINING_DEV_V1;
 
 export function getMiningProtocol(version: string): MiningProtocolVersion | null {
-  return VERSIONS.find((entry) => entry.version === version) ?? (version === MINING_BETA_V2_DRAFT.version ? MINING_BETA_V2_DRAFT : null);
+  if (version === MINING_BETA_V2_DRAFT.version) return MINING_BETA_V2_DRAFT;
+  if (version === MINING_DEV_CALIBRATION_V1.version) return MINING_DEV_CALIBRATION_V1;
+  return VERSIONS.find((entry) => entry.version === version) ?? null;
 }
 
 export function listMiningProtocols(): readonly MiningProtocolVersion[] {

@@ -37,8 +37,8 @@ export function createSupabaseSettlementStore(
 
     async upsertEpoch(epoch: RewardEpoch, networkScore, epochKind) {
       const now = new Date().toISOString();
-      const { error } = await admin.from("reward_epochs").upsert(
-        {
+      // The row may carry 0019 columns the generated types do not know yet.
+      const row = {
           id: epoch.id,
           starts_at: epoch.startsAt,
           ends_at: epoch.endsAt,
@@ -47,15 +47,18 @@ export function createSupabaseSettlementStore(
           network_score: networkScore,
           epoch_kind: epochKind,
           state: epoch.state,
+          // 0019 columns; only written when the caller binds them, so a
+          // pre-0019 database is never asked for a column it lacks.
+          ...(epoch.protocolVersion !== undefined ? { protocol_version: epoch.protocolVersion } : {}),
+          ...(epoch.claimable !== undefined ? { claimable: epoch.claimable } : {}),
           // Timestamps record when a phase was entered, so they are only set by
           // the transition that enters it.
           ...(epoch.state === "finalizing" || epoch.state === "settled"
             ? { finalizing_at: now }
             : {}),
           ...(epoch.state === "settled" ? { settled_at: now } : {}),
-        },
-        { onConflict: "id" },
-      );
+      } as unknown as Database["public"]["Tables"]["reward_epochs"]["Insert"];
+      const { error } = await admin.from("reward_epochs").upsert(row, { onConflict: "id" });
       fail("upsertEpoch", error);
     },
 
