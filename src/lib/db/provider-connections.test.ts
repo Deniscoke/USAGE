@@ -276,3 +276,52 @@ describe("connection status is specific enough to act on", () => {
     }
   });
 });
+
+describe("reconnecting a revoked provider", () => {
+  it("the schema allows one row per (user, provider, label): a second insert is refused, so reconnect must revive", async () => {
+    const bob = { id: await db.createUser("bob-reconnect@example.com") };
+    const [secret] = await db.asServiceRole<{ id: string }>(
+      `insert into provider_secrets (user_id, ciphertext, hint) values ($1, $2, $3) returning id`,
+      [bob.id, encryptSecret("sk-or-old", KEY), secretHint("sk-or-old")],
+    );
+    const [old] = await db.asServiceRole<{ id: string }>(
+      `insert into provider_connections
+         (user_id, provider, account_label, method, auth_method, status, definition_id, protocol,
+          base_url, secret_id, connection_status, mining_eligibility, revoked_at)
+       values ($1, 'openrouter', 'OpenRouter', 'byok', 'oauth', 'revoked', $2, 'openai_compatible',
+               'https://openrouter.ai/api', $3, 'revoked', 'eligible_route', now())
+       returning id`,
+      [bob.id, aliceDefinition, secret.id],
+    );
+
+    // What the callback used to do: insert again. The database says no.
+    await expect(
+      db.asServiceRole(
+        `insert into provider_connections
+           (user_id, provider, account_label, method, auth_method, status, definition_id, protocol,
+            base_url, secret_id, connection_status, mining_eligibility)
+         values ($1, 'openrouter', 'OpenRouter', 'byok', 'oauth', 'active', $2, 'openai_compatible',
+                 'https://openrouter.ai/api', $3, 'active', 'eligible_route')`,
+        [bob.id, aliceDefinition, secret.id],
+      ),
+    ).rejects.toThrow(/provider_connections_user_id_provider_account_label_key/);
+
+    // What it does now: revive the same row with the new credential.
+    const [fresh] = await db.asServiceRole<{ id: string }>(
+      `insert into provider_secrets (user_id, ciphertext, hint) values ($1, $2, $3) returning id`,
+      [bob.id, encryptSecret("sk-or-new", KEY), secretHint("sk-or-new")],
+    );
+    const [revived] = await db.asServiceRole<{ id: string; revoked_at: string | null; secret_id: string; connection_status: string }>(
+      `update provider_connections
+         set secret_id = $2, status = 'active', connection_status = 'active', revoked_at = null,
+             account_context = '{"is_free_tier": false}'::jsonb
+       where user_id = $1 and provider = 'openrouter' and account_label = 'OpenRouter' and revoked_at is not null
+       returning id, revoked_at, secret_id, connection_status`,
+      [bob.id, fresh.id],
+    );
+    expect(revived.id).toBe(old.id);
+    expect(revived.revoked_at).toBeNull();
+    expect(revived.secret_id).toBe(fresh.id);
+    expect(revived.connection_status).toBe("active");
+  });
+});

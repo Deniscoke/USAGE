@@ -253,32 +253,66 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
         ? deriveConnectionStatus({ ok: true, capabilities: probe.capabilities, eligibility })
         : "validating";
 
-      const { data: connection, error } = await admin
-        .from("provider_connections")
-        .insert({
-          user_id: input.userId,
-          provider: slugify(input.displayName),
-          account_label: input.displayName,
-          method: "byok",
-          auth_method: input.authMethod ?? "api_key",
-          status: probe.ok ? "active" : "error",
-          definition_id: definitionId,
-          protocol: input.protocol,
-          base_url: baseUrl,
-          secret_id: secret.id,
-          connection_status: status,
-          capabilities: probe.capabilities as unknown as Record<string, boolean>,
-          mining_eligibility: eligibility,
-          validated_at: probe.ok ? new Date().toISOString() : null,
-          last_error_code: probe.ok ? null : (probe.failure ?? "error"),
-          // What the provider's account surface said (OpenRouter: is_free_tier).
-          // Funding evidence for the economic policy; never a credential.
-          account_context: validation.accountContext,
-        })
-        .select("id")
-        .single();
-      fail("createConnection", error);
-      if (!connection) throw new Error("createConnection: no row returned");
+      const row = {
+        user_id: input.userId,
+        provider: slugify(input.displayName),
+        account_label: input.displayName,
+        method: "byok" as const,
+        auth_method: input.authMethod ?? "api_key",
+        status: (probe.ok ? "active" : "error") as "active" | "error",
+        definition_id: definitionId,
+        protocol: input.protocol,
+        base_url: baseUrl,
+        secret_id: secret.id,
+        connection_status: status,
+        capabilities: probe.capabilities as unknown as Record<string, boolean>,
+        mining_eligibility: eligibility,
+        validated_at: probe.ok ? new Date().toISOString() : null,
+        last_error_code: probe.ok ? null : (probe.failure ?? "error"),
+        // What the provider's account surface said (OpenRouter: is_free_tier).
+        // Funding evidence for the economic policy; never a credential.
+        account_context: validation.accountContext,
+      };
+
+      // One row per (user, provider, label). A connection the user revoked
+      // earlier still holds that slot, so reconnecting REVIVES it: same id,
+      // new credential, fresh validation and account context, revocation
+      // cleared. History that referenced the old id keeps pointing at the
+      // same provider relationship. An inserted duplicate would be refused
+      // by the database, and the credential just stored would be orphaned.
+      let connection: { id: string } | null = null;
+      try {
+        const revoked = await admin
+          .from("provider_connections")
+          .select("id")
+          .eq("user_id", row.user_id)
+          .eq("provider", row.provider)
+          .eq("account_label", row.account_label)
+          .not("revoked_at", "is", null)
+          .maybeSingle();
+        fail("findRevokedConnection", revoked.error);
+
+        if (revoked.data) {
+          const { data, error } = await admin
+            .from("provider_connections")
+            .update({ ...row, revoked_at: null, last_error: null, last_success_at: null })
+            .eq("id", revoked.data.id)
+            .select("id")
+            .single();
+          fail("reviveConnection", error);
+          connection = data;
+        } else {
+          const { data, error } = await admin.from("provider_connections").insert(row).select("id").single();
+          fail("createConnection", error);
+          connection = data;
+        }
+        if (!connection) throw new Error("createConnection: no row returned");
+      } catch (error) {
+        // Nothing references the secret yet; do not leave a live credential
+        // behind that no connection can use or revoke.
+        await secretStore.delete({ id: secret.id, userId: input.userId }).catch(() => undefined);
+        throw error;
+      }
 
       return {
         connectionId: connection.id,
