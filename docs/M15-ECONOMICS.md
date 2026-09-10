@@ -1430,6 +1430,44 @@ receives broadcasts, other topic receives nothing, direct table reads return
 nothing, no insert path for browsers. Events carry no prompt, completion,
 credential or header.
 
+## M16B.1 — production dashboard crash fix (2026-09-10)
+
+Not an economic change. After M16B shipped, `/dashboard` intermittently
+rendered Next's generic "This page couldn't load" screen.
+
+**Root cause (reproduced in Chromium against production):** the browser
+Supabase client read `NEXT_PUBLIC_SUPABASE_ANON_KEY`, but the Vercel
+project defines only `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; `@supabase/ssr`
+threw "Your project's URL and API key are required" inside the LiveMining
+subscription effect, which unmounted the route. The `_rsc` ERR_ABORTED seen
+alongside was a side effect, not the cause; React #412 was considered and
+ruled out.
+
+**Fix (commit 2fbef95):** `createBrowserSupabase()` reads both public key
+names and returns `null` instead of throwing; LiveMining treats a null
+client, socket errors, join refusals and malformed events as component
+state (DISCONNECTED with the 5 s fallback), never as a thrown React error;
+`LiveMiningBoundary` isolates the card; `app/dashboard/error.tsx` replaces
+the generic screen with Retry / reload; `now` is null on first render
+(hydration-safe); `src/lib/live/diagnostics.ts` records scrubbed error
+metadata in memory only; `instrumentation-client.ts` reloads exactly once
+per 5-minute window on stale-build failures (#412 / ChunkLoadError);
+`?live=0` is a test-only switch that leaves the widget unmounted.
+
+**Stability gate on the deployed build (throwaway test user, deleted
+afterwards):** direct loads 50/50, soft navigations 50/50, hard reloads
+20/20, back/forward 10/10, stale-build recovery: notice shown, one reload,
+a second synthetic failure inside the window did not reload; Realtime
+websocket blocked: "RECONNECTING · 5 s FALLBACK", 2 summary polls per
+12 s, dashboard usable, 5/5 soft navigations; unblocked fresh page:
+REALTIME again; slow network (400 ms, 500 kbit/s) 5/5; `?live=0` 10/10;
+`/api/mining/summary` 200. 0 unhandled pageerrors, 0 generic error screens.
+
+**Economic regression check (read-only, after testing):** 7 usage events,
+ledger 1 row / 100,000, epoch-2026-09-07 settled mining-dev-v1,
+epoch-2026-09-10 settled calibration, mining-beta-v2 still draft, test user
+had 0 usage events. Realtime RLS policy untouched. No migration.
+
 ## Not done
 
 The Windows Miner window does not yet mirror the live states (the web

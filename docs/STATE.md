@@ -2,6 +2,25 @@
 
 ## Current milestone
 
+M16B.1 — production dashboard crash fix. **Deployed 2026-09-10 (commit
+2fbef95).** Root cause: production defines only
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, the browser client read
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, so `@supabase/ssr` threw inside the
+LiveMining effect and unmounted the whole route (Next's generic "This page
+couldn't load"). Fix: the browser client reads both names and returns null
+instead of throwing; LiveMining treats a missing client or any transport
+failure as DISCONNECTED (5 s fallback), never as a thrown error; a narrow
+error boundary around the live card and a `/dashboard` route boundary with
+Retry; hydration-safe clock; safe client diagnostics (no secrets, no
+network); stale-build recovery reloads exactly once per 5-minute window.
+Stability gate on the deployed build: 50/50 direct loads, 50/50 soft
+navigations, 20/20 hard reloads, 10/10 back/forward, stale-build
+recovery exactly one reload, Realtime blocked → RECONNECTING · 5 s FALLBACK
+with the dashboard fully usable, slow network 5/5, `?live=0` 10/10;
+0 unhandled pageerrors, 0 generic error screens. Economics unchanged
+(7 usage events, ledger 1 row / 100,000, epochs -07 and -10 settled,
+beta-v2 draft). Not an economic change; no migration.
+
 M16B — live mining proof. **Deployed 2026-09-10.** Private per-user
 Realtime channel (migration 0021_realtime_mining_channel: one RLS policy on
 realtime.messages, nothing economic), server-emitted started / progress /
