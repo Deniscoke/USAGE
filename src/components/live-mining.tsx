@@ -44,11 +44,22 @@ const STATE_COLOR: Record<MiningState, string> = {
 export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId: string; initial: MiningSummary; outputMicrosPerMillion: number | null }) {
   const [summary, setSummary] = useState<MiningSummary>(initial);
   const [model, setModel] = useState<LiveModel>({ ...EMPTY_LIVE, routeEligible: initial.route.eligible });
-  const [now, setNow] = useState<number>(() => Date.now());
+  // Hydration: the server cannot know the browser's clock. `now` is null on
+  // the first client render (which must match the server markup) and is set
+  // in an effect; relative times render as placeholders until then.
+  const [now, setNow] = useState<number | null>(null);
   const [realtime, setRealtime] = useState<RealtimeStatus>("unknown");
   const [visible, setVisible] = useState(true);
   const controller = useMemo(() => new LiveController({ fallbackIntervalMs: 5000 }), []);
-  const state = deriveMiningState(model, now);
+  const clock = now ?? Date.parse(initial.generatedAt);
+  const state = deriveMiningState(model, clock);
+  const age = (fromMs: number) => (now === null ? "…" : formatAge(fromMs, now));
+
+  useEffect(() => {
+    // Deferred so the first client render matches the server markup exactly.
+    const id = window.setTimeout(() => setNow(Date.now()), 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const refetch = useCallback(async () => {
     try {
@@ -62,26 +73,50 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
     }
   }, []);
 
-  // Realtime subscription: private, own topic only.
+  // Realtime subscription: private, own topic only. Every expected failure
+  // (missing public env, socket errors, join refusals, parsing) becomes
+  // component state -- "disconnected" with the 5 s fallback -- never a thrown
+  // React error. That is the M16B.1 rule: transport trouble cannot unmount
+  // the dashboard.
   useEffect(() => {
     const supabase = createBrowserSupabase();
-    const channel = supabase.channel(miningTopic(userId), { config: { private: true } });
-    for (const name of MINING_EVENT_NAMES) {
-      channel.on("broadcast", { event: name }, (message: { payload: MiningEvent }) => {
-        const event = message.payload;
-        setModel((m) => applyLiveEvent(m, event));
-        setNow(Date.now());
-        if (controller.shouldRefetchAfter(event.name)) void refetch();
-      });
+    if (!supabase) {
+      controller.setRealtime("disconnected");
+      const id = window.setTimeout(() => setRealtime("disconnected"), 0);
+      return () => window.clearTimeout(id);
     }
-    channel.subscribe((status) => {
-      const next: RealtimeStatus = status === "SUBSCRIBED" ? "connected" : status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" ? "disconnected" : "unknown";
-      controller.setRealtime(next);
-      setRealtime(next);
-      if (next === "connected") void refetch(); // reconcile anything missed while away
-    });
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase.channel(miningTopic(userId), { config: { private: true } });
+      for (const name of MINING_EVENT_NAMES) {
+        channel.on("broadcast", { event: name }, (message: { payload?: unknown }) => {
+          try {
+            const event = message.payload as MiningEvent | undefined;
+            if (!event || typeof event !== "object" || typeof event.requestId !== "string" || typeof event.seq !== "number") return;
+            setModel((m) => applyLiveEvent(m, event));
+            setNow(Date.now());
+            if (controller.shouldRefetchAfter(event.name)) void refetch();
+          } catch {
+            // a malformed event is ignored; the next summary refetch reconciles
+          }
+        });
+      }
+      channel.subscribe((status) => {
+        const next: RealtimeStatus = status === "SUBSCRIBED" ? "connected" : status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" ? "disconnected" : "unknown";
+        controller.setRealtime(next);
+        setRealtime(next);
+        if (next === "connected") void refetch(); // reconcile anything missed while away
+      });
+    } catch {
+      controller.setRealtime("disconnected");
+      window.setTimeout(() => setRealtime("disconnected"), 0);
+    }
     return () => {
-      void supabase.removeChannel(channel);
+      try {
+        if (channel) void supabase.removeChannel(channel);
+      } catch {
+        // nothing to clean
+      }
     };
   }, [userId, controller, refetch]);
 
@@ -100,10 +135,10 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
   // Local one-second repaint while live; nothing on the network.
   useEffect(() => {
     const interval = controller.tickIntervalMs(state);
-    if (!interval || !visible) return;
+    if (!interval || !visible || now === null) return;
     const id = window.setInterval(() => setNow(Date.now()), interval);
     return () => window.clearInterval(id);
-  }, [state, visible, controller]);
+  }, [state, visible, controller, now]);
 
   // Fallback polling only while Realtime is down and the tab is visible.
   useEffect(() => {
@@ -135,7 +170,7 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
         <dt className="text-[var(--faint)]">USAGE Miner</dt>
         <dd style={{ color: summary.miner.online ? "var(--verified)" : "var(--faint)" }}>
           {summary.miner.online ? "ONLINE" : "OFFLINE"}
-          {summary.miner.lastSeenAt ? ` · seen ${formatAge(new Date(summary.miner.lastSeenAt).getTime(), now)} ago` : ""}
+          {summary.miner.lastSeenAt ? ` · seen ${age(new Date(summary.miner.lastSeenAt).getTime())} ago` : ""}
         </dd>
         <dt className="text-[var(--faint)]">Reward route</dt>
         <dd style={{ color: summary.route.eligible ? "var(--verified)" : "var(--faint)" }}>
@@ -144,7 +179,7 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
         <dt className="text-[var(--faint)]">Live request</dt>
         <dd>{current ? "ACTIVE" : "IDLE"}</dd>
         <dt className="text-[var(--faint)]">Last proof</dt>
-        <dd>{summary.lastProofAt ? `${formatAge(new Date(summary.lastProofAt).getTime(), now)} ago` : "none yet"}</dd>
+        <dd>{summary.lastProofAt ? `${age(new Date(summary.lastProofAt).getTime())} ago` : "none yet"}</dd>
         <dt className="text-[var(--faint)]">Live updates</dt>
         <dd>{realtime === "connected" ? "REALTIME" : realtime === "disconnected" ? "RECONNECTING · 5 s FALLBACK" : "CONNECTING"}</dd>
       </dl>
@@ -157,9 +192,9 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
             <dt className="text-[var(--faint)]">Model</dt>
             <dd>{current.model ?? "—"}</dd>
             <dt className="text-[var(--faint)]">Elapsed</dt>
-            <dd className="text-[var(--verified)]">{formatElapsed(current.startedAt, now)}</dd>
+            <dd className="text-[var(--verified)]">{formatElapsed(current.startedAt, clock)}</dd>
             <dt className="text-[var(--faint)]">Last signal</dt>
-            <dd>{formatAge(current.lastEventAt, now)}</dd>
+            <dd>{age(current.lastEventAt)}</dd>
             <dt className="text-[var(--faint)]">Activity</dt>
             <dd>{current.firstChunkAt ? `streaming · ${current.chunks} chunk${current.chunks === 1 ? "" : "s"}` : "waiting for the model"}</dd>
             {estimate && estimate.computeMicrosEstimate !== null && (
@@ -188,7 +223,7 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
           <p style={{ color: STATE_COLOR[last.state] }}>
             {STATE_LABEL[last.state]}
             {last.outcome ? ` · ${last.outcome.model ?? ""}` : ""}
-            {last.persistedAt ? ` · ${formatAge(last.persistedAt, now)} ago` : ""}
+            {last.persistedAt ? ` · ${age(last.persistedAt)} ago` : ""}
           </p>
           {last.outcome && (
             <p className="tnum mt-1 text-[var(--muted)]">

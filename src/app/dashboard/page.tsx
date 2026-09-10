@@ -19,6 +19,7 @@ import { TodayFigures } from "@/components/miner-device";
 export const dynamic = "force-dynamic";
 
 import { LiveMining } from "@/components/live-mining";
+import { LiveMiningBoundary } from "@/components/live-mining-boundary";
 import { buildMiningSummary } from "@/lib/live/summary";
 
 const CHART_DAYS = 45;
@@ -30,8 +31,13 @@ const CHART_DAYS = 45;
  * Protocol detail is real and reachable, but folded away -- a person should be
  * able to read this page without knowing what an epoch is.
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!isSupabaseConfigured()) return <SetupRequired />;
+  // Test-only A/B switch (M16B.1): `?live=0` renders the dashboard without the
+  // live widget so navigation stability can be compared with and without it.
+  // It changes nothing about data or economics.
+  const { live } = await searchParams;
+  const mountLive = live !== "0";
 
   const supabase = await createServerSupabase();
   if (!supabase) return <SetupRequired />;
@@ -74,7 +80,11 @@ export default async function DashboardPage() {
           settledEpochPoints={data.epoch.settledPoints === null ? null : formatNumber(data.epoch.settledPoints)}
         />
 
-        <LiveMining userId={user.id} initial={buildMiningSummary(data, devices, now)} outputMicrosPerMillion={null} />
+        {mountLive && (
+          <LiveMiningBoundary>
+            <LiveMining userId={user.id} initial={buildMiningSummary(data, devices, now)} outputMicrosPerMillion={null} />
+          </LiveMiningBoundary>
+        )}
 
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
           <div className="flex items-baseline justify-between gap-3">
