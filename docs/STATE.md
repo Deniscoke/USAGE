@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-M14B — Economic foundation hardening. **Code deployed; migration 0018 revised, preflighted and awaiting approval.**
+M14B — Economic foundation hardening. **Deployed; migration 0018 applied to production.**
 
 The M14 key never contained a USAGE user id, but 0018 enforced uniqueness per
 user — which would have let one authoritative compute become a unit for two
@@ -38,12 +38,19 @@ economic-verification-v1 none of those can become `metered_paid`, so no live
 paid request was made and nothing was bought. The positive path is proved on
 PGlite with fixtures labelled SIMULATED.
 
-## Production migration awaiting approval (0018)
+## Production migration 0018 — applied
 
-`supabase/pending/0018_economic_unit.sql` — **prepared, NOT applied, and no
-deployed code depends on it.** It lives outside `supabase/migrations/` so
-neither `db push` nor the test harness picks it up; `src/lib/db/migration-0018.test.ts`
-applies it to PGlite on top of 0001–0017 and proves what it enforces.
+`supabase/migrations/0018_economic_unit.sql` — **applied 2026-09-10 with explicit
+owner approval**, after `migration list` (only 0018 pending), `db push --dry-run`
+(only 0018), the read-only preflight (0 collisions), and a logical export of
+every touched table outside the repository. Invariants before and after were
+identical (usage events 5, settled 2, allocations 1, ledger rows 1 / total
+100000, settled epochs 1, settled-period scores 1, pricing v1 frozen / v2
+active, 19 live credentials, 2 local observations). `npm run usage:verify-0018`
+attempts every forbidden write against production and sees each refused
+(30/30); hosted RLS 43/43 and 0017 checks 21/21 unchanged. Ingestion now
+writes the economic key, dedupe status and verification columns, so the
+global unique index and the settled-row trigger see every new row.
 
 | | |
 |---|---|
