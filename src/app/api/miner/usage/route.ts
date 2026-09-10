@@ -60,11 +60,15 @@ export async function GET(request: NextRequest) {
       day: summary.day,
       trackedTokens: summary.trackedTokens,
       verifiedTokens: summary.verifiedTokens,
+      // Every category, apart. The device displays; it never adds these up
+      // into a figure the server did not produce.
+      tracked: summary.tracked,
+      verified: summary.verified,
       eligibleComputeMicros: summary.eligibleComputeMicros,
       // Not computed here: the epoch estimate needs the whole network's score
       // and belongs to the dashboard pipeline. Null is honest.
       estimatedPoints: null,
-      recent: summary.recent.slice(0, 10).map((r) => ({ tool: r.tool, tokens: r.tokens, status: r.status, at: r.at })),
+      recent: summary.recent.slice(0, 10).map((r) => ({ tool: r.tool, model: r.model, tokens: r.tokens, breakdown: r.breakdown, status: r.status, at: r.at })),
     },
     { headers: { "cache-control": "no-store" } },
   );
