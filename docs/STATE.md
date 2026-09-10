@@ -289,6 +289,17 @@ mining engine never learns which provider a request came from.
 - Version 0.3.1 exists only in the public repository and is unreleased: it is
   the build waiting to be signed. `v0.3.0-beta.1` remains the current download
   and keeps its original bytes.
+- **Windows first run (M14B fix, 0.4.1):** 0.4.0's window stayed on "Loading…"
+  forever because a raw newline inside a JS string literal broke the inline
+  page script; 0.4.1 fixes it, bounds every startup operation (3 s per tool
+  detection, 8 s per USAGE request, page-side timeouts with a Retry screen),
+  renders offline and per-tool "Detection unavailable" states, installs a
+  5 KB GUI launcher (`USAGE Miner.exe`, no console window) beside the console
+  executable the CLI still uses, and gives the installer and launcher a proper
+  application manifest (asInvoker, Windows 10/11) with real exit codes
+  (0 / 1223 cancelled / 1 failed, after verifying every artifact). The UI is
+  still the loopback page in the default browser; a WebView2 shell is the
+  recommended next step, not this one.
 - Codex remains **experimental**: a real local wire capture (0.153.3) confirmed
   model and token counts but no request identity, so its ceiling stays
   `device_attested`. The packaged-miner detection bug (npm `.cmd` shim needs a
