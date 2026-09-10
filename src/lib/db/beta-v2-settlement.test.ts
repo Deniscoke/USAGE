@@ -14,7 +14,7 @@ import { createTestDb, type TestDb } from "@/test/pg";
  * holds and the production target date is not what the tests depend on.
  */
 
-const PENDING = path.resolve(process.cwd(), "supabase/pending/0021_beta_v2_cutover.sql");
+const PENDING = path.resolve(process.cwd(), "supabase/pending/0022_beta_v2_cutover.sql");
 const USD = 1_000_000_000_000n; // pico per USD
 let db: TestDb;
 

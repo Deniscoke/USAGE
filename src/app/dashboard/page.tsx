@@ -18,6 +18,9 @@ import { TodayFigures } from "@/components/miner-device";
 
 export const dynamic = "force-dynamic";
 
+import { LiveMining } from "@/components/live-mining";
+import { buildMiningSummary } from "@/lib/live/summary";
+
 const CHART_DAYS = 45;
 
 /**
@@ -67,7 +70,11 @@ export default async function DashboardPage() {
           settled={formatNumber(data.settledPoints)}
           estimated={formatNumber(data.epoch.estimatedPoints)}
           epochState={data.epoch.state}
+          epochLabel={data.epoch.label}
+          settledEpochPoints={data.epoch.settledPoints === null ? null : formatNumber(data.epoch.settledPoints)}
         />
+
+        <LiveMining userId={user.id} initial={buildMiningSummary(data, devices, now)} outputMicrosPerMillion={null} />
 
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
           <div className="flex items-baseline justify-between gap-3">

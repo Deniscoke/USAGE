@@ -156,6 +156,7 @@ describe("buildDashboardView", () => {
           status: "active",
           method: "routed_mining",
           lastSyncedAt: "2026-03-15T11:00:00.000Z",
+          eligibleRoute: false,
         },
       ],
     });
@@ -218,8 +219,53 @@ describe("estimated versus settled Usage Points", () => {
     expect(view.epoch.state).toBe("settled");
     expect(view.settledPoints).toBe(100_000);
     // The two numbers never merge: an estimate becomes a balance only by
-    // settling the epoch that produced it.
-    expect(view.epoch.estimatedPoints).toBe(10_000);
+    // settling the epoch that produced it -- and once settled, the epoch has
+    // no estimate at all, only its persisted allocation (M16B).
+    expect(view.epoch.estimatedPoints).toBe(0);
+    expect(view.epoch.settledPoints).toBe(0);
     expect(view.settledPoints).not.toBe(view.epoch.estimatedPoints);
+  });
+});
+
+describe("settled epochs never show an estimate (M16B)", () => {
+  it("a settled zero-reward calibration epoch shows Reward 0 and its bound disposition, never +100,000 estimated", () => {
+    const now = new Date("2026-09-10T20:00:00Z");
+    const view = buildDashboardView({
+      ...EMPTY,
+      now,
+      scores: [{ day: "2026-09-10", algorithmVersion: "usage_score_v1", weightedCostMicros: 1, excludedCostMicros: 0, pendingCostMicros: 0, points: 1 }],
+      epochStates: { "epoch-2026-09-10": "settled" },
+      epochRows: [{ id: "epoch-2026-09-10", state: "settled", protocolVersion: "mining-dev-calibration-v1", epochKind: "development" }],
+      allocationRows: [{ epochId: "epoch-2026-09-10", points: 0 }],
+    });
+    expect(view.epoch.state).toBe("settled");
+    expect(view.epoch.estimatedPoints).toBe(0);
+    expect(view.epoch.settledPoints).toBe(0);
+    expect(view.epoch.label).toBe("SETTLED · DEVELOPMENT CALIBRATION");
+    expect(view.epoch.boundProtocolVersion).toBe("mining-dev-calibration-v1");
+  });
+
+  it("a settled mining-dev-v1 epoch shows its persisted 100,000 development points", () => {
+    const now = new Date("2026-09-07T20:00:00Z");
+    const view = buildDashboardView({
+      ...EMPTY,
+      now,
+      scores: [{ day: "2026-09-07", algorithmVersion: "usage_score_v1", weightedCostMicros: 13, excludedCostMicros: 0, pendingCostMicros: 0, points: 3.6056 }],
+      epochStates: { "epoch-2026-09-07": "settled" },
+      epochRows: [{ id: "epoch-2026-09-07", state: "settled", protocolVersion: "mining-dev-v1", epochKind: "development" }],
+      allocationRows: [{ epochId: "epoch-2026-09-07", points: 100_000 }],
+    });
+    expect(view.epoch.settledPoints).toBe(100_000);
+    expect(view.epoch.label).toBe("SETTLED · DEVELOPMENT");
+    expect(view.epoch.estimatedPoints).toBe(0);
+  });
+
+  it("an open epoch shows a moving estimate and no settled reward", () => {
+    const now = new Date("2026-09-12T20:00:00Z");
+    const view = buildDashboardView({ ...EMPTY, now, scores: [{ day: "2026-09-12", algorithmVersion: "usage_score_v1", weightedCostMicros: 1, excludedCostMicros: 0, pendingCostMicros: 0, points: 1 }] });
+    expect(view.epoch.state).toBe("open");
+    expect(view.epoch.settledPoints).toBeNull();
+    expect(view.epoch.estimatedPoints).toBe(100_000);
+    expect(view.epoch.label).toBe("OPEN");
   });
 });

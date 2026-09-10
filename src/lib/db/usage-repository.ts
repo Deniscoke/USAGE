@@ -9,6 +9,7 @@ import type {
 } from "@/lib/supabase/database.types";
 import type { DailyAggregate, NormalizedUsageRecord, ProofStatus } from "@/lib/domain/types";
 import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
+import { fundingEvidenceForConnection } from "@/lib/protocol/funding";
 import {
   rowToDailyAggregate,
   rowToScore,
@@ -33,6 +34,12 @@ export interface ConnectionSummary {
   status: ProviderConnectionRow["status"];
   method: ProviderConnectionRow["method"];
   lastSyncedAt: string | null;
+  /**
+   * Whether this connection is an economically eligible reward route right
+   * now: routable and priced, live, and funded by an account the provider
+   * states is paying. Server-derived; the live card shows it as the route line.
+   */
+  eligibleRoute: boolean;
 }
 
 /** A usage event plus its row id, so the feed can link to its proof. */
@@ -69,6 +76,10 @@ export interface DashboardSnapshot {
   settledPoints: number;
   /** Lifecycle state of the epochs the user has usage in, by epoch id. */
   epochStates: Record<string, EpochStateRow>;
+  /** The epoch rows themselves: state, bound protocol and kind, for settled-epoch display. */
+  epochRows: { id: string; state: EpochStateRow; protocolVersion: string | null; epochKind: string | null }[];
+  /** This user's persisted allocations, by epoch. A settled epoch shows these, never an estimate. */
+  allocationRows: { epochId: string; points: number }[];
   /** mining_protocol_versions as persisted: the authority for which protocol governs which epoch. */
   protocolRows: ProtocolVersionRowLite[];
 }
@@ -110,6 +121,7 @@ export async function loadDashboardSnapshot(
     connectionRows,
     ledgerRows,
     epochRows,
+    allocationRows,
     protocolRows,
     credentialRows,
     networkRows,
@@ -164,12 +176,20 @@ export async function loadDashboardSnapshot(
         if (error) throw new Error(`loadLedger: ${error.message}`);
         return (data ?? []) as { amount: number | string }[];
       }),
-    supabase
+    (supabase as unknown as { from: (t: string) => { select: (c: string) => PromiseLike<{ data: unknown; error: { message: string } | null }> } })
       .from("reward_epochs")
-      .select("id, state")
+      .select("id, state, protocol_version, epoch_kind")
       .then(({ data, error }) => {
         if (error) throw new Error(`loadEpochs: ${error.message}`);
-        return (data ?? []) as { id: string; state: EpochStateRow }[];
+        return (data ?? []) as { id: string; state: EpochStateRow; protocol_version: string | null; epoch_kind: string | null }[];
+      }),
+    supabase
+      .from("reward_allocations")
+      .select("epoch_id, points")
+      .eq("user_id", userId)
+      .then(({ data, error }) => {
+        if (error) throw new Error(`loadAllocations: ${error.message}`);
+        return (data ?? []) as { epoch_id: string; points: number | string }[];
       }),
     // Public rows (0008 policy). Columns from 0019 are read untyped so this
     // compiles against the generated types; missing ones read as null.
@@ -244,6 +264,11 @@ export async function loadDashboardSnapshot(
       provider: row.provider,
       accountLabel: row.account_label,
       status: row.status,
+      eligibleRoute:
+        row.status === "active" &&
+        row.revoked_at === null &&
+        row.mining_eligibility === "eligible_route" &&
+        fundingEvidenceForConnection(row)?.class === "paid_account",
       method: row.method,
       lastSyncedAt: row.last_synced_at,
     })),
@@ -265,6 +290,8 @@ export async function loadDashboardSnapshot(
       0,
     ),
     epochStates: Object.fromEntries(epochRows.map((row) => [row.id, row.state])),
+    epochRows: epochRows.map((row) => ({ id: row.id, state: row.state, protocolVersion: row.protocol_version ?? null, epochKind: row.epoch_kind ?? null })),
+    allocationRows: allocationRows.map((row) => ({ epochId: row.epoch_id, points: toSafeInteger(row.points, "reward_allocations.points") })),
     protocolRows,
   };
 }

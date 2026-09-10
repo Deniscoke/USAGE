@@ -33,6 +33,26 @@ create role service_role nologin noinherit bypassrls;
 create schema if not exists auth;
 grant usage on schema auth to anon, authenticated, service_role;
 
+-- Realtime Authorization shim: the messages table and topic() helper that
+-- migration 0021's policy references. realtime.topic() reads a transaction
+-- setting so a test can join "a channel" and check the policy.
+create schema if not exists realtime;
+grant usage on schema realtime to anon, authenticated, service_role;
+create table if not exists realtime.messages (
+  id bigserial primary key,
+  topic text not null,
+  extension text not null default 'broadcast',
+  payload jsonb,
+  inserted_at timestamptz not null default now()
+);
+alter table realtime.messages enable row level security;
+grant select on realtime.messages to anon, authenticated, service_role;
+grant insert on realtime.messages to service_role;
+grant usage, select on sequence realtime.messages_id_seq to service_role;
+create or replace function realtime.topic() returns text language sql stable as $fn$
+  select current_setting('realtime.topic', true)
+$fn$;
+
 -- Mirrors the columns our schema and trigger actually touch.
 create table auth.users (
   id uuid primary key default gen_random_uuid(),

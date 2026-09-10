@@ -10,7 +10,7 @@ the inert activation package (this code) is deployed and verified by
 assumptions on every economic write path; pricing v3 freshly audited
 (5 first-party-priced models; claude-3-haiku, nemotron and ling excluded);
 pico ingestion, exact BigInt v2 scoring, atomic `settle_beta_v2_epoch()`
-in `supabase/pending/0021_beta_v2_cutover.sql` (NOT applied). Shadow mode:
+in `supabase/pending/0022_beta_v2_cutover.sql` (NOT applied). Shadow mode:
 `npm run usage:m16a:shadow`. See docs/M15-ECONOMICS.md → M16A.
 
 Current production state (2026-09-10): 0018, 0019, 0020 applied;

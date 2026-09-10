@@ -69,11 +69,18 @@ export function BalanceHeadline({
   settled,
   estimated,
   epochState,
+  epochLabel,
+  settledEpochPoints = null,
 }: {
   settled: string;
   estimated: string;
   epochState: string;
+  /** Full label, e.g. "OPEN" or "SETTLED · DEVELOPMENT CALIBRATION". */
+  epochLabel?: string;
+  /** Persisted reward of a settled epoch (formatted); null while the epoch is open. */
+  settledEpochPoints?: string | null;
 }) {
+  const isOpen = epochState === "open";
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
       <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--faint)]">
@@ -84,8 +91,12 @@ export function BalanceHeadline({
         <span className="text-[11px] uppercase tracking-[0.14em] text-[var(--faint)]">
           This epoch
         </span>
-        <span className="tnum text-sm text-[var(--warn)]">+{estimated} estimated</span>
-        <span className="text-[11px] text-[var(--faint)]">epoch {epochState.toUpperCase()}</span>
+        {isOpen ? (
+          <span className="tnum text-sm text-[var(--warn)]">~{estimated} estimated</span>
+        ) : (
+          <span className="tnum text-sm text-[var(--muted)]">Reward: {settledEpochPoints ?? "0"}</span>
+        )}
+        <span className="text-[11px] text-[var(--faint)]">{epochLabel ?? `epoch ${epochState.toUpperCase()}`}</span>
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
         Estimated USAGE moves while the epoch is open and is not part of your balance. Only a

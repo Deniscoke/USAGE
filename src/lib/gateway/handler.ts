@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { MiningEventSequencer } from "@/lib/live/broadcast";
+import type { FailedEvent, OutcomeEvent, ProgressEvent, StartedEvent, VerifyingEvent } from "@/lib/live/events";
+import { usdStringToMicros } from "@/lib/domain/money";
 import type { NextRequest } from "next/server";
 import {
   appendDevObservation,
@@ -60,6 +63,53 @@ export interface GatewayRouteOptions {
   clientType: string;
   /** Protocol-shaped error body, so a client sees something it understands. */
   error(status: number, type: string, message: string): Response;
+}
+
+/** Micro-USD from a provider cost string, or null. Display/verifying only; ingestion parses authoritatively. */
+function costMicrosOrNull(value: string): number | null {
+  try {
+    return usdStringToMicros(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * After ingestion committed, read the persisted unit back and broadcast its
+ * outcome. Read from the database, never from the in-memory observation, so
+ * the browser sees exactly what was stored (including a dedupe downgrade).
+ */
+async function broadcastPersistedOutcome(live: MiningEventSequencer, userId: string, observation: GatewayObservation): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const { createAdminSupabase } = await import("@/lib/supabase/admin");
+  const admin = createAdminSupabase();
+  const { data } = await admin
+    .from("usage_events")
+    .select("occurred_at, epoch_id, verification_status, economic_status, reward_status, reward_reason, protocol_compute_micros, eligible_compute_micros, protocol_compute_pico, eligible_compute_pico, input_tokens, output_tokens, cached_input_tokens, provider, model")
+    .eq("user_id", userId)
+    .eq("gateway_id", observation.gatewayId ?? "")
+    .like("external_reference", `%${observation.generationId}`)
+    .maybeSingle();
+  if (!data) return;
+  const name = data.reward_status === "eligible" ? "mining.request.verified" : data.reward_status === "held" ? "mining.request.held" : "mining.request.ineligible";
+  live.emit<OutcomeEvent>({
+    name,
+    model: data.model,
+    persistedAt: Date.now(),
+    occurredAt: data.occurred_at,
+    epochId: data.epoch_id,
+    verificationStatus: data.verification_status,
+    economicStatus: data.economic_status,
+    rewardStatus: data.reward_status,
+    rewardReason: data.reward_reason,
+    protocolComputeMicros: data.protocol_compute_micros,
+    eligibleComputeMicros: data.eligible_compute_micros,
+    protocolComputePico: data.protocol_compute_pico ?? null,
+    eligibleComputePico: data.eligible_compute_pico ?? null,
+    inputTokens: data.input_tokens,
+    outputTokens: data.output_tokens,
+    cacheReadTokens: data.cached_input_tokens,
+  } as never);
 }
 
 async function resolveMinerStore() {
@@ -172,6 +222,14 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
 
     // Resolved only after authentication, and scoped to the authenticated user.
     const resolved = await resolveGateway(auth.identity.userId, params);
+    // Live UX events (M16B): ephemeral, per-user, never economic authority.
+    // `requestId` is server-minted and correlates the browser's view of this
+    // request with the eventual persisted unit; the client chooses nothing.
+    const live = new MiningEventSequencer(
+      isSupabaseConfigured() ? (await import("@/lib/supabase/admin")).createAdminSupabase() : null,
+      auth.identity.userId,
+      { requestId, route: `${clientType} → ${resolved instanceof Response ? "unavailable" : resolved.gateway.providerSlug}`, provider: resolved instanceof Response ? "unavailable" : resolved.gateway.providerSlug, model: null },
+    );
     if (resolved instanceof Response) {
       logGatewayRequest({
         requestId,
@@ -203,6 +261,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
         ? (parsedBody as { model: string }).model
         : null;
     const streaming = gateway.isStreaming(parsedBody);
+    live.emit<StartedEvent>({ name: "mining.request.started", model: requestedModel, startedAt, eligibleRoute: gateway.id.startsWith("connection:") } as never);
 
     const call = gateway.buildUpstreamCall(
       {
@@ -244,6 +303,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       // The message is ours, not the raw error: upstream errors can echo config.
       void caught;
       resolved.onOutcome?.({ ok: false, errorCode: "unreachable" });
+      live.emit<FailedEvent>({ name: "mining.request.failed", model: requestedModel, status: 502, reason: "unreachable" } as never);
       return error(502, "api_error", "USAGE Gateway could not reach the upstream provider.");
     }
 
@@ -262,6 +322,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
         outcome: "upstream_error",
       });
       resolved.onOutcome?.({ ok: false, errorCode: `http_${upstream.status}` });
+      live.emit<FailedEvent>({ name: "mining.request.failed", model: requestedModel, status: upstream.status, reason: `http_${upstream.status}` } as never);
       return new Response(body, { status: upstream.status, headers: responseHeaders });
     }
 
@@ -283,7 +344,22 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       });
 
       resolved.onOutcome?.({ ok: true });
-      if (!observation) return;
+      if (!observation) {
+        live.emit<FailedEvent>({ name: "mining.request.failed", model: requestedModel, status, reason: "usage_unavailable" } as never);
+        return;
+      }
+      // The provider's terminal usage is authoritative for the provider but
+      // not yet persisted: VERIFYING, never VERIFIED, until ingestion lands.
+      live.emit<VerifyingEvent>({
+        name: "mining.request.verifying",
+        model: observation.model,
+        terminalAt: Date.now(),
+        inputTokens: observation.usage.inputTokens ?? null,
+        outputTokens: observation.usage.outputTokens ?? null,
+        cacheReadTokens: observation.usage.inputTokenDetails?.cacheReadTokens ?? null,
+        reasoningTokens: observation.usage.outputTokenDetails?.reasoningTokens ?? null,
+        providerCostMicros: observation.cost?.value !== undefined && observation.cost?.value !== null ? costMicrosOrNull(String(observation.cost.value)) : null,
+      } as never);
       // Recording must not delay the client's response -- but a serverless
       // function is frozen the moment the response completes, so a plain
       // fire-and-forget promise is simply never finished. after() keeps the
@@ -294,7 +370,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
           auth.identity.userId,
           trust,
           auth.identity.credentialId,
-        ).catch(() => {
+        ).then(() => broadcastPersistedOutcome(live, auth.identity.userId, observation)).catch(() => {
           logGatewayRequest({
             requestId,
             userId: auth.identity.userId,
@@ -312,10 +388,26 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       const decoder = new TextDecoder();
 
       // Bytes pass through untouched; the observer only reads a copy of the text.
+      let chunks = 0;
+      let streamedChars = 0;
+      let firstChunkAt: number | null = null;
+      let lastProgressAt = 0;
       const passthrough = new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
           controller.enqueue(chunk);
-          observer.push(decoder.decode(chunk, { stream: true }));
+          const text = decoder.decode(chunk, { stream: true });
+          observer.push(text);
+          // Live progress: what the server can truthfully observe before the
+          // provider's terminal usage -- that bytes are flowing, and how many.
+          // At most one event per second; the browser paints the seconds itself.
+          chunks += 1;
+          streamedChars += text.length;
+          const now = Date.now();
+          if (firstChunkAt === null || now - lastProgressAt >= 1000) {
+            firstChunkAt = firstChunkAt ?? now;
+            lastProgressAt = now;
+            live.emit<ProgressEvent>({ name: "mining.request.progress", model: requestedModel, firstChunkAt, chunks, streamedChars } as never);
+          }
         },
         flush() {
           finish(

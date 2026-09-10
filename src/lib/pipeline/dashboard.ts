@@ -59,6 +59,8 @@ export interface ConnectionView {
   status: ConnectionSummary["status"];
   lastSyncedAt: string | null;
   isDemo: boolean;
+  /** An economically eligible reward route, server-derived. */
+  eligibleRoute: boolean;
 }
 
 export interface DashboardData {
@@ -99,6 +101,11 @@ export interface DashboardData {
      * is never written to the point ledger.
      */
     estimatedPoints: number;
+    /** Persisted allocation when the epoch is settled; null while it is open or finalizing. */
+    settledPoints: number | null;
+    /** OPEN / FINALIZING / "SETTLED · DEVELOPMENT CALIBRATION" and so on. */
+    label: string;
+    boundProtocolVersion: string | null;
     excludedCostMicros: number;
     /** Real usage today whose economic weight is not yet established. */
     pendingCostMicros: number;
@@ -150,6 +157,9 @@ export interface DashboardInput {
   otherParticipantsScore?: number;
   /** mining_protocol_versions rows, when the repository loaded them; the persisted schedule. */
   protocolRows?: ProtocolVersionRowLite[];
+  /** reward_epochs rows (state, bound protocol, kind) and this user's allocations. */
+  epochRows?: { id: string; state: EpochState; protocolVersion: string | null; epochKind: string | null }[];
+  allocationRows?: { epochId: string; points: number }[];
   networkParticipants?: number;
   now?: Date;
 }
@@ -202,6 +212,8 @@ export function buildDashboardView({
   minerCredentials = [],
   otherParticipantsScore = 0,
   protocolRows = [],
+  epochRows = [],
+  allocationRows = [],
   networkParticipants = 0,
   now = new Date(),
 }: DashboardInput): DashboardData {
@@ -252,6 +264,17 @@ export function buildDashboardView({
     networkScore,
     rewardPoolPoints: todayPool,
   });
+  // A settled epoch never shows a mutable estimate. Its reward is the
+  // persisted allocation (0 for a zero-reward calibration disposition), and
+  // its rule is the protocol it is BOUND to, not today's protocol.
+  const todayEpochId = epochIdForDate(now);
+  const todayEpochRow = epochRows.find((row) => row.id === todayEpochId) ?? null;
+  const boundProtocol = todayEpochRow?.protocolVersion ? protocolForEpoch(todayEpochId, schedule, todayEpochRow.protocolVersion) : null;
+  const settledEpochPoints = epochState === "settled" ? (allocationRows.find((row) => row.epochId === todayEpochId)?.points ?? 0) : null;
+  const epochLabel =
+    epochState === "settled"
+      ? `SETTLED · ${boundProtocol?.emissionAlgorithm === "zero-reward-calibration-v1" ? "DEVELOPMENT CALIBRATION" : (todayEpochRow?.epochKind ?? boundProtocol?.network ?? "development").toUpperCase()}`
+      : epochState.toUpperCase();
 
   const capabilities = new Map(listIntegrations().map((i) => [i.provider, i]));
 
@@ -303,7 +326,11 @@ export function buildDashboardView({
       networkScore,
       networkParticipants,
       networkShare: reward.networkShare,
-      estimatedPoints: reward.points,
+      // Only an OPEN epoch has an estimate; a settled one has a persisted reward.
+      estimatedPoints: epochState === "open" ? reward.points : 0,
+      settledPoints: settledEpochPoints,
+      label: epochLabel,
+      boundProtocolVersion: boundProtocol?.version ?? null,
       excludedCostMicros: todayScore?.excludedCostMicros ?? 0,
       pendingCostMicros: todayScore?.pendingCostMicros ?? 0,
       state: epochState,
@@ -348,6 +375,7 @@ export function buildDashboardView({
         status: connection.status,
         lastSyncedAt: connection.lastSyncedAt,
         isDemo: isDemoProvider(connection.provider),
+        eligibleRoute: connection.eligibleRoute ?? false,
       };
     }),
   };

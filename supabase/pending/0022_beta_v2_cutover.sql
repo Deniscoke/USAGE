@@ -1,4 +1,4 @@
--- 0021 — mining-beta-v2 cutover: epoch-aware scheduling, pricing v3, atomic v2 settlement
+-- 0022 — mining-beta-v2 cutover: epoch-aware scheduling, pricing v3, atomic v2 settlement
 --
 -- STATUS: PENDING. Not applied. 0019 and 0020 are applied history and are
 -- not touched. Applying this migration SCHEDULES the beta protocol for a

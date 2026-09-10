@@ -1325,7 +1325,7 @@ From the cutover epoch: "BETA V2", scoring "LINEAR VERIFIED COMPUTE", emission
 before settlement; no token-claim language; development epochs stay
 non-claimable.
 
-## Pending 0021 (`supabase/pending/0021_beta_v2_cutover.sql`, not applied)
+## Pending 0021 (`supabase/pending/0022_beta_v2_cutover.sql`, not applied)
 
 `scheduled` status; mining-dev-v1 stamped `effective_from_epoch =
 epoch-2026-09-01`; network versions must name a first epoch unless draft;
