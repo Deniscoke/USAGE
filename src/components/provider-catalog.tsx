@@ -1,4 +1,5 @@
 "use client";
+import type { ProviderStatusView } from "@/lib/providers/status-view";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -36,6 +37,8 @@ export interface ConnectionCard {
   statusLabel: string;
   miningLabel: string;
   miningDetail: string;
+  /** Six separate facts, server-derived. */
+  view: ProviderStatusView;
   modelCount: number;
   pricedModelCount: number;
   origin: string | null;
@@ -44,6 +47,34 @@ export interface ConnectionCard {
   lastSuccessAt: string | null;
   /** Where a tool should send requests so USAGE can observe them. */
   routeUrl: string;
+}
+
+/**
+ * Connection, credential, routing, usage evidence, pricing, funding, mining:
+ * seven lines that are never one word. "Routable and priced" is not "earns".
+ */
+export function StatusRows({ view, compact = false }: { view: ProviderStatusView; compact?: boolean }) {
+  const tone = (ok: boolean, warn = false) => (ok ? "var(--verified)" : warn ? "var(--warn)" : "var(--faint)");
+  const rows: { label: string; value: string; color: string }[] = [
+    { label: "Connection", value: view.connection.label.toUpperCase(), color: tone(view.connection.state === "active" || view.connection.state === "limited" || view.connection.state === "pending_pricing", view.connection.state === "validating") },
+    { label: "API credential", value: view.credential === "valid" ? "VALID" : view.credential === "rejected" ? "REJECTED" : "UNVERIFIED", color: tone(view.credential === "valid", view.credential === "unverified") },
+    { label: "Models", value: view.models.discovered > 0 ? `${view.models.discovered} discovered · ${view.models.priced} priced` : "not listed", color: "var(--foreground)" },
+    { label: "Routing", value: view.routing === "available" ? "AVAILABLE" : "UNSUPPORTED", color: tone(view.routing === "available") },
+    { label: "Usage evidence", value: view.usageEvidence === "routed_proof" ? "ROUTED PROOF" : view.usageEvidence === "analytics_only" ? "ANALYTICS ONLY" : "NONE", color: tone(view.usageEvidence === "routed_proof", view.usageEvidence === "analytics_only") },
+    { label: "Pricing", value: view.pricing === "available" ? "AVAILABLE" : view.pricing === "pending" ? "PENDING" : "NONE", color: tone(view.pricing === "available", view.pricing === "pending") },
+    { label: "Funding", value: view.funding.class === "paid_account" ? "PAID-ACCOUNT METERED" : view.funding.class === "free_tier_account" ? "FREE TIER" : view.funding.class === "byok_upstream" ? "BYOK — UNKNOWN" : view.funding.class.toUpperCase(), color: tone(view.funding.class === "paid_account", view.funding.class === "unknown") },
+    { label: "Mining", value: view.mining.label.toUpperCase(), color: tone(view.mining.outcome === "eligible", view.mining.outcome === "held") },
+  ];
+  return (
+    <dl className={`grid gap-x-4 gap-y-1 text-[11px] ${compact ? "grid-cols-[auto_1fr]" : "grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_1fr]"}`}>
+      {rows.map((row) => (
+        <div key={row.label} className="contents">
+          <dt className="text-[var(--faint)]">{row.label}</dt>
+          <dd className="tnum" style={{ color: row.color }}>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 const CATEGORY_LABEL: Record<CatalogCategory, string> = {
@@ -191,8 +222,8 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
       </dl>
 
       <div className="mt-3 border-t border-[var(--border)] pt-3">
-        <p className="text-[11px] text-[var(--foreground)]">{connection.miningLabel}</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-[var(--faint)]">
+        <StatusRows view={connection.view} />
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
           {connection.miningDetail}
         </p>
         {connection.modelCount > 0 && (

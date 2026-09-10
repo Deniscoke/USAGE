@@ -15,6 +15,7 @@ import {
 import { findModelPrice, CURRENT_PRICING_VERSION } from "@/lib/pricing/compute";
 import { customProfile, isRecognisedEndpoint, profileForFamily, profileForUrl, resolveBaseUrl, type ProviderConnectionProfile } from "./profiles";
 import { validateConnection, type ValidationResult } from "./validate";
+import { deriveProviderStatusView, type ProviderStatusView } from "./status-view";
 import type {
   ConnectionStatusDetailRow,
   Database,
@@ -71,6 +72,10 @@ export interface ConnectionSummaryView {
   lastSuccessAt: string | null;
   lastErrorCode: string | null;
   revokedAt: string | null;
+  /** Registry family / provider slug the connection was made for. */
+  provider: string;
+  /** The six separate facts every surface shows. Server-derived, never guessed by UI. */
+  view: ProviderStatusView;
 }
 
 export class ConnectionError extends Error {
@@ -619,6 +624,27 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           lastSuccessAt: connection.last_success_at,
           lastErrorCode: connection.last_error_code,
           revokedAt: connection.revoked_at,
+          provider: connection.provider,
+          view: deriveProviderStatusView({
+            provider: connection.provider,
+            authMethod: connection.auth_method ?? "api_key",
+            connectionStatus: connection.connection_status,
+            miningEligibility: connection.mining_eligibility,
+            capabilities: { ...UNKNOWN_CAPABILITIES, ...(connection.capabilities as Partial<ProtocolCapabilities>) },
+            modelCount: forDefinition.length,
+            pricedModelCount: forDefinition.filter((model) => model.protocol_model_key).length,
+            accountContext: connection.account_context,
+            validatedAt: connection.validated_at,
+            endpointTrusted: (() => {
+              const definition = connection.definition_id ? definitionById.get(connection.definition_id) : undefined;
+              return (
+                definition?.origin === "official" ||
+                definition?.origin === "community_supported" ||
+                isRecognisedEndpoint(definition?.provider_family, connection.base_url)
+              );
+            })(),
+            revoked: connection.revoked_at !== null || connection.connection_status === "revoked",
+          }),
         };
       });
     },

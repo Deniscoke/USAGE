@@ -6,7 +6,6 @@ import { createConnectionStore } from "@/lib/providers/connections";
 import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
-import { MINING_ELIGIBILITY_COPY } from "@/lib/protocols/protocol";
 // One source of truth for what build the server expects: a device that is told
 // it is current here and out of date on the download page would be a bug.
 import { MINER_PROTOCOL_VERSION, MINIMUM_MINER_VERSION } from "@/lib/miner/release";
@@ -83,8 +82,11 @@ export async function GET(request: NextRequest) {
     label: connection.displayName,
     protocol: connection.protocol,
     url: `${origin}/api/gateway/provider/${connection.id}`,
+    // ROUTE capability (kept for routing decisions) and the economic
+    // verdict (what the window shows), separately.
     miningEligibility: connection.miningEligibility,
-    miningLabel: MINING_ELIGIBILITY_COPY[connection.miningEligibility].label,
+    rewardStatus: connection.view.mining.outcome,
+    miningLabel: `Mining ${connection.view.mining.label.toLowerCase()} — ${connection.view.mining.reason}`,
   }));
 
   /**

@@ -161,6 +161,15 @@ export interface ProviderProtocol {
 /**
  * What a connection can be trusted to produce, given what it can actually do.
  *
+ * ROUTE CAPABILITY, not economic eligibility. `eligible_route` means: routable,
+ * usage and a request id documented, and at least one model with an approved
+ * protocol price -- so a request through it CAN become a priced routed proof.
+ * Whether that proof EARNS is decided per request by economic-verification-v1
+ * and the reward policy from the funding the provider stated; a valid OpenAI
+ * API-key connection is eligible_route and its rewards are held, because its
+ * funding is unknown. The name is kept in the schema and API to avoid churn;
+ * every surface shows the economic verdict from `ProviderStatusView`.
+ *
  * The rule that keeps "connectable" and "mining eligible" apart. Connecting a
  * provider is never itself grounds to pay anyone.
  */
@@ -197,8 +206,8 @@ export const MINING_ELIGIBILITY_COPY: Record<
   { label: string; detail: string }
 > = {
   eligible_route: {
-    label: "Full mining",
-    detail: "Verified compute through this connection earns USAGE.",
+    label: "Routable and priced",
+    detail: "USAGE can route, prove and price compute through this connection. Whether it earns depends on the funding the provider states.",
   },
   pending_pricing: {
     label: "Routed proof, pending pricing",

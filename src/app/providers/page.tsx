@@ -2,7 +2,6 @@ import Link from "next/link";
 import { listComputeGateways } from "@/lib/compute/registry";
 import { isUsable, listProviders } from "@/lib/providers/catalog";
 import { createConnectionStore } from "@/lib/providers/connections";
-import { MINING_ELIGIBILITY_COPY } from "@/lib/protocols/protocol";
 import { PROTOCOL_LABELS } from "@/lib/protocols/registry";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -24,17 +23,6 @@ export const dynamic = "force-dynamic";
  * provider" path connects something USAGE has never heard of, and the empty
  * search result says so rather than shrugging.
  */
-
-const STATUS_LABEL: Record<string, string> = {
-  validating: "Saved — validation incomplete",
-  active: "Connected",
-  limited: "Limited",
-  invalid_credentials: "Invalid credentials",
-  unsupported_usage: "No usage data",
-  pending_pricing: "Pending pricing",
-  error: "Error",
-  revoked: "Disconnected",
-};
 
 function catalogEntries(): CatalogEntry[] {
   return listProviders().map((provider) => {
@@ -89,9 +77,10 @@ export default async function ProvidersPage() {
         protocolLabel: summary.protocol ? PROTOCOL_LABELS[summary.protocol] : "Unknown protocol",
         host: summary.baseUrlHost,
         status: summary.status,
-        statusLabel: STATUS_LABEL[summary.status] ?? summary.status,
-        miningLabel: MINING_ELIGIBILITY_COPY[summary.miningEligibility].label,
-        miningDetail: MINING_ELIGIBILITY_COPY[summary.miningEligibility].detail,
+        statusLabel: summary.view.connection.label,
+        miningLabel: `Mining: ${summary.view.mining.label}`,
+        miningDetail: summary.view.mining.reason,
+        view: summary.view,
         modelCount: summary.modelCount,
         pricedModelCount: summary.pricedModelCount,
         origin: summary.origin,
@@ -112,9 +101,7 @@ export default async function ProvidersPage() {
           slug: `connection-${summary.id}`,
           name: summary.displayName,
           category: summary.origin === "custom" ? "custom" : "compatible",
-          summary: `${summary.protocol ? PROTOCOL_LABELS[summary.protocol] : "Connected"} · ${
-            MINING_ELIGIBILITY_COPY[summary.miningEligibility].label
-          }`,
+          summary: `${summary.protocol ? PROTOCOL_LABELS[summary.protocol] : "Connected"} · mining ${summary.view.mining.label.toLowerCase()}`,
           href: null,
         });
       }

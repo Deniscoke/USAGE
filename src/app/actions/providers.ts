@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
+import type { ProviderStatusView } from "@/lib/providers/status-view";
 import { createConnectionStore, ConnectionError } from "@/lib/providers/connections";
 import { getProtocol } from "@/lib/protocols/registry";
 import { SsrfError } from "@/lib/net/ssrf";
@@ -34,6 +35,8 @@ export interface ConnectProviderState {
   /** Generation-time evidence is documented for known providers; pending for custom. */
   usageEvidence?: "documented" | "pending";
   pricedModelCount?: number;
+  /** The one server-derived status, identical to what /providers shows. */
+  view?: ProviderStatusView;
 }
 
 async function requireUser() {
@@ -100,6 +103,7 @@ export async function connectProvider(
       modelCount: result.validation.models.length,
       usageEvidence: result.validation.capabilities.usage ? "documented" : "pending",
       pricedModelCount: result.eligibility === "eligible_route" ? 1 : 0,
+      view: (await store.list(session.user.id)).find((c) => c.id === result.connectionId)?.view,
     };
   } catch (error) {
     if (error instanceof SsrfError) return { error: error.message };

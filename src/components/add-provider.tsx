@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { connectProvider, type ConnectProviderState } from "@/app/actions/providers";
+import { StatusRows } from "./provider-catalog";
 
 /**
  * The Add Provider wizard.
@@ -246,10 +247,15 @@ function Field({
   );
 }
 
+/**
+ * Route-capability copy, used only when the server view is absent. Note that
+ * `eligible_route` is ROUTE capability: routable, measurable, priced. Whether
+ * a request earns is the economic policy's call, shown in the status rows.
+ */
 const OUTCOME: Record<string, { title: string; detail: string; tone: string }> = {
   eligible_route: {
-    title: "Connected — full mining",
-    detail: "Verified compute through this provider earns USAGE.",
+    title: "Connected — routable and priced",
+    detail: "USAGE can route, prove and price compute through this provider. Whether it earns depends on the funding the provider states; see Funding and Mining.",
     tone: "var(--verified)",
   },
   pending_pricing: {
@@ -272,8 +278,21 @@ const OUTCOME: Record<string, { title: string; detail: string; tone: string }> =
 };
 
 function ConnectedSummary({ state }: { state: ConnectProviderState }) {
-  const outcome = OUTCOME[state.eligibility ?? "unsupported"] ?? OUTCOME.unsupported;
   const inconclusive = state.verdict === "inconclusive";
+  const mining = state.view?.mining;
+  const outcome = {
+    title: inconclusive
+      ? "Saved — validation incomplete"
+      : mining?.outcome === "eligible"
+        ? "Connected — mining eligible"
+        : mining?.outcome === "held"
+          ? "Connected — mining held"
+          : mining?.outcome === "ineligible"
+            ? "Connected — not reward eligible"
+            : "Connected — not measurable",
+    detail: mining?.reason ?? OUTCOME[state.eligibility ?? "unsupported"]?.detail ?? "",
+    tone: mining?.outcome === "eligible" ? "var(--verified)" : mining?.outcome === "held" ? "var(--warn)" : "var(--reported)",
+  };
   const rows: [string, string][] = [
     ["Connection", inconclusive ? "Credential saved — validation incomplete" : "✓ API credential accepted"],
     ["Protocol", state.protocol ?? "—"],
@@ -291,17 +310,21 @@ function ConnectedSummary({ state }: { state: ConnectProviderState }) {
   return (
     <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
       <p className="text-sm" style={{ color: inconclusive ? "var(--warn)" : outcome.tone }}>
-        {inconclusive ? "Saved — validation incomplete" : outcome.title}
+        {outcome.title}
       </p>
       <p className="text-xs leading-relaxed text-[var(--muted)]">{state.message}</p>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[11px]">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-[var(--faint)]">{label}</dt>
-            <dd className="text-[var(--foreground)]">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      {state.view ? (
+        <StatusRows view={state.view} compact />
+      ) : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[11px]">
+          {rows.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-[var(--faint)]">{label}</dt>
+              <dd className="text-[var(--foreground)]">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <p className="text-[11px] leading-relaxed text-[var(--faint)]">{outcome.detail}</p>
       <div className="flex flex-wrap gap-3 pt-1">
         <Link
