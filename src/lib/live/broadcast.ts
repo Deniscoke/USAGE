@@ -29,7 +29,12 @@ export async function broadcastMiningEvent(admin: SupabaseClient<Database>, user
 /** Per-request event sequencing, kept on the server for the request's lifetime. */
 export class MiningEventSequencer {
   private seq = 0;
-  constructor(private readonly admin: SupabaseClient<Database> | null, private readonly userId: string, private readonly base: { requestId: string; route: string; provider: string; model: string | null }) {}
+  constructor(private readonly admin: SupabaseClient<Database> | null, private readonly userId: string, private base: { requestId: string; route: string; provider: string; model: string | null }) {}
+
+  /** The route is known only after the gateway resolves; later events carry it. */
+  setRoute(route: string, provider: string): void {
+    this.base = { ...this.base, route, provider };
+  }
 
   emit<E extends MiningEvent>(event: Omit<E, keyof import("./events").MiningEventBase> & { name: E["name"] }): void {
     if (!this.admin) return;

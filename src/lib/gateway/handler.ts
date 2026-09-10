@@ -220,16 +220,21 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       return error(429, "rate_limit_error", "Miner rate limit exceeded.");
     }
 
-    // Resolved only after authentication, and scoped to the authenticated user.
-    const resolved = await resolveGateway(auth.identity.userId, params);
     // Live UX events (M16B): ephemeral, per-user, never economic authority.
     // `requestId` is server-minted and correlates the browser's view of this
     // request with the eventual persisted unit; the client chooses nothing.
+    // Emitted the moment the miner is authenticated, before the gateway is
+    // resolved, so MINING_LIVE reaches the browser as early as the server
+    // truthfully knows a request from this user exists.
     const live = new MiningEventSequencer(
       isSupabaseConfigured() ? (await import("@/lib/supabase/admin")).createAdminSupabase() : null,
       auth.identity.userId,
-      { requestId, route: `${clientType} → ${resolved instanceof Response ? "unavailable" : resolved.gateway.providerSlug}`, provider: resolved instanceof Response ? "unavailable" : resolved.gateway.providerSlug, model: null },
+      { requestId, route: `${clientType} → resolving`, provider: "resolving", model: null },
     );
+    live.emit<StartedEvent>({ name: "mining.request.started", model: null, startedAt, eligibleRoute: false } as never);
+
+    // Resolved only after authentication, and scoped to the authenticated user.
+    const resolved = await resolveGateway(auth.identity.userId, params);
     if (resolved instanceof Response) {
       logGatewayRequest({
         requestId,
@@ -261,7 +266,8 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
         ? (parsedBody as { model: string }).model
         : null;
     const streaming = gateway.isStreaming(parsedBody);
-    live.emit<StartedEvent>({ name: "mining.request.started", model: requestedModel, startedAt, eligibleRoute: gateway.id.startsWith("connection:") } as never);
+    live.setRoute(`${clientType} → ${gateway.providerSlug}`, gateway.providerSlug);
+    live.emit<ProgressEvent>({ name: "mining.request.progress", model: requestedModel, firstChunkAt: null, chunks: 0, streamedChars: 0 } as never);
 
     const call = gateway.buildUpstreamCall(
       {

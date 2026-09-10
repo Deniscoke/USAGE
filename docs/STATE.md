@@ -2,6 +2,19 @@
 
 ## Current milestone
 
+M16B — live mining proof. **Deployed 2026-09-10.** Private per-user
+Realtime channel (migration 0021_realtime_mining_channel: one RLS policy on
+realtime.messages, nothing economic), server-emitted started / progress /
+verifying / verified events, `GET /api/mining/summary`, MINING PATH card with
+local 1 s tick, 5 s fallback only while Realtime is down, settled epochs show
+their persisted reward. One live request observed on the channel:
+started → verifying → verified with no refresh; VERIFIED reached the
+subscriber 162 ms after the economic commit. **The live unit (`66346da1`,
+eligible, 1 micro-USD) was carried forward into epoch-2026-09-11** because
+epoch-2026-09-10 is settled: an owner disposition is required before
+mining-beta-v2 is scheduled. Ledger unchanged; v2 inactive; 0022 pending.
+Pending cutover migration renumbered to `supabase/pending/0022_beta_v2_cutover.sql`.
+
 M16A — beta-v2 cutover preparation. **Prepared, not activated.** Target first
 mining-beta-v2 epoch: epoch-2026-09-14 (2026-09-14T00:00:00Z), valid only if
 the inert activation package (this code) is deployed and verified by

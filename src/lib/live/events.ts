@@ -136,7 +136,7 @@ export function applyLiveEvent(model: LiveModel, e: MiningEvent): LiveModel {
   const existing = model.current?.requestId === e.requestId ? model.current : model.last?.requestId === e.requestId ? model.last : null;
   const base = existing ?? fresh(e);
   if (e.seq <= base.lastSeq) return { ...model, seen };
-  const next: LiveRequest = { ...base, lastSeq: e.seq, lastEventAt: e.at, model: e.model ?? base.model };
+  const next: LiveRequest = { ...base, lastSeq: e.seq, lastEventAt: e.at, model: e.model ?? base.model, route: e.provider === "resolving" ? base.route : e.route, provider: e.provider === "resolving" ? base.provider : e.provider };
 
   switch (e.name) {
     case "mining.request.started":

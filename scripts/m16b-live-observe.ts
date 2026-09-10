@@ -39,12 +39,14 @@ async function main(): Promise<number> {
     });
   }
   const subscribed = await new Promise<boolean>((resolve) => {
-    channel.subscribe((status) => {
-      line(`  channel ${status}`);
+    let attempts = 0;
+    channel.subscribe((status, err) => {
+      line(`  channel ${status}${err ? ` (${err.message})` : ""}`);
       if (status === "SUBSCRIBED") resolve(true);
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") resolve(false);
+      // A transient join error on the first attempt is retried once by the client library.
+      if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") && ++attempts >= 3) resolve(false);
     });
-    setTimeout(() => resolve(false), 15_000);
+    setTimeout(() => resolve(false), 20_000);
   });
   if (!subscribed) {
     line("  could not subscribe to the private channel");

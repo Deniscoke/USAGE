@@ -1334,3 +1334,106 @@ inserted frozen with the five audited models; mining-beta-v2 → scheduled for
 epoch-2026-09-14 (the single UPDATE to edit if the target moves);
 `settle_beta_v2_epoch()` with grants. Rollback listed in the file, valid
 until the first v2 settlement.
+
+
+---
+
+# M16B — Live mining proof and real-time dashboard
+
+## Audit of the dashboard before M16B
+
+The dashboard page is `force-dynamic` server-rendered: every number came
+from one `loadDashboardSnapshot` at page load. No polling, no Realtime, no
+client refetch. A completed request therefore appeared only after a manual
+refresh, and the "Mining active" label meant "a credential exists and some
+activity contributes", which is not "a request is flowing now". After the
+calibration close the balance card also showed "+100,000 estimated ·
+SETTLED" because the estimate was computed from today's protocol pool
+regardless of the epoch's state.
+
+## Architecture
+
+- **State model** (`src/lib/live/events.ts`): DISCONNECTED, READY,
+  MINING_LIVE, VERIFYING, VERIFIED, HELD, INELIGIBLE, ERROR, derived from an
+  idempotent reducer over server events keyed by (requestId, seq). CONNECTED
+  never implies MINING_LIVE; READY never shows compute being earned.
+- **Events** (server → browser, ephemeral, safe fields only): started,
+  progress (at most one per second while bytes flow), verifying (the
+  provider's terminal usage, before persistence), verified / held /
+  ineligible (read back from the persisted row, never from memory), failed.
+  `requestId` is minted by the server and is not an economic unit.
+- **Transport**: Supabase Realtime Broadcast on a PRIVATE per-user channel
+  `mining:<auth.uid()>`. Migration 0021 adds the one RLS policy on
+  `realtime.messages` (select, authenticated, own topic, broadcast only);
+  nothing economic is touched. The server publishes with the service role
+  over the REST broadcast endpoint (`httpSend`), so serverless invocations
+  need no socket; the key never reaches a browser. Database writes per
+  second: zero.
+- **UI** (`src/components/live-mining.tsx`, MINING PATH card): 1 s repaint is
+  a local timer that runs only while a request is live and the tab is
+  visible; a verified/held/ineligible/failed event triggers exactly one
+  refetch of `GET /api/mining/summary` (cookie-authenticated, RLS); when
+  Realtime drops the card shows LIVE UPDATES RECONNECTING and polls that
+  endpoint every 5 s while visible, stopping when Realtime is back; a hidden
+  tab neither ticks nor polls, and one refetch runs on return.
+- **Estimates**: OpenRouter delivers complete usage only in the terminal
+  response, so before it the server truthfully knows elapsed time and
+  streamed characters. The card shows activity and time; a "~ estimated"
+  token/compute figure appears only when an output price is supplied and is
+  never persisted or called verified. The dashboard passes no price today, so
+  the live line shows activity, not fabricated precision.
+- **Settled epochs**: the balance card now shows `Reward: <persisted
+  allocation>` and `SETTLED · DEVELOPMENT CALIBRATION` (or `· DEVELOPMENT`)
+  from the epoch's bound protocol; an estimate exists only for an OPEN epoch.
+
+## Live test (2026-09-10 20:18 UTC, one request, "Reply only: LIVE", openai/gpt-5-nano)
+
+Observed by a server-side subscriber on the owner's private channel
+(service role; the browser could not be driven without the owner's session):
+
+| mark | instant | note |
+| --- | --- | --- |
+| T0 route received | 20:18:34.687Z | server |
+| T1 observer MINING_LIVE | 20:18:37.850Z | activation 3,163 ms (243 ms of it transit) |
+| T2 first stream chunk | n/a | the request was non-streaming |
+| T3 terminal usage | 20:18:43.414Z | 10 input tokens, 0 output, $0.0000005 |
+| T4 unit persisted | 20:18:46.656Z | ingestion, signing, aggregates, scores |
+| T5 observer VERIFIED | 20:18:46.818Z | 162 ms after commit |
+| T6 aggregate readable | 20:18:47.151Z | 495 ms after commit |
+
+Transitions observed without any refresh: started → verifying → verified.
+Verification propagation after the economic commit (T5−T4) is 162 ms, within
+target; the 3.4 s from terminal usage to VERIFIED (T5−T3) is ingestion time.
+Activation latency (T1−T0) missed the 2 s target: the started event was
+emitted after miner authentication, gateway resolution and body parsing. It
+is now emitted the moment the miner is authenticated, before resolution;
+this is deployed but, per the one-request rule, not re-measured.
+
+Economics: one new unit `66346da1` (eligible, unique key, 1 micro-USD,
+usage-pricing-v2, no pico since v3 is not scheduled), 7 events, keyed units
+2 distinct, ledger unchanged (1 row / 100,000), no settlement, v2 inactive,
+epoch-2026-09-10 audit unchanged.
+
+**Consequence for the cutover:** the unit occurred at 20:18 UTC on
+2026-09-10, whose epoch is settled, so ingestion carried it forward to
+`epoch-2026-09-11`. That is exactly the pre-cutover gap M16A said must not
+be settled with the 100,000 pool, carried into v2, or silently reassigned.
+It needs an explicit owner disposition before mining-beta-v2 is scheduled.
+
+## Security
+
+Private channel proven in production: anon and a throwaway authenticated
+user are refused on the owner's topic ("Unauthorized: You do not have
+permissions to read from this Channel topic"), a user joins only their own
+topic, the service role publishes. PGlite test of the policy: own topic
+receives broadcasts, other topic receives nothing, direct table reads return
+nothing, no insert path for browsers. Events carry no prompt, completion,
+credential or header.
+
+## Not done
+
+The Windows Miner window does not yet mirror the live states (the web
+dashboard was the priority; no Miner rebuild). The browser paint of the
+transition was not observed by the harness because driving the owner's
+session was out of scope; the same events the card consumes were observed
+end to end on the same private channel.
