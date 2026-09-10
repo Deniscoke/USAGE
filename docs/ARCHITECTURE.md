@@ -667,6 +667,7 @@ rejected credential.
 | OpenAI | `https://api.openai.com` | Bearer | `GET /v1/models` | `v1` | docs, 2026-09-10 |
 | Anthropic | `https://api.anthropic.com` | `x-api-key` + `anthropic-version` | `GET /v1/models` | `v1` | docs, 2026-09-10 |
 | OpenRouter | `https://openrouter.ai/api` | Bearer | `GET /v1/key` (model list is public, proves nothing) | `v1` | docs + live, 2026-09-10 |
+| OpenRouter — Anthropic surface (M16C0) | same connection, `POST /api/v1/messages` at `/api/gateway/provider/<id>/anthropic` | Bearer **and** `x-api-key` (same key); OAuth `anthropic-beta` value dropped | none (surface of an already-validated connection) | `v1` | docs (Anthropic Messages reference, Claude Code cookbook), 2026-09-11; fixtures only, no live proof yet |
 | Mistral | `https://api.mistral.ai` | Bearer | `GET /v1/models` | `v1` | docs, 2026-09-10 |
 | xAI | `https://api.x.ai` | Bearer | `GET /v1/models` | `v1` | docs (base/auth) + live 401 probe, 2026-09-10 |
 | Google Gemini (OpenAI surface) | `https://generativelanguage.googleapis.com/v1beta/openai` | Bearer | `GET /models` | *(none — base carries the version)* | docs, 2026-09-10 |

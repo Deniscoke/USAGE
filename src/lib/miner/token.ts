@@ -40,8 +40,12 @@ export function minerTokenPrefix(token: string): string {
   return token.trim().slice(0, 12);
 }
 
+/** Route-session tokens (M16C0) share the miner namespace: `usgr_`. */
+export const ROUTE_SESSION_PREFIX = "usgr_";
+
 export function looksLikeMinerToken(value: string): boolean {
-  return value.trim().startsWith(MINER_TOKEN_PREFIX);
+  const trimmed = value.trim();
+  return trimmed.startsWith(MINER_TOKEN_PREFIX) || trimmed.startsWith(ROUTE_SESSION_PREFIX);
 }
 
 /** Constant-time comparison of two hex digests. */

@@ -2,6 +2,35 @@
 
 ## Current milestone
 
+M16C0 — Claude Code real mining route. **Server deployed 2026-09-11; Miner
+0.4.5 tagged, owner must install it.** Root cause proved from source: the
+OpenRouter OAuth connection is stored `protocol = openai_compatible`, and
+`/api/miner/config` built Claude Code routes only from
+`anthropic_compatible`, so the owner's eligible connection was never offered
+to Claude Code and the miner fell back to the USAGE-funded gateway (HELD) —
+exactly the screenshot. Fix: wire surfaces (`src/lib/providers/surfaces.ts`)
+— one OpenRouter connection is offered on both surfaces with the same id,
+secret, funding context and verdict; new route
+`/api/gateway/provider/<id>/anthropic` forwards the Anthropic Messages format
+to `openrouter.ai/api/v1/messages` with the privacy baseline in the body and
+the client's OAuth beta dropped; stated `usage.cost` is read on the Anthropic
+shape; one `msg_…` generation → one economic unit. Route sessions
+(`/api/miner/route-session`, `usgr_` HMAC tokens bound to one connection +
+surface + tool, 8 h, parent-credential re-authenticated, `miner:route` only;
+`USAGE_ROUTE_SESSION_SECRET` set on Vercel production) replace the
+header-only launch. MEASURED: Claude Code 2.1.268 with a saved claude.ai
+login ignores `ANTHROPIC_AUTH_TOKEN` and keeps its OAuth header, so Miner
+0.4.5 launches Claude Code in a USAGE profile (`%APPDATA%\USAGE\claude-profile`,
+plugins/skills/rules/projects shared by junction, no saved login) — the
+user's own login is untouched. Miner route selection now prefers
+`rewardStatus === "eligible"` (was `miningEligibility === "eligible_route"`).
+Python hook errors are from the official `hookify` and `security-guidance`
+plugins (bare `python3` = Store stub), not USAGE; not touched. No paid
+request, no settlement, no economic change, no migration. Next: owner
+installs 0.4.5, presses Start with USAGE, checks `/status`, sends a
+screenshot; then ONE approved streaming request. See docs/M15-ECONOMICS.md
+→ M16C0.
+
 M16B.1 — production dashboard crash fix. **Deployed 2026-09-10 (commit
 2fbef95).** Root cause: production defines only
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, the browser client read

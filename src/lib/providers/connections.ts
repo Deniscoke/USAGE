@@ -74,6 +74,8 @@ export interface ConnectionSummaryView {
   revokedAt: string | null;
   /** Registry family / provider slug the connection was made for. */
   provider: string;
+  /** Registry family from the definition, when known (decides wire surfaces). */
+  providerFamily: string | null;
   /** The six separate facts every surface shows. Server-derived, never guessed by UI. */
   view: ProviderStatusView;
 }
@@ -659,6 +661,7 @@ export function createConnectionStore(admin: SupabaseClient<Database>) {
           lastErrorCode: connection.last_error_code,
           revokedAt: connection.revoked_at,
           provider: connection.provider,
+          providerFamily: (connection.definition_id ? definitionById.get(connection.definition_id)?.provider_family : null) ?? null,
           view: deriveProviderStatusView({
             provider: connection.provider,
             authMethod: connection.auth_method ?? "api_key",

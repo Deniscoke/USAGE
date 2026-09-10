@@ -11,6 +11,8 @@ import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
 import { MINER_PROTOCOL_VERSION, MINIMUM_MINER_VERSION } from "@/lib/miner/release";
 import { requireLiveDevice } from "@/lib/miner/devices";
 import { accountDisplay, networkLabel } from "@/lib/miner/identity";
+import { buildMinerRoutes } from "@/lib/miner/routes";
+import { ROUTE_SESSION_TTL_SECONDS, routeSessionsAvailable } from "@/lib/miner/route-session";
 
 /**
  * What a paired device needs to route requests, and nothing more.
@@ -69,34 +71,20 @@ export async function GET(request: NextRequest) {
 
   const connections = await createConnectionStore(admin).list(auth.identity.userId);
 
-  // Only connections that can actually carry traffic today.
-  const usable = connections.filter(
-    (connection) =>
-      connection.revokedAt === null &&
-      connection.protocol !== null &&
-      ["active", "limited", "pending_pricing"].includes(connection.status),
-  );
-
-  const routes = usable.map((connection) => ({
-    connectionId: connection.id,
-    label: connection.displayName,
-    protocol: connection.protocol,
-    url: `${origin}/api/gateway/provider/${connection.id}`,
-    // ROUTE capability (kept for routing decisions) and the economic
-    // verdict (what the window shows), separately.
-    miningEligibility: connection.miningEligibility,
-    rewardStatus: connection.view.mining.outcome,
-    miningLabel: `Mining ${connection.view.mining.label.toLowerCase()} — ${connection.view.mining.reason}`,
-  }));
+  // One entry per (connection, wire surface). A provider that answers on two
+  // surfaces (OpenRouter) appears twice with the same connection id and the
+  // same reward verdict: one connection, one funding context, two wire
+  // formats. Only connections that can actually carry traffic today.
+  const routes = buildMinerRoutes(connections, origin);
 
   /**
    * Which route suits which tool.
    *
-   * A tool speaks one wire format, so it can only use a connection whose
-   * protocol matches. Claude Code additionally falls back to USAGE's own
-   * Anthropic surface when the user has connected nothing Anthropic-shaped --
-   * that traffic is proven but USAGE-funded, so it is held rather than earning,
-   * and the miner is told that up front rather than discovering it later.
+   * A tool speaks one wire format, so it can only use a surface that matches.
+   * Claude Code additionally falls back to USAGE's own Anthropic surface when
+   * no connected provider can carry it -- that traffic is proven but
+   * USAGE-funded, so it is held rather than earning, and the miner is told
+   * that up front rather than discovering it later.
    */
   const anthropicRoutes = routes.filter((route) => route.protocol === "anthropic_compatible");
   const openAiRoutes = routes.filter((route) => route.protocol === "openai_compatible");
@@ -123,6 +111,18 @@ export async function GET(request: NextRequest) {
         scoringVersion: CURRENT_MINING_PROTOCOL.scoringVersion,
       },
       routes,
+      /**
+       * Short-lived route sessions (M16C0): the miner exchanges its device
+       * credential for a token bound to one connection and one surface, and
+       * launches Claude Code with it as the gateway credential. Unavailable
+       * until the server holds a signing secret; the miner then falls back to
+       * the header-only launch and says so.
+       */
+      routeSessions: {
+        available: routeSessionsAvailable(),
+        url: `${origin}/api/miner/route-session`,
+        ttlSeconds: ROUTE_SESSION_TTL_SECONDS,
+      },
       tools: {
         "claude-code": {
           protocol: "anthropic_compatible",

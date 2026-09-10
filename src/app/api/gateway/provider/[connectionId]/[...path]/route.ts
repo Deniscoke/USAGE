@@ -34,6 +34,9 @@ function openAiError(status: number, type: string, message: string): Response {
 export const { POST, GET } = createGatewayRoute({
   clientType: "usage-miner",
   error: openAiError,
+  // The stored protocol's surface. A route session minted for the Anthropic
+  // surface of the same connection is refused here, and vice versa.
+  surface: "openai_compatible",
 
   async resolve({ userId, params }) {
     if (!isSupabaseConfigured()) {

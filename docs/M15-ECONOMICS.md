@@ -1468,6 +1468,104 @@ ledger 1 row / 100,000, epoch-2026-09-07 settled mining-dev-v1,
 epoch-2026-09-10 settled calibration, mining-beta-v2 still draft, test user
 had 0 usage events. Realtime RLS policy untouched. No migration.
 
+## M16C0 — Claude Code real mining route (2026-09-11)
+
+Routing correctness only. No paid request, no settlement, no activation, no
+migration, no economic change.
+
+**Root cause (from source, confirmed A–D):** `OPENROUTER_OAUTH.protocol =
+"openai_compatible"` (`src/lib/providers/oauth.ts`); `/api/miner/config`
+built `tools["claude-code"].routes` from `protocol === "anthropic_compatible"`
+only; the owner's eligible OpenRouter connection (`f0f97095…`, paid account,
+`eligible_route`, verdict ELIGIBLE) was therefore invisible to Claude Code;
+with no Anthropic-shaped connection the miner took the USAGE-funded fallback,
+which is HELD. Production evidence: the owner's Claude Code rows are
+`native_otel`, provider `anthropic`, `req_…` ids, correlation `unmatched`;
+no routed Claude unit exists.
+
+**Route model.** A provider connection now advertises *wire surfaces*
+(`src/lib/providers/surfaces.ts`): OpenRouter answers both
+`openai_compatible` (Codex) and `anthropic_compatible` (Claude Code). The
+config endpoint lists one route per (connection, surface); the Anthropic
+surface of an OpenAI-stored connection lives at
+`/api/gateway/provider/<id>/anthropic` and resolves the SAME row, secret,
+`connection:<id>` gateway id and funding evidence. No second connection, no
+second credential, no second reward identity.
+
+**Anthropic surface.** `anthropicCompatibleProtocol.buildUpstreamCall` with
+`privacy: "openrouter"` writes `provider.zdr = true` and
+`provider.data_collection = "deny"` into the body (client values that weaken
+it are overwritten; an unparsable body is not forwarded unrestricted), sends
+the credential as `Authorization: Bearer` and `x-api-key`, drops only the
+`oauth-*` value from `anthropic-beta` (the client's OAuth credential never
+leaves USAGE), forwards every other header/body field verbatim. Streaming,
+tool use, thinking and `cache_control` pass through unchanged.
+
+**Economic observation.** Fixtures per OpenRouter's Anthropic Messages
+reference: identity `msg_…` (`anthropic_message_id`), model
+`anthropic/claude-opus-5`, input/output, cache read/creation, and stated
+`usage.cost` (non-stream and `message_delta`). `usage.cost` on the Anthropic
+shape is new in `usage-extract.ts`; absent stays unknown. Funding context is
+the connection's `paid_account`. `normalizeGatewayObservation` yields one
+`ecu1:` key per generation; a repeat is the same key (duplicate at ingest).
+Limitation: OpenRouter documents no `gen-…` id or header on this surface, so
+the identity is the message id the surface returns.
+
+**Route sessions (§10).** `POST /api/miner/route-session` (device credential
+with `miner:route` + `miner:config`; a route session cannot mint one) →
+`usgr_<claims>.<hmac>` signed with `USAGE_ROUTE_SESSION_SECRET`, claims =
+parent credential, user, device, tool, connection, surface, iat/exp (8 h
+ceiling). Verification re-authenticates the parent (revoked device → every
+session dead), narrows scopes to `miner:route`, and
+`routeBindingViolation()` refuses any other connection, the other surface,
+and USAGE's own funded gateways (no surface declared). Stateless: no table,
+no migration. The secret was added to Vercel production on 2026-09-11
+(deployment configuration, not schema).
+
+**Claude Code auth precedence — measured, not assumed.** Zero-cost probes
+against a local 401 listener (`claude -p`, 2.1.268): with the owner's
+config dir, `ANTHROPIC_BASE_URL` was honoured but `Authorization` carried the
+saved claude.ai OAuth token (115 chars, `anthropic-beta: oauth-2025-04-20`)
+in every request — with and without `ANTHROPIC_API_KEY=""`, and with
+`ANTHROPIC_AUTH_TOKEN` set. In an isolated `CLAUDE_CONFIG_DIR` the bearer
+token was sent and the OAuth beta absent. Docs say the variable takes
+precedence; this build did not. Hence Miner 0.4.5 launches Claude Code in
+`%APPDATA%\USAGE\claude-profile`: `plugins`, `skills`, `agents`,
+`commands`, `rules`, `projects` shared by junction; `settings.json`
+copied minus `apiKeyHelper` / `env.ANTHROPIC_*`; `.claude.json` preferences
+only; `.credentials.json` never present (removed if someone logs in inside).
+The old adapter comment ("AUTH_TOKEN would log the user out") was wrong: the
+user's login is not used, moved or changed.
+
+**Miner 0.4.5.** `src/route.ts` (one `chooseRoute` for CLI and window:
+eligible → held → explicit HELD fallback; ineligible/unavailable never),
+`/launch` resolves the config fresh and logs `launch_route`, `usage run`
+resolves again immediately before the spawn and prints Selected route /
+Reward / Wire protocol / Auth plus the `/status` check; OpenRouter routes set
+`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` to the priced slugs
+(`anthropic/claude-opus-5`, `-sonnet-4.6`, `-haiku-4.5`; default
+`anthropic/claude-sonnet-4.6`). Window: "OpenRouter · Your connected provider
+· Claude Code compatible · Wire: Anthropic-compatible · Auth: USAGE route
+session · Reward: ELIGIBLE"; fallback stays "USAGE gateway (fallback) ·
+HELD". TRACKED / ROUTED / ELIGIBLE wording unchanged.
+
+**Hooks (§15).** `SessionStart` / `UserPromptSubmit` / `Stop` errors come from
+two official Claude plugins the owner enabled in `~/.claude/settings.json`:
+`hookify` (bare `python3` → Microsoft Store stub, "Python was not found") and
+`security-guidance` (`sg-python.sh` shim; SessionStart installs the Agent
+SDK, 180 s). Not USAGE-owned, not stale USAGE state; nothing was deleted.
+Safe fix is the owner's: disable the two plugins, or make `python3` resolve
+to the installed Python 3.14 (App execution aliases). USAGE metering stays on
+native OTel; no hook is used.
+
+**Tests.** Server: `route-session.test.ts` (round-trip, tamper, expiry,
+parent revocation, binding: other connection / other surface / funded
+gateway refused), `routes.test.ts` (both surfaces, same id, Codex vs Claude,
+OpenAI held vs OpenRouter eligible), `openrouter-anthropic.test.ts`
+(privacy body, bearer + x-api-key, OAuth beta dropped, cost/cache
+extraction, stream, one ECU). Miner: `route.test.ts`, `claude-profile.test.ts`
+(junctions, no login copied, sanitised settings, session launch plan).
+
 ## Not done
 
 The Windows Miner window does not yet mirror the live states (the web

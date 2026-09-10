@@ -11,6 +11,8 @@ import {
 } from "@/lib/gateway/observability";
 import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
+import type { MinerIdentity } from "@/lib/miner/credentials";
+import type { WireSurface } from "@/lib/providers/surfaces";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { ComputeGateway } from "@/lib/compute/gateway";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
@@ -61,8 +63,36 @@ export interface GatewayRouteOptions {
   }): Promise<ResolvedGateway | Response>;
   /** What produced the traffic, e.g. "claude-code". Non-PII. */
   clientType: string;
+  /**
+   * The wire surface this route serves for a `[connectionId]` route (M16C0).
+   * A route-session token is bound to one connection and one surface and is
+   * refused everywhere else, including USAGE's own funded gateways, which
+   * declare no surface.
+   */
+  surface?: WireSurface;
   /** Protocol-shaped error body, so a client sees something it understands. */
   error(status: number, type: string, message: string): Response;
+}
+
+/**
+ * Why a route session may not use this route, or null when it may.
+ *
+ * Checked before rate limiting and before the gateway resolves, so a session
+ * minted for connection A never even looks up connection B.
+ */
+export function routeBindingViolation(
+  identity: Pick<MinerIdentity, "routeSession">,
+  surface: WireSurface | undefined,
+  params: Record<string, string | string[] | undefined>,
+): string | null {
+  const session = identity.routeSession;
+  if (!session) return null;
+  if (!surface) return "This route session is bound to a provider connection and cannot use this route.";
+  const connectionId = String(params.connectionId ?? "");
+  if (session.surface !== surface || session.connectionId !== connectionId) {
+    return "This route session is bound to a different connection or wire surface.";
+  }
+  return null;
 }
 
 /** Micro-USD from a provider cost string, or null. Display/verifying only; ingestion parses authoritatively. */
@@ -192,6 +222,19 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
       });
       // A rejected miner never reaches upstream, so it can never spend.
       return error(401, "authentication_error", `Invalid USAGE miner credential (${auth.reason}).`);
+    }
+
+    const violation = routeBindingViolation(auth.identity, options.surface, params);
+    if (violation) {
+      logGatewayRequest({
+        requestId,
+        userId: auth.identity.userId,
+        path: upstreamPath,
+        status: 403,
+        latencyMs: Date.now() - startedAt,
+        outcome: "route_session_binding",
+      });
+      return error(403, "permission_error", violation);
     }
 
     // Routing is the one ability that spends money, so it is the one most worth
@@ -473,6 +516,8 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
     if (!auth.ok) {
       return error(401, "authentication_error", "Invalid USAGE miner credential.");
     }
+    const violation = routeBindingViolation(auth.identity, options.surface, params);
+    if (violation) return error(403, "permission_error", violation);
 
     const resolved = await resolveGateway(auth.identity.userId, params);
     if (resolved instanceof Response) return resolved;

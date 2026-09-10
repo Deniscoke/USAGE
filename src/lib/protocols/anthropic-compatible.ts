@@ -1,4 +1,5 @@
 import { safeFetch } from "@/lib/net/ssrf";
+import { applyOpenRouterPrivacy } from "@/lib/providers/openrouter-privacy";
 import { anthropicError } from "@/lib/gateway/anthropic";
 import {
   AnthropicStreamUsageCollector,
@@ -67,8 +68,9 @@ function toObserved(payload: unknown): ObservedGeneration {
       provider: extracted.model?.includes("/") ? extracted.model.split("/")[0] : null,
     },
     usage: extracted.usage,
-    // The Anthropic message shape carries no cost. Absent means unknown.
-    cost: null,
+    // Anthropic's own message shape carries no cost; OpenRouter's Anthropic
+    // surface states one in the usage block. Absent means unknown.
+    cost: extracted.cost ? { value: extracted.cost, currency: "USD" } : null,
     finishReason: extracted.finishReason,
     hasUsage: extracted.hasUsage,
   };
@@ -91,7 +93,7 @@ class AnthropicObserver implements StreamObserver {
         provider: null,
       },
       usage: extracted.usage,
-      cost: null,
+      cost: extracted.cost ? { value: extracted.cost, currency: "USD" } : null,
       finishReason: extracted.finishReason,
       hasUsage: extracted.hasUsage,
     };
@@ -219,14 +221,41 @@ export const anthropicCompatibleProtocol: ProviderProtocol = {
     }
     headers.set("content-type", "application/json");
     headers.set("x-api-key", context.credential);
+    // OpenRouter documents bearer auth for its Anthropic surface and accepts
+    // x-api-key as well; both carry the SAME server-held credential.
+    if (context.privacy === "openrouter") headers.set("authorization", `Bearer ${context.credential}`);
     if (!headers.has("anthropic-version")) headers.set("anthropic-version", ANTHROPIC_VERSION);
 
+    // The client's credential never travels (stripped above), so the OAuth
+    // capability a claude.ai-signed-in Claude Code advertises in
+    // `anthropic-beta` describes a credential the upstream will not see.
+    // Every other beta value is forwarded verbatim, as Claude Code's gateway
+    // guide requires; only the OAuth capability is dropped.
+    const beta = headers.get("anthropic-beta");
+    if (beta) {
+      const kept = beta.split(",").map((value) => value.trim()).filter((value) => value && !/^oauth-/i.test(value));
+      if (kept.length > 0) headers.set("anthropic-beta", kept.join(","));
+      else headers.delete("anthropic-beta");
+    }
+
     // The Anthropic messages API has no attribution field, so the body is
-    // forwarded unchanged rather than having one invented into it.
+    // forwarded unchanged rather than having one invented into it -- except
+    // for OpenRouter, where USAGE's privacy baseline is written into the
+    // body on this surface exactly as on the OpenAI-compatible one. A body
+    // that could not be parsed is not forwarded unrestricted.
+    let body = context.rawBody;
+    if (context.privacy === "openrouter") {
+      const parsed =
+        typeof context.body === "object" && context.body !== null && !Array.isArray(context.body)
+          ? (context.body as Record<string, unknown>)
+          : null;
+      body = JSON.stringify(applyOpenRouterPrivacy(parsed ?? {}).body);
+    }
+
     return {
       url: `${normalizeBase(context.baseUrl)}/${upstreamPath(context.path, context.pathPrefix ?? "v1")}`,
       headers,
-      body: context.rawBody,
+      body,
     };
   },
 

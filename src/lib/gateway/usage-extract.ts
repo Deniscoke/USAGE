@@ -14,6 +14,12 @@ interface AnthropicUsage {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+  /**
+   * OpenRouter's Anthropic-compatible surface states the amount charged, in
+   * USD, inside the usage block (docs, 2026-09-11). Anthropic itself never
+   * sends it; absent means unknown, never zero.
+   */
+  cost?: number | null;
 }
 
 export interface ExtractedUsage {
@@ -23,6 +29,14 @@ export interface ExtractedUsage {
   finishReason?: string;
   /** True when the response carried a usage block at all. */
   hasUsage: boolean;
+  /** Provider-stated USD cost as a decimal string, when the usage block carried one. */
+  cost?: string | null;
+}
+
+function statedCost(usage: AnthropicUsage | null | undefined): string | null {
+  const cost = usage?.cost;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return null;
+  return cost.toFixed(12);
 }
 
 function toGatewayUsage(usage: AnthropicUsage): GatewayTokenUsage {
@@ -73,6 +87,7 @@ export function extractFromMessage(payload: unknown): ExtractedUsage {
     usage: message.usage ? toGatewayUsage(message.usage) : {},
     finishReason: typeof message.stop_reason === "string" ? message.stop_reason : undefined,
     hasUsage: Boolean(message.usage),
+    cost: statedCost(message.usage),
   };
 }
 
@@ -154,8 +169,9 @@ export class AnthropicStreamUsageCollector {
 
     const merged: AnthropicUsage = {
       ...this.startUsage,
-      // The final message_delta wins for output tokens.
+      // The final message_delta wins for output tokens, and for a stated cost.
       output_tokens: this.deltaUsage?.output_tokens ?? this.startUsage?.output_tokens,
+      cost: this.deltaUsage?.cost ?? this.startUsage?.cost,
     };
 
     return {
@@ -164,6 +180,7 @@ export class AnthropicStreamUsageCollector {
       usage: toGatewayUsage(merged),
       finishReason: this.finishReason,
       hasUsage: true,
+      cost: statedCost(merged),
     };
   }
 }
