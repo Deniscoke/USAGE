@@ -1033,3 +1033,113 @@ and economics with `economic_status = settled`; score 1.0000; epoch settled,
 development, `mining-dev-calibration-v1`, claimable false; positive points 0;
 ledger 1 row / 100,000; balance 0. The script prints both and refuses on any
 deviation.
+
+
+---
+
+# M15E — Atomic calibration close
+
+## The gap, from the code
+
+`closeCalibrationEpoch` (calibration-close.ts) calls `finalizeEpoch` then
+`settleEpoch` (settlement.ts), which call the Supabase settlement store.
+That store issues, in order, each as its own supabase-js request and
+therefore its own PostgREST autocommitted transaction:
+
+| # | call | table | write |
+| --- | --- | --- | --- |
+| 1 | `upsertEpoch(finalizing)` | reward_epochs | insert/update, state finalizing |
+| 2 | `upsertEpoch(settled)` | reward_epochs | update, state settled (now immutable) |
+| 3 | `creditAllocations` | reward_allocations | upsert allocation rows |
+| 4 | `creditAllocations` | usage_point_ledger | upsert credits, skipped when every allocation is 0 |
+| 5 | `markSettled` | usage_events | economic_status eligible → settled |
+
+Then the application re-reads and checks postconditions. Nothing joins
+these requests: supabase-js has no client transaction, and PostgREST commits
+each request independently. **Shared transaction: NO.** A failure after any
+of 1, 2, 3 or 5 leaves a state no later step can undo; the postcondition
+layer can only report it. Proven in `calibration-atomicity.test.ts` part 1:
+
+| injected failure | committed partial state |
+| --- | --- |
+| A after finalizing write | epoch finalizing, event eligible |
+| B after settled write | epoch settled and immutable, no allocation, event eligible |
+| C/E after allocation, before event update | epoch settled, allocation present, event eligible |
+| D ledger phase | never runs for 0 points; ledger untouched in every case |
+| F after event update, before postconditions | everything committed while the application reports failure |
+
+## The fix: one PostgreSQL transaction (`supabase/pending/0020_atomic_calibration_close.sql`)
+
+`close_development_calibration_epoch(p_epoch_id text)`, plpgsql, SECURITY
+INVOKER, `search_path = ''`. The service role already holds every privilege
+the writes need, so no DEFINER escalation. EXECUTE revoked from PUBLIC, anon
+and authenticated; granted to service_role only.
+
+Inside one transaction, in order:
+
+1. refuse unless `p_epoch_id = 'epoch-2026-09-10'`; take
+   `pg_advisory_xact_lock(hashtext('usage:calibration-close'), hashtext(p_epoch_id))`
+   before any read, held to commit or rollback;
+2. preconditions under `FOR UPDATE` / `FOR SHARE`: the approved event (id,
+   owner, epoch, economic key, unique, 1 micro eligible, statuses eligible,
+   pricing v2), the approved proof attached and signed, the v1 score 1.0000,
+   the calibration protocol row (active, calibration, emission 0, not
+   claimable, scoring v1, pricing v2, zero-reward-calibration-v1,
+   development), the epoch row absent or open/finalizing and development,
+   no positive allocation, ledger and balance snapshots;
+3. writes: epoch upserted finalizing then updated settled (pool 0, effective
+   0, undistributed 0, claimable false, protocol bound, network score
+   1.0000), one allocation with 0 points, the event's economic_status
+   eligible → settled with an exact row-count check;
+4. postconditions from fresh reads: event identity, key, eligible micros,
+   pricing, owner, epoch unchanged and settled; proof present and signed;
+   score 1.0000; epoch settled/development/calibration/non-claimable/zero;
+   allocation sum and positive count 0; ledger rows and total unchanged;
+   the owner's settled balance unchanged;
+5. returns the persisted audit (`audit_epoch`) subset: epoch, state,
+   protocol, scoring, pricing, network score, distributed, ledger points,
+   claimable.
+
+Any RAISE at any point rolls back everything. Every approved fact is a
+constant in the function body; the caller supplies nothing but the epoch
+id. Fault injection: `current_setting('usage.calibration_fail_after', true)`
+names a stage after which the function raises, so atomicity is provable per
+stage; only a session that can already execute the function can set it, and
+it can only cause a refusal.
+
+Concurrency: two simultaneous confirmations serialise on the advisory lock;
+the second sees the committed settled epoch and raises "already settled".
+The lock key is `(hashtext('usage:calibration-close'), hashtext(epoch id))`,
+two int4 keys, transaction-scoped, released automatically. It does not
+depend on the epoch row existing.
+
+## Tests (`calibration-atomicity.test.ts`, PGlite, chain through 0019 plus pending 0020)
+
+- current path: A, B, C/E, D, F above, each leaving the documented partial
+  state;
+- 0020: injected failure after epoch, finalizing, settled, allocation, event
+  update and during the final postcondition each restore the initial state
+  exactly (epoch absent, event eligible, no allocation, ledger and balance
+  unchanged);
+- refuses an unapproved epoch id and a drifted score, with rollback;
+- anon and authenticated get "permission denied"; service_role succeeds;
+- the successful close returns the audit row, settles the event, writes one
+  zero-point allocation, no ledger row, balance unchanged;
+- two concurrent first attempts on a fresh epoch: one success, one "already
+  settled", no positive points, no ledger row. PGlite serialises on one
+  connection; on a multi-connection server the advisory lock produces the
+  same ordering.
+- the settled calibration epoch and event are immutable afterwards.
+
+## Wrapper
+
+`npm run usage:close-calibration -- --epoch epoch-2026-09-10` stays the
+read-only TypeScript preflight. With `--confirm` it makes exactly one RPC
+call to the function; an error means the database rolled back and nothing
+was written; success is followed by an independent read-only audit held to
+the same postconditions, as a second verification layer, not as the
+atomicity guarantee. The multi-request store path remains for dry runs,
+tests and documentation and is no longer used for the confirmed operation.
+
+Ordinary mining-dev-v1 settlement and the future mining-beta-v2 path are
+unchanged by this milestone.

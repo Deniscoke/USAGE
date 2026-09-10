@@ -6,15 +6,22 @@
  * Not a general settlement command. The epoch id must be listed in
  * APPROVED_CALIBRATION_CLOSES with the exact facts the owner approved, the
  * database must carry 0019 (protocol binding, claimable flag, the
- * mining-dev-calibration-v1 row), and every precondition and postcondition
- * in src/lib/db/calibration-close.ts must hold. Otherwise nothing is written.
+ * mining-dev-calibration-v1 row) and 0020 (the atomic close function).
  *
- * Without --confirm it only prints the pre-close snapshot and the checks.
+ * Without --confirm: the TypeScript preflight (calibration-close.ts) runs
+ * read-only and prints the snapshot and every check.
+ *
+ * With --confirm: ONE call to the PostgreSQL function
+ * close_development_calibration_epoch(p_epoch_id). Every read, lock, write
+ * and postcondition happens inside that single transaction; a raise rolls
+ * back all of it. The multi-request SettlementStore path is deliberately
+ * NOT used for the confirmed operation, because application-side checks
+ * cannot undo requests that have already committed. After the RPC returns,
+ * an independent read-only audit prints before/after as a second layer.
  */
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../src/lib/supabase/database.types";
-import { createSupabaseSettlementStore } from "../src/lib/db/supabase-settlement-store";
-import { CalibrationCloseRefused, approvedCalibrationClose, assertCalibrationPreconditions, closeCalibrationEpoch, snapshotCalibration, type CalibrationReadStore } from "../src/lib/db/calibration-close";
+import { CalibrationCloseRefused, approvedCalibrationClose, assertCalibrationPostconditions, assertCalibrationPreconditions, snapshotCalibration, type CalibrationReadStore } from "../src/lib/db/calibration-close";
 import { epochDay, type EpochState } from "../src/lib/domain/epoch";
 
 const line = (text = "") => process.stdout.write(`${text}\n`);
@@ -113,9 +120,34 @@ async function main(): Promise<number> {
     line("  Dry run. Re-run with --confirm to close the epoch with ZERO emission.");
     return 0;
   }
-  const result = await closeCalibrationEpoch(createSupabaseSettlementStore(admin), reads, epochId);
-  line(`  closed           network score ${result.networkScore}, distributed ${result.distributed}`);
-  line(`  after            epoch=${result.after.epoch.state} protocol=${result.after.epoch.protocolVersion} claimable=${result.after.epoch.claimable} ledger ${result.after.ledger.rows}/${result.after.ledger.total} balance ${result.after.balance}`);
+  // The single atomic operation. Either the whole close committed, or the
+  // database rolled every write back and nothing below changed.
+  type Rpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  const rpc = await (admin.rpc as unknown as Rpc)("close_development_calibration_epoch", { p_epoch_id: epochId });
+  if (rpc.error) {
+    line("  REFUSED by the database; the transaction rolled back and nothing was written:");
+    line(`  ${rpc.error.message}`);
+    return 1;
+  }
+  const audit = (Array.isArray(rpc.data) ? rpc.data[0] : rpc.data) as Record<string, unknown> | undefined;
+  line(`  committed        ${JSON.stringify(audit ?? null)}`);
+  line();
+  // Second, independent layer: re-read everything and hold it to the same
+  // postconditions the preflight defines. This verifies; it cannot undo.
+  const after = await snapshotCalibration(reads, approved);
+  line(`  after            epoch=${after.epoch.state} kind=${after.epoch.epochKind} protocol=${after.epoch.protocolVersion} claimable=${after.epoch.claimable}`);
+  line(`  event            status=${after.event.economicStatus} eligible=${after.event.eligibleComputeMicros} pricing=${after.event.pricingVersion}`);
+  line(`  score (v1)       ${after.score}`);
+  line(`  ledger           ${after.ledger.rows} rows, total ${after.ledger.total} (before: ${before.ledger.rows}, ${before.ledger.total})`);
+  line(`  allocations      ${after.allocations.rows} (${after.allocations.positive} positive)`);
+  line(`  settled balance  ${after.balance} (before: ${before.balance})`);
+  try {
+    assertCalibrationPostconditions(before, after, approved);
+    line("  postconditions   all hold (independent audit)");
+  } catch (error) {
+    line(`  ${(error as Error).message}`);
+    return 1;
+  }
   return 0;
 }
 

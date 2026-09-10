@@ -61,6 +61,8 @@ export interface TestDb {
   sql<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** Runs as a signed-in end user: role `authenticated` + their uid claim. */
   asUser<T = Record<string, unknown>>(userId: string, query: string, params?: unknown[]): Promise<T[]>;
+  /** Runs as the unauthenticated PostgREST role. */
+  asAnon<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** Runs as trusted server-side ingestion. */
   asServiceRole<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** Runs a multi-statement script as the superuser, e.g. a pending migration. */
@@ -108,6 +110,7 @@ export async function createTestDb(): Promise<TestDb> {
       return (await db.query<T>(query, params)).rows;
     },
     asUser: (userId, query, params) => asRole("authenticated", userId, query, params ?? []),
+    asAnon: (query, params) => asRole("anon", null, query, params ?? []),
     asServiceRole: (query, params) => asRole("service_role", null, query, params ?? []),
     exec: async (script) => {
       await db.exec(script);
