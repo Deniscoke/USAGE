@@ -2,6 +2,30 @@
 
 ## Current milestone
 
+M14C — First real paid economic compute. **Done 2026-09-10; one unit, no settlement.**
+
+Exactly one real inference (`openai/gpt-5-nano`, prompt "Reply only: OK")
+went through the user's OpenRouter OAuth connection `f0f97095`, which
+OpenRouter itself reports as `is_free_tier: false` after purchased credit.
+Result: `usage_events` row `c75acc2e`, economic key
+`ecu1:cf605dfe…`, `dedupe_status = unique`, `economic_verification_status =
+verified` under `economic-verification-v1`, source `metered_paid`, reward
+`eligible`, `eligible_compute_micros = 1` under `usage-pricing-v2`, proof
+`b60f5602` signed by `usage-prod-2026-09-07` and verified against the
+published keys. OpenRouter's generation surface agrees (10 native prompt
+tokens, 0 completion, cost $0.0000005, `is_byok: false`, served by Azure
+under `provider.zdr = true` / `data_collection = "deny"`). Score for
+2026-09-10 went 0 → 1.0; the epoch is NOT settled; ledger (100000, 1 row),
+allocations (1) and settled balance (0) are unchanged. `npm run
+usage:m14c:snapshot` and `usage:m14c:crosscheck` are the read-only evidence
+scripts. Fixture regressions (free, promotional, unknown, local-only, replay
+x1000, cross-user) all hold.
+
+Found and fixed on the way: `provider_connections` is unique on (user,
+provider, label), so reconnecting a revoked provider used to mint and store a
+key and then fail on insert (`oauth_connect_failed`). Reconnect now revives
+the revoked row; a failed create deletes the secret it just stored.
+
 M14B — Economic foundation hardening. **Deployed; migration 0018 applied to production.**
 
 The M14 key never contained a USAGE user id, but 0018 enforced uniqueness per
@@ -29,14 +53,10 @@ the reward held; conflicting evidence holds the reward; a device signature
 verifies nothing economic. See `docs/ARCHITECTURE.md` → *Proof of economic
 usage (M14)*.
 
-**PAID E2E BLOCKED — NO AUTHORITATIVELY PAID FUNDING SOURCE.** `npm run
-usage:funding` (read-only) shows USAGE's own Vercel AI Gateway key on the $5
-free monthly allowance ($4.99 balance, $0.0084 used, nothing purchased), the
-only OpenRouter OAuth connection provider-flagged `is_free_tier: true` and
-revoked, and every API-key connection funding-unknown. Under
-economic-verification-v1 none of those can become `metered_paid`, so no live
-paid request was made and nothing was bought. The positive path is proved on
-PGlite with fixtures labelled SIMULATED.
+The paid positive path, blocked at M14 for want of an authoritatively paid
+funding source, was exercised for real in M14C (see *Current milestone*).
+`npm run usage:funding` (read-only) remains the gate before any further paid
+request; nothing is bought by USAGE to unblock a test.
 
 ## Production migration 0018 — applied
 
@@ -350,12 +370,9 @@ mining engine never learns which provider a request came from.
 ## Next recommended milestone
 
 **M15 — mining economics and Sybil resistance**, now that the economic unit is
-sound. Before that, two owner actions unblock the live positive path: approve
-migration 0018, and connect one provider account that its provider states is
-paid (OpenRouter with purchased credit reports `is_free_tier: false`). One tiny
-request through that connection would be the first live `metered_paid`,
-`verified`, `eligible` unit — no policy change needed. Nothing has yet produced
-`reward_status = eligible` on a real connection, and nothing should until then.
+sound and one real `metered_paid`, `verified`, `eligible` unit exists on
+production. The open epoch `epoch-2026-09-10` holds it unsettled; settling is
+an explicit owner decision, not background work.
 
 Then, before inviting anyone outside a small beta:
 

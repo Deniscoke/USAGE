@@ -85,6 +85,7 @@ export default async function ProvidersPage() {
         pricedModelCount: summary.pricedModelCount,
         origin: summary.origin,
         authMethod: summary.authMethod,
+        provider: summary.provider,
         routeUrl: `${baseUrl}/api/gateway/provider/${summary.id}`,
         capabilities: [
           { label: "Usage", supported: summary.capabilities.usage },

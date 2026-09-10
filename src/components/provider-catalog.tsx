@@ -43,6 +43,8 @@ export interface ConnectionCard {
   pricedModelCount: number;
   origin: string | null;
   authMethod: "api_key" | "oauth";
+  /** Provider slug the connection was created under (e.g. "openrouter"). */
+  provider: string;
   capabilities: { label: string; supported: boolean }[];
   lastSuccessAt: string | null;
   /** Where a tool should send requests so USAGE can observe them. */
@@ -255,6 +257,20 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
             Your provider key stays on USAGE&apos;s servers and is never sent to your machine.
           </p>
         </details>
+      )}
+
+      {disconnected && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
+          <a
+            href={connection.authMethod === "oauth" ? `/api/providers/oauth/${connection.provider}/start` : "/providers/add"}
+            className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[10px] uppercase tracking-[0.1em] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
+          >
+            {connection.authMethod === "oauth" ? "Reconnect with sign-in" : "Reconnect with a new key"}
+          </a>
+          <span className="text-[11px] text-[var(--faint)]">
+            Reconnecting revives this connection with a fresh credential; its history stays attached.
+          </span>
+        </div>
       )}
 
       {!disconnected && (
