@@ -2,6 +2,12 @@
 
 ## Current milestone
 
+0020 — atomic calibration close function. **Applied to production
+2026-09-10 with explicit owner approval (function only).** UTC-literal
+epoch boundaries, SECURITY INVOKER, service_role-only EXECUTE (anon and
+authenticated proven denied in production). The confirmed close has NOT been
+invoked; dry run passes. Backup: `C:/Users/Admin/USAGE-backups/pre-0020-20260910T190050Z`.
+
 0019 — v2 economics schema. **Applied to production 2026-09-10 with explicit
 owner approval (schema only).** Additive: pico columns, protocol binding and
 `claimable` on epochs, emission parameters and `role` on protocol versions,
