@@ -2,6 +2,15 @@
 
 ## Current milestone
 
+0019 — v2 economics schema. **Applied to production 2026-09-10 with explicit
+owner approval (schema only).** Additive: pico columns, protocol binding and
+`claimable` on epochs, emission parameters and `role` on protocol versions,
+`mining-dev-calibration-v1` (active, calibration, zero emission) and
+`mining-beta-v2` (draft) rows, extended immutability, `audit_epoch()`,
+`check_v2_epoch_settleable()`. Backup: `C:/Users/Admin/USAGE-backups/pre-0019-20260910T183953Z`.
+Nothing activated; epoch-2026-09-10 still open; ledger 100,000 unchanged.
+Calibration dry run passes; the confirmed close awaits owner approval.
+
 M14C — First real paid economic compute. **Done 2026-09-10; one unit, no settlement.**
 
 Exactly one real inference (`openai/gpt-5-nano`, prompt "Reply only: OK")

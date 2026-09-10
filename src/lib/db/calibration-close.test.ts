@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, type TestDb } from "@/test/pg";
 import { createSqlIngestStore } from "@/test/sql-ingest-store";
@@ -13,7 +11,7 @@ import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observat
 
 /**
  * M15D — the guarded zero-reward close of a development calibration epoch,
- * on real Postgres (PGlite) with the PENDING 0019 applied explicitly.
+ * on real Postgres (PGlite) with the full migration chain through 0019.
  *
  * The production epoch is epoch-2026-09-10 with the M14C unit. Here the same
  * shape is rebuilt through the real ingestion path, then "approved" with the
@@ -71,7 +69,6 @@ function readsOver(database: TestDb): CalibrationReadStore {
 
 beforeAll(async () => {
   db = await createTestDb();
-  await db.exec(readFileSync(path.resolve(process.cwd(), "supabase/pending/0019_v2_economics.sql"), "utf8"));
   settlement = createSqlSettlementStore(db);
   reads = readsOver(db);
   user = await db.createUser("m15d-owner@example.com");
