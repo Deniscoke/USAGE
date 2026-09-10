@@ -231,12 +231,11 @@ export interface CorrelationCandidate {
 
 export interface CorrelationDecision {
   /**
-   * Update for the observation. "pending" is the stored spelling of a
-   * conflict until the schema carries the word itself (migration 0018,
-   * prepared): the evidence disagrees and nothing is decided.
+   * Update for the observation. A conflict means the evidence disagrees and
+   * nothing is decided; the unit is held.
    */
   observation: {
-    correlationStatus: "matched" | "unmatched" | "none" | "pending";
+    correlationStatus: "matched" | "unmatched" | "none" | "conflict";
     level: VerificationLevel;
     correlatedEventId: string | null;
   };
@@ -248,7 +247,7 @@ export interface CorrelationDecision {
    */
   event:
     | { kind: "match"; eventId: string; provenanceSources: string[]; correlationStatus: "matched" }
-    | { kind: "conflict"; eventId: string; correlationStatus: "pending"; conflicts: ConflictField[]; rewardHold: true }
+    | { kind: "conflict"; eventId: string; correlationStatus: "conflict"; conflicts: ConflictField[]; rewardHold: true }
     | null;
 }
 
@@ -312,8 +311,8 @@ export function correlate(
   );
   if (conflicts.length > 0) {
     return {
-      observation: { correlationStatus: "pending", level: base, correlatedEventId: candidate.eventId },
-      event: { kind: "conflict", eventId: candidate.eventId, correlationStatus: "pending", conflicts, rewardHold: true },
+      observation: { correlationStatus: "conflict", level: base, correlatedEventId: candidate.eventId },
+      event: { kind: "conflict", eventId: candidate.eventId, correlationStatus: "conflict", conflicts, rewardHold: true },
     };
   }
 

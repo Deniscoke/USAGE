@@ -33,6 +33,7 @@
     "usage:verify-0017": "node --env-file-if-exists=.env.local --import tsx scripts/verify-0017.ts",
     "usage:funding": "node --env-file-if-exists=.env.local --import tsx scripts/funding-audit.ts",
     "usage:preflight-0018": "node --env-file-if-exists=.env.local --import tsx scripts/preflight-0018.ts",
+    "usage:verify-0018": "node --env-file-if-exists=.env.local --import tsx scripts/verify-0018.ts",
     "test:chain": "node scripts/test-chain.mjs"
   },
   "dependencies": {

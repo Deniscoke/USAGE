@@ -192,6 +192,7 @@ export async function ingestLocalObservations(
         .from("usage_events")
         .update({
           correlation_status: decision.event.correlationStatus,
+          dedupe_status: "conflict",
           reward_hold: true,
           reconciliation_status: "held",
           raw_metadata: {

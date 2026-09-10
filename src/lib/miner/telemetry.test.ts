@@ -174,10 +174,10 @@ describe("correlation is exact or nothing", () => {
       { upstreamRequestId: "req_x", signatureVerified: true, provider: "anthropic", model: "claude-sonnet-5", inputTokens: 1_500, outputTokens: 999_999 },
       CANDIDATE,
     );
-    expect(d.observation.correlationStatus).toBe("pending");
+    expect(d.observation.correlationStatus).toBe("conflict");
     // The observation does not rise: a disagreement is not a corroboration.
     expect(d.observation.level).toBe("device_attested");
-    expect(d.event).toEqual({ kind: "conflict", eventId: "ev-1", correlationStatus: "pending", conflicts: ["output_tokens"], rewardHold: true });
+    expect(d.event).toEqual({ kind: "conflict", eventId: "ev-1", correlationStatus: "conflict", conflicts: ["output_tokens"], rewardHold: true });
   });
 
   it("records a conflict when the device names a different model family", () => {
@@ -244,7 +244,7 @@ describe("tracked / verified / eligible stay separate", () => {
     eligible_compute_micros: 2500, reward_status: "eligible", reward_reason: "metered_paid", reward_policy_version: "usage-reward-policy-v1",
     reconciliation_status: "clear", fraud_status: "none", reward_hold: false, raw_metadata: { client_type: "claude-code" },
     provenance_sources: ["usage_gateway"], verification_level: "routed_confirmed", correlation_status: "none",
-    identity_trust_level: "account", provider_identity_hash: null, created_at: `${day}T11:00:01Z`, ...over,
+    identity_trust_level: "account", provider_identity_hash: null, economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, created_at: `${day}T11:00:01Z`, ...over,
   });
 
   it("counts local-only usage as tracked, never as verified or eligible", () => {

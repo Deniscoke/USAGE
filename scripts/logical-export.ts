@@ -30,6 +30,12 @@ const TABLES = [
   "usage_miner_credentials",
   "miner_devices",
   "miner_pairing_requests",
+  "miner_tool_mappings",
+  "local_usage_observations",
+  "protocol_pricing_versions",
+  "protocol_model_prices",
+  "reward_policy_versions",
+  "mining_protocol_versions",
 ] as const;
 
 async function main(): Promise<void> {

@@ -66,6 +66,10 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "correlation_status",
         "identity_trust_level",
         "provider_identity_hash",
+        "economic_event_key",
+        "dedupe_status",
+        "economic_verification_status",
+        "economic_verification_policy_version",
       ] as const;
 
       const params: unknown[] = [];

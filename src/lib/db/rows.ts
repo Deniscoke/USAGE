@@ -1,5 +1,6 @@
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import { createHash } from "node:crypto";
+import { economicKeyOf } from "@/lib/protocol/economic-unit";
 import type {
   CorrelationStatusRow,
   PricingStatusRow,
@@ -126,6 +127,10 @@ export interface UsageEventInsert {
   correlation_status: CorrelationStatusRow;
   identity_trust_level: string;
   provider_identity_hash: string | null;
+  economic_event_key: string | null;
+  dedupe_status: "unique" | "duplicate" | "conflict" | "unkeyed";
+  economic_verification_status: string | null;
+  economic_verification_policy_version: string | null;
 }
 
 export function usageRecordToInsert(
@@ -202,7 +207,25 @@ export function usageRecordToInsert(
     correlation_status: "none",
     identity_trust_level: "account",
     provider_identity_hash: providerIdentityHashFor(record),
+    // 0018: the same facts the adapter put in raw_metadata, as columns, so
+    // the database's global unique index and the settled-row trigger see
+    // them. Written from the metadata, never from anything a client sent.
+    economic_event_key: economicKeyOf(record.rawMetadata),
+    dedupe_status: dedupeStatusFor(record),
+    economic_verification_status: stringOrNull(record.rawMetadata.economic_verification_status),
+    economic_verification_policy_version: stringOrNull(record.rawMetadata.economic_verification_policy_version),
   };
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function dedupeStatusFor(record: NormalizedUsageRecord): UsageEventInsert["dedupe_status"] {
+  const key = economicKeyOf(record.rawMetadata);
+  const stated = record.rawMetadata.dedupe_status;
+  if (stated === "duplicate" || stated === "conflict") return stated;
+  return key ? "unique" : "unkeyed";
 }
 
 function providerIdentityHashFor(record: NormalizedUsageRecord): string | null {

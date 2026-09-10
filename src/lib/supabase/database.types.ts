@@ -56,7 +56,8 @@ export type VerificationLevelRow =
   | "provider_correlated"
   | "routed_confirmed"
   | "provider_verified_import";
-export type CorrelationStatusRow = "none" | "pending" | "matched" | "unmatched";
+export type CorrelationStatusRow = "none" | "pending" | "matched" | "unmatched" | "conflict";
+export type EconomicDedupeStatusRow = "unique" | "duplicate" | "conflict" | "unkeyed";
 export type MeteringMethodRow = "native_otel" | "routed" | "provider_import" | "local_observed" | "unsupported";
 export type MappingStatusRow = "enabled" | "disabled";
 
@@ -236,6 +237,11 @@ export type UsageEventRow = {
   correlation_status: CorrelationStatusRow;
   identity_trust_level: string;
   provider_identity_hash: string | null;
+  /** 0018: the economic unit's identity and status, as columns. */
+  economic_event_key: string | null;
+  dedupe_status: EconomicDedupeStatusRow;
+  economic_verification_status: string | null;
+  economic_verification_policy_version: string | null;
   created_at: string;
 }
 
@@ -599,6 +605,10 @@ export type RewardAllocationRow = {
  * to `never`, which silently turns every insert into a type error.
  */
 export type UsageEventInsertRow = {
+  economic_event_key?: string | null;
+  dedupe_status?: EconomicDedupeStatusRow;
+  economic_verification_status?: string | null;
+  economic_verification_policy_version?: string | null;
   pricing_status?: PricingStatusRow;
   provenance_sources?: string[];
   verification_level?: VerificationLevelRow | null;

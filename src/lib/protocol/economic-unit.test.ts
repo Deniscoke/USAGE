@@ -285,7 +285,7 @@ describe("a future snapshot admits only the bottom of the ladder", () => {
     reconciliation_status: "clear", fraud_status: "clear", reward_hold: false,
     raw_metadata: { dedupe_status: "unique", economic_verification_policy_version: "economic-verification-v1" },
     provenance_sources: ["usage_gateway"], verification_level: "routed_confirmed", correlation_status: "none",
-    identity_trust_level: "account", provider_identity_hash: null, created_at: "2026-09-10T10:00:01Z",
+    identity_trust_level: "account", provider_identity_hash: null, economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, created_at: "2026-09-10T10:00:01Z",
   };
 
   it("admits a settled, unique, eligible, priced, confirmed paid unit", () => {

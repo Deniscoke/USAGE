@@ -8,13 +8,11 @@ import { generateSigningKeyPair } from "@/lib/domain/signing";
 import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observation";
 
 /**
- * The PREPARED migration 0018, applied on top of the production migrations in
- * PGlite only. Production has not run it; nothing deployed depends on it.
- * This proves that, when it is approved, the database itself will enforce
- * what ingestion code enforces today.
+ * Migration 0018 in the chain, re-applied once more on top of itself in
+ * PGlite to prove idempotence, then held to what it enforces.
  */
 
-const PENDING = path.resolve(process.cwd(), "supabase/pending/0018_economic_unit.sql");
+const APPLIED = path.resolve(process.cwd(), "supabase/migrations/0018_economic_unit.sql");
 const KEY = generateSigningKeyPair("m18-key");
 const ISSUANCE = { issuer: "usage://issuer/production", keyId: KEY.keyId, privateKeyBase64: KEY.privateKeyBase64 };
 
@@ -44,7 +42,8 @@ beforeAll(async () => {
   user = await db.createUser("m18@example.com");
   // Rows written BEFORE the migration, the way production rows are today.
   await ingestGatewayObservations(store, user, [paid("gen_pre", "req_pre"), paid("gen_pre_dup", "req_pre")], { issuance: ISSUANCE });
-  await db.exec(readFileSync(PENDING, "utf8"));
+  // 0018 is in the chain now; applying it again proves it is idempotent.
+  await db.exec(readFileSync(APPLIED, "utf8"));
 }, 120_000);
 
 afterAll(async () => {

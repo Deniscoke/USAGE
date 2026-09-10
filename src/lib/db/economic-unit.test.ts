@@ -496,7 +496,7 @@ describe("conflicting evidence cannot mine", () => {
     if (decision.event?.kind !== "conflict") return;
     // Exactly the statement the ingestion code issues on a conflict.
     await db.asServiceRole(
-      `update usage_events set correlation_status = 'pending', reward_hold = true, reconciliation_status = 'held',
+      `update usage_events set correlation_status = 'conflict', dedupe_status = 'conflict', reward_hold = true, reconciliation_status = 'held',
          raw_metadata = raw_metadata || $1::jsonb where id = $2 and user_id = $3`,
       [JSON.stringify({ dedupe_status: "conflict", correlation_conflict: decision.event.conflicts.join(","), economic_verification_status: "held", economic_verification_reason: "identity_conflict" }), before.id, user],
     );
