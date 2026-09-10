@@ -23,7 +23,13 @@ export function DeviceStatus({ view }: { view: DeviceView }) {
   const color = view.revoked ? "var(--reported)" : view.online ? "var(--verified)" : "var(--faint)";
   return (
     <span className="text-[10px] uppercase tracking-[0.1em]" style={{ color }}>
-      {view.revoked ? "Revoked" : view.online ? "● Online" : "Offline"}
+      {view.revoked
+        ? "Revoked"
+        : view.online
+          ? "● Online · current"
+          : view.previousPairing
+            ? "Offline · previous pairing"
+            : "Offline"}
     </span>
   );
 }

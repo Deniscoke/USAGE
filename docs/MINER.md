@@ -441,3 +441,46 @@ Verifying a download:
 ```bash
 certutil -hashfile USAGE-Miner-0.2.0-Setup.exe SHA256
 ```
+
+## 7. Map once (designed, not built)
+
+The current flow starts an AI app *from* USAGE Miner so the session-only
+telemetry environment can be injected. The target flow is: turn mapping on
+once, then use the app normally.
+
+Claude Code supports this today through two documented pieces: OpenTelemetry
+settings in `settings.json` `env` (`CLAUDE_CODE_ENABLE_TELEMETRY`,
+`OTEL_LOGS_EXPORTER=otlp`, `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`), and `otelHeadersHelper` — a command Claude Code
+runs at startup and every 29 minutes (`CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS`)
+whose JSON output becomes the OTLP headers. Dynamic headers apply to
+`http/json`, which is what the receiver speaks.
+
+Design:
+
+| Piece | Holds |
+| --- | --- |
+| `settings.json` (written with consent, backed up, removable) | endpoint `http://127.0.0.1:<fixed port>/v1/logs`, protocol, exporter flags, `otelHeadersHelper` = path of the installed `USAGE-Miner-x.y.z.exe otel-headers` |
+| `otel-headers` command | prints `{"Authorization":"Bearer <short-lived session secret>"}` obtained from the running tray process over loopback; exits non-zero when USAGE Miner is not running |
+| USAGE Miner (per-user, in the tray while mapping is on) | DPAPI miner credential, device key, the receiver on a fixed loopback port, mints and rotates the session secret |
+
+No long-lived credential ever enters Claude's configuration: the helper
+returns a secret that is only valid while the tray process runs, and the
+tray process is what holds the DPAPI credential. No service, no autostart
+without an explicit switch, no change to routing (mapping mode leaves Claude
+on its own sign-in and provider; verified routing stays a separate,
+explicit choice). It is a milestone of its own: a tray lifecycle, a fixed
+port with the same nonce/Origin protections, the helper command, an
+uninstall path that restores `settings.json`, and tests for all of it.
+
+## 8. Installation identity (designed, not applied)
+
+A pairing credential binds one device row to one account; an installation is
+the copy of USAGE Miner on a computer and outlives credentials. 0.4.2 mints a
+random `installation.json` id and sends it when pairing. The server-side
+half — `miner_devices.installation_id text null`, and `approve()` reusing the
+caller's unrevoked device row with the same installation id instead of
+inserting — is a schema change and waits for approval like every other one.
+Until then a re-pair creates a new device row; the website marks older live
+pairings "previous pairing" and never deletes them. A deliberate sign-out and
+sign-in to a different account is a new association by design.

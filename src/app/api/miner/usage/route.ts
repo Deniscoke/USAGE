@@ -38,7 +38,14 @@ export async function GET(request: NextRequest) {
   const day = new Date().toISOString().slice(0, 10);
   const since = `${day}T00:00:00Z`;
   const [{ data: observations }, { data: events }] = await Promise.all([
-    admin.from("local_usage_observations").select("*").eq("user_id", auth.identity.userId).gte("occurred_at", since),
+    // THIS device's observations: the window describes the computer it runs
+    // on, exactly as the website's card for that device does.
+    admin
+      .from("local_usage_observations")
+      .select("*")
+      .eq("user_id", auth.identity.userId)
+      .eq("device_id", device.device.id)
+      .gte("occurred_at", since),
     admin.from("usage_events").select("*").eq("user_id", auth.identity.userId).gte("occurred_at", since),
   ]);
 

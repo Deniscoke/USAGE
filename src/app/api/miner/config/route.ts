@@ -10,6 +10,8 @@ import { MINING_ELIGIBILITY_COPY } from "@/lib/protocols/protocol";
 // One source of truth for what build the server expects: a device that is told
 // it is current here and out of date on the download page would be a bug.
 import { MINER_PROTOCOL_VERSION, MINIMUM_MINER_VERSION } from "@/lib/miner/release";
+import { requireLiveDevice } from "@/lib/miner/devices";
+import { accountDisplay, networkLabel } from "@/lib/miner/identity";
 
 /**
  * What a paired device needs to route requests, and nothing more.
@@ -51,6 +53,21 @@ export async function GET(request: NextRequest) {
   }
 
   const origin = request.nextUrl.origin;
+
+  // The device this credential belongs to, and what the SERVER says about
+  // its mappings. The desktop window displays this, never its own memory:
+  // a mapping that exists only on the device is a mapping that meters nothing.
+  const device = await requireLiveDevice(admin, auth.identity);
+  if (!device.ok) return Response.json({ error: device.reason }, { status: device.reason === "revoked" ? 403 : 404 });
+  const [{ data: mappingRows }, { data: userData }] = await Promise.all([
+    admin
+      .from("miner_tool_mappings")
+      .select("tool_id, status, last_event_at, updated_at")
+      .eq("device_id", device.device.id)
+      .eq("user_id", auth.identity.userId),
+    admin.auth.admin.getUserById(auth.identity.userId),
+  ]);
+
   const connections = await createConnectionStore(admin).list(auth.identity.userId);
 
   // Only connections that can actually carry traffic today.
@@ -87,9 +104,20 @@ export async function GET(request: NextRequest) {
       protocolVersion: MINER_PROTOCOL_VERSION,
       minimumMinerVersion: MINIMUM_MINER_VERSION,
       updateRequired: false,
-      account: { label: auth.identity.name },
+      // The account is a person; the device is a computer. They are shown
+      // apart, and the account identity is a safe display form -- never the
+      // full email, which the device has no need to hold.
+      account: { label: auth.identity.name, display: accountDisplay(userData?.user?.email ?? null) },
+      device: { id: device.device.id, name: device.device.name },
+      mappings: (mappingRows ?? []).map((m) => ({
+        tool: m.tool_id,
+        status: m.status,
+        lastEventAt: m.last_event_at,
+        updatedAt: m.updated_at,
+      })),
       mining: {
         network: CURRENT_MINING_PROTOCOL.network,
+        networkLabel: networkLabel(CURRENT_MINING_PROTOCOL.network),
         scoringVersion: CURRENT_MINING_PROTOCOL.scoringVersion,
       },
       routes,

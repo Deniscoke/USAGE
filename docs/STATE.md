@@ -289,6 +289,24 @@ mining engine never learns which provider a request came from.
 - Version 0.3.1 exists only in the public repository and is unreleased: it is
   the build waiting to be signed. `v0.3.0-beta.1` remains the current download
   and keeps its original bytes.
+- **Product coherence (M13C, 0.4.2):** the desktop window now shows the
+  SERVER's mapping for the CURRENT device (`/api/miner/config` returns
+  `device`, `mappings`, a masked account identity and a network label);
+  `mappings.json` is keyed by device id and reconciled to the server on every
+  config fetch (a 0.4.1 file, keyed by tool alone, is ignored — that was the
+  bug: consent from device `fabf7fb0` showed as "mapping ON" on `e0505fa7`).
+  The desktop usage figures are per device, like the website's card. Every
+  metering session writes `telemetry-status.json` (active / last event / last
+  sync outcome as one safe word) so a rejected upload is shown, never logged
+  away. The home screen separates account, this PC, mapping, tracking,
+  verification and reward, names the real AI route (a fallback is called a
+  fallback) and says why USAGE is zero. "Track only" starts Claude Code on
+  its own account with telemetry only (`run claude-code --no-route`).
+  A random `installation.json` id is minted and sent at pairing; the server
+  does not yet store it (a nullable `miner_devices.installation_id` plus a
+  reuse rule in `approve` is the designed, un-applied follow-up), so a
+  re-pair still creates a new device row; the website labels older live
+  pairings "Offline · previous pairing".
 - **Windows first run (M14B fix, 0.4.1):** 0.4.0's window stayed on "Loading…"
   forever because a raw newline inside a JS string literal broke the inline
   page script; 0.4.1 fixes it, bounds every startup operation (3 s per tool
