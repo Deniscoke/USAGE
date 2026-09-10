@@ -311,7 +311,7 @@ the two things that used to disqualify it. What remains:
 | Public repository | **Met** — github.com/Deniscoke/USAGE |
 | Already released in the form to be signed | **Met** — `v0.2.0-beta.1` |
 | OSI-approved licence, no commercial dual-licensing | **NOT MET — there is no `LICENSE` file at all.** Without one the code is "all rights reserved", which is not open source and cannot qualify. Choosing a licence is the owner's decision, not a build detail. |
-| Verifiable automated build on GitHub-hosted runners | **Prepared** — `.github/workflows/release-miner.yml`, currently manual-dispatch and unsigned |
+| Verifiable automated build on GitHub-hosted runners | **Prepared** — `.github/workflows/release.yml` in the public `Deniscoke/USAGE-Miner` repository (the one canonical miner release pipeline; the platform repository carries none). Signing steps are gated on the dispatch input and run only when the `release` environment holds the SignPath token; secrets are passed via `with:`/`env:`, never referenced in `if:`. |
 | Artifact uploaded as a workflow artifact before signing | **Prepared** — `actions/upload-artifact@v4`, then `signpath/github-action-submit-signing-request@v2` |
 | Author / reviewer / approver roles, MFA on GitHub and SignPath | **Owner action.** A solo project may hold all three roles; MFA is not optional |
 | Published code-signing policy page | **Not written** |
