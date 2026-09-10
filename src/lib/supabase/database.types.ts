@@ -242,6 +242,10 @@ export type UsageEventRow = {
   dedupe_status: EconomicDedupeStatusRow;
   economic_verification_status: string | null;
   economic_verification_policy_version: string | null;
+  /** 0019: exact pico-USD economics (numeric(38,0) => PostgREST returns a string). NULL for v1/v2-priced rows. */
+  protocol_compute_pico: string | null;
+  eligible_compute_pico: string | null;
+  pricing_components_pending: string[];
   created_at: string;
 }
 
@@ -314,6 +318,8 @@ export type ScoreRecordRow = {
   pending_cost_micros: number;
   /** numeric(20,4) — PostgREST returns numeric as a string. */
   points: string | number;
+  /** 0019: usage_score_v2's exact score, numeric(38,0) as a string. NULL for v1 rows. */
+  weighted_compute_pico?: string | null;
   created_at: string;
 }
 
@@ -609,6 +615,9 @@ export type UsageEventInsertRow = {
   dedupe_status?: EconomicDedupeStatusRow;
   economic_verification_status?: string | null;
   economic_verification_policy_version?: string | null;
+  protocol_compute_pico?: string | null;
+  eligible_compute_pico?: string | null;
+  pricing_components_pending?: string[];
   pricing_status?: PricingStatusRow;
   provenance_sources?: string[];
   verification_level?: VerificationLevelRow | null;
@@ -672,6 +681,7 @@ export type ScoreRecordInsertRow = {
   excluded_cost_micros?: number;
   pending_cost_micros?: number;
   points?: number | string;
+  weighted_compute_pico?: string | null;
 }
 
 export type RewardAllocationInsertRow = {

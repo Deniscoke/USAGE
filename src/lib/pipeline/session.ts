@@ -2,7 +2,8 @@ import { dailyEpochFor, estimateReward, type RewardEpoch } from "@/lib/domain/ep
 import { EMPTY_TOTALS, addToTotals, utcDay } from "@/lib/domain/normalize";
 import { scoreRecords, type DailyScore } from "@/lib/domain/scoring";
 import type { NormalizedUsageRecord, UsageTotals } from "@/lib/domain/types";
-import { epochEmissionPoints } from "@/lib/protocol/emission";
+import { epochIdForDate } from "@/lib/domain/epoch";
+import { scheduledPoolForEpoch } from "@/lib/protocol/schedule";
 
 /**
  * Mining session summary.
@@ -65,7 +66,7 @@ export function buildMiningSession(
   const reward = estimateReward({
     userScore: todayScore?.points ?? 0,
     networkScore,
-    rewardPoolPoints: epochEmissionPoints(),
+    rewardPoolPoints: scheduledPoolForEpoch(epochIdForDate(now)),
   });
 
   return {
@@ -80,7 +81,7 @@ export function buildMiningSession(
     excludedCostMicros: scoresByDay.reduce((acc, score) => acc + score.excludedCostMicros, 0),
     miningScore,
     scoresByDay,
-    epoch: dailyEpochFor(now, epochEmissionPoints()),
+    epoch: dailyEpochFor(now, scheduledPoolForEpoch(epochIdForDate(now))),
     networkScore,
     networkShare: reward.networkShare,
     estimatedPoints: reward.points,

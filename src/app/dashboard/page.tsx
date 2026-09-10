@@ -114,8 +114,11 @@ export default async function DashboardPage() {
             {data.protocol.network === "development"
               ? "Development network. Usage Points are beta: off-chain, non-transferable, no monetary value."
               : "Usage Points are off-chain and non-transferable."}{" "}
-            Emission is a fixed {formatNumber(data.protocol.emissionPoints)} per epoch, so extra
-            usage cannot mint extra USAGE.
+            {data.protocol.status.current.emissionAlgorithm === "baseline-linear-v1"
+              ? `Daily emission is up to ${formatNumber(data.protocol.emissionPoints)} Usage Points, unlocked as the network's eligible compute approaches the baseline; what is not unlocked is never minted.`
+              : `Emission is a fixed ${formatNumber(data.protocol.emissionPoints)} per epoch, so extra usage cannot mint extra USAGE.`}{" "}
+            Mining protocol: {data.protocol.status.headline}. Scoring: {data.protocol.status.scoringLabel}.
+            No guaranteed conversion into any future token.
           </p>
         </div>
       </section>

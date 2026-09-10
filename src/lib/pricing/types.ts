@@ -29,4 +29,12 @@ export interface ProtocolPricingSnapshot {
   effectiveFrom: string;
   capturedAt: string;
   prices: readonly ProtocolModelPrice[];
+  /**
+   * What an absent cache price means. v1/v2 (absent field): the input rate.
+   * v3+: `pending` -- the component is unpriced and a unit that used it is
+   * pending as a whole. Unknown is never equal to input.
+   */
+  unknownCachePolicy?: "input_rate" | "pending";
+  /** v3+: pico-USD exact valuation, rounded once per aggregate, never per request. */
+  valuation?: "micro_rounded" | "pico_exact";
 }

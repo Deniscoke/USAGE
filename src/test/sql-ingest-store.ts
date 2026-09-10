@@ -70,6 +70,9 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         "dedupe_status",
         "economic_verification_status",
         "economic_verification_policy_version",
+        "protocol_compute_pico",
+        "eligible_compute_pico",
+        "pricing_components_pending",
       ] as const;
 
       const params: unknown[] = [];
@@ -243,13 +246,14 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
         await db.asServiceRole(
           `insert into score_records
              (user_id, day, algorithm_version, weighted_cost_micros, excluded_cost_micros,
-              pending_cost_micros, points)
-           values ($1, $2, $3, $4, $5, $6, $7)
+              pending_cost_micros, points, weighted_compute_pico)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)
            on conflict (user_id, day, algorithm_version) do update
              set weighted_cost_micros = excluded.weighted_cost_micros,
                  excluded_cost_micros = excluded.excluded_cost_micros,
                  pending_cost_micros = excluded.pending_cost_micros,
-                 points = excluded.points`,
+                 points = excluded.points,
+                 weighted_compute_pico = excluded.weighted_compute_pico`,
           [
             userId,
             score.day,
@@ -258,6 +262,7 @@ export function createSqlIngestStore(db: TestDb): IngestStore {
             score.excludedCostMicros,
             score.pendingCostMicros,
             score.points,
+            score.weightedComputePico ?? null,
           ],
         );
       }

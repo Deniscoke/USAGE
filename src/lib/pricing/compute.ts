@@ -1,5 +1,6 @@
 import { USAGE_PRICING_V1 } from "./usage-pricing-v1";
 import { USAGE_PRICING_V2 } from "./usage-pricing-v2";
+import { USAGE_PRICING_V3 } from "./usage-pricing-v3";
 import type { ProtocolModelPrice, ProtocolPricingSnapshot } from "./types";
 
 /**
@@ -15,14 +16,24 @@ import type { ProtocolModelPrice, ProtocolPricingSnapshot } from "./types";
  */
 
 /**
- * The version new proofs are priced with. Older proofs keep the version they
- * were priced with, forever -- that is what makes historical mining stable.
+ * The version mining-dev-v1 prices with. Which version a unit is priced under
+ * is decided by the unit's ASSIGNED EPOCH (src/lib/protocol/schedule.ts),
+ * never by this constant alone; it remains the default for callers that have
+ * no epoch, such as model-list capability checks. Older proofs keep the
+ * version they were priced with, forever -- that is what makes historical
+ * mining stable.
  */
 export const CURRENT_PRICING_VERSION = USAGE_PRICING_V2.version;
 
+/**
+ * v3 is REGISTERED so that ingestion can price a unit whose epoch resolves to
+ * mining-beta-v2; until that protocol is scheduled in the database no epoch
+ * resolves to it, so registering v3 changes nothing in production.
+ */
 const SNAPSHOTS: Readonly<Record<string, ProtocolPricingSnapshot>> = Object.freeze({
   [USAGE_PRICING_V1.version]: USAGE_PRICING_V1,
   [USAGE_PRICING_V2.version]: USAGE_PRICING_V2,
+  [USAGE_PRICING_V3.version]: USAGE_PRICING_V3,
 });
 
 export function getPricingSnapshot(version: string): ProtocolPricingSnapshot | null {
@@ -100,8 +111,16 @@ export function protocolComputeValue(
   const price = findModelPrice(version, model);
   if (!price) return null;
 
-  // Cache reads and writes fall back to the input rate only when the provider
-  // does not price them separately, which is what "not priced separately" means.
+  // v3+: an absent cache price is UNKNOWN. A unit that actually used the
+  // unpriced component has no protocol value at all (pending as a whole);
+  // one that did not is priced normally. Unknown is never the input rate.
+  if (getPricingSnapshot(version)?.unknownCachePolicy === "pending") {
+    if (price.cacheReadMicrosPerMillion === null && tokens.cachedReadTokens > 0) return null;
+    if (price.cacheWriteMicrosPerMillion === null && tokens.cachedWriteTokens > 0) return null;
+  }
+
+  // v1/v2 semantics, frozen: cache reads and writes fall back to the input
+  // rate when the snapshot has no separate price. Historical, not a policy.
   const cacheReadRate = price.cacheReadMicrosPerMillion ?? price.inputMicrosPerMillion;
   const cacheWriteRate = price.cacheWriteMicrosPerMillion ?? price.inputMicrosPerMillion;
   // Reasoning tokens are a breakdown of output tokens and are already counted

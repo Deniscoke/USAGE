@@ -34,7 +34,7 @@ function event(over: Partial<UsageEventRow> = {}): UsageEventRow {
     reconciliation_status: "clear", fraud_status: "clear", reward_hold: false,
     raw_metadata: { client_type: "claude-code", upstream_request_id: "req_real", cache_write_tokens: 33_033, reasoning_tokens: 7 },
     provenance_sources: ["usage_gateway"], verification_level: "routed_confirmed", correlation_status: "none",
-    identity_trust_level: "account", provider_identity_hash: "sha256:x", economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, created_at: `${day}T11:40:08Z`, ...over,
+    identity_trust_level: "account", provider_identity_hash: "sha256:x", economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, protocol_compute_pico: null, eligible_compute_pico: null, pricing_components_pending: [], created_at: `${day}T11:40:08Z`, ...over,
   };
 }
 

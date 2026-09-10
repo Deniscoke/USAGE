@@ -244,7 +244,7 @@ describe("tracked / verified / eligible stay separate", () => {
     eligible_compute_micros: 2500, reward_status: "eligible", reward_reason: "metered_paid", reward_policy_version: "usage-reward-policy-v1",
     reconciliation_status: "clear", fraud_status: "none", reward_hold: false, raw_metadata: { client_type: "claude-code" },
     provenance_sources: ["usage_gateway"], verification_level: "routed_confirmed", correlation_status: "none",
-    identity_trust_level: "account", provider_identity_hash: null, economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, created_at: `${day}T11:00:01Z`, ...over,
+    identity_trust_level: "account", provider_identity_hash: null, economic_event_key: null, dedupe_status: "unkeyed", economic_verification_status: null, economic_verification_policy_version: null, protocol_compute_pico: null, eligible_compute_pico: null, pricing_components_pending: [], created_at: `${day}T11:00:01Z`, ...over,
   });
 
   it("counts local-only usage as tracked, never as verified or eligible", () => {

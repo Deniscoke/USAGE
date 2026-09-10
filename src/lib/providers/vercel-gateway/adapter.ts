@@ -10,7 +10,10 @@ import {
   type SignedProofReceipt,
 } from "@/lib/domain/receipt";
 import type { EconomicStatus, ProofStatus } from "@/lib/domain/types";
-import { CURRENT_PRICING_VERSION, protocolComputeValue } from "@/lib/pricing/compute";
+import { protocolComputeValue } from "@/lib/pricing/compute";
+import { exactProtocolComputeValueFor, isPicoExactVersion } from "@/lib/pricing/exact";
+import { epochIdForDate } from "@/lib/domain/epoch";
+import { pricingForEpoch } from "@/lib/protocol/schedule";
 import { decideReward, type RewardPolicyVersion } from "@/lib/protocol/reward-policy";
 import {
   classifyEconomicSource,
@@ -155,14 +158,26 @@ export function normalizeGatewayObservation(
   // Protocol compute value: what this compute is worth to the protocol, from a
   // frozen pricing snapshot. Deliberately independent of the bill -- identical
   // compute mines identically whoever paid what for it.
-  const pricingVersion = options.pricingVersion ?? CURRENT_PRICING_VERSION;
-  const protocol = protocolComputeValue(pricingVersion, observation.model, {
+  // The pricing version follows the epoch of the OCCURRENCE (its UTC day),
+  // resolved through the protocol schedule; never a global current constant.
+  // Ingestion may carry a late unit forward to a later epoch; settlement then
+  // refuses any unit whose pricing version differs from that epoch's, so no
+  // epoch ever mixes pricing versions.
+  const pricingVersion = options.pricingVersion ?? pricingForEpoch(epochIdForDate(new Date(observation.occurredAt)));
+  const tokenClasses = {
     inputTokens,
     cachedReadTokens: cachedInputTokens,
     cachedWriteTokens: cacheWriteTokens,
     outputTokens,
     reasoningTokens,
-  });
+  };
+  const protocol = protocolComputeValue(pricingVersion, observation.model, tokenClasses);
+  // Exact economics for pico_exact versions (v3+): derived here, server-side,
+  // from the same token counts. Pending components make the whole unit
+  // pending (protocol is already null in that case).
+  const exact = isPicoExactVersion(pricingVersion) ? exactProtocolComputeValueFor(pricingVersion, observation.model, tokenClasses) : null;
+  const protocolPico = exact && exact.pendingComponents.length === 0 && protocol ? exact.pico : null;
+  const pendingComponents = exact?.pendingComponents ?? [];
 
   const externalReference = observationReference(observation);
   const occurredAt = new Date(observation.occurredAt).toISOString();
@@ -330,6 +345,11 @@ export function normalizeGatewayObservation(
     actualCostBasis: costBasis,
     economicSourceClass: economicSource,
     eligibleComputeMicros: reward.eligibleComputeMicros,
+    // Exact siblings of the micro columns. Eligible pico is the whole protocol
+    // pico when the policy made the unit eligible, otherwise 0; never larger.
+    protocolComputePico: protocolPico === null ? null : protocolPico.toString(),
+    eligibleComputePico: protocolPico === null ? null : (reward.status === "eligible" ? protocolPico : 0n).toString(),
+    pricingComponentsPending: pendingComponents,
     rewardStatus: reward.status,
     rewardReason: reward.reason,
     rewardPolicyVersion: reward.policyVersion,

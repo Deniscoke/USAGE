@@ -1,5 +1,4 @@
-import { CURRENT_SCORING_VERSION } from "./scoring";
-import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
+import { protocolForEpoch } from "@/lib/protocol/schedule";
 
 /**
  * Reward epochs.
@@ -177,17 +176,18 @@ export function dailyEpochFor(
   const day = at.toISOString().slice(0, 10);
   const start = new Date(`${day}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  // Bound from the epoch's own date through the schedule, never from a
+  // global "current" version: the same call returns the same binding
+  // whenever it runs. A settled epoch keeps its binding (0019 trigger).
+  const protocol = protocolForEpoch(`epoch-${day}`);
   return {
     id: `epoch-${day}`,
     startsAt: start.toISOString(),
     endsAt: end.toISOString(),
     rewardPoolPoints,
-    scoringVersion: CURRENT_SCORING_VERSION,
+    scoringVersion: protocol.scoringVersion,
     state,
-    // The emission rule the epoch is settled under. mining-dev-v1 today; a
-    // settled epoch never changes it (0019 trigger), so the record explains
-    // its own points forever.
-    protocolVersion: CURRENT_MINING_PROTOCOL.version,
+    protocolVersion: protocol.version,
   };
 }
 

@@ -1156,3 +1156,181 @@ unchanged. One allocation row with 0 points; ledger 1 row / 100,000 before
 and after; the owner's balance 0 before and after. `audit_epoch` reproduces
 all of it from persisted rows. A repeat dry run is refused ("epoch is
 settled"). v2 remains inactive.
+
+
+---
+
+# M16A — Scheduled beta-v2 cutover preparation
+
+## Target
+
+| | |
+| --- | --- |
+| first mining-beta-v2 epoch | epoch-2026-09-14 |
+| UTC start | 2026-09-14T00:00:00.000Z (Prague: 2026-09-14 02:00 CEST) |
+| UTC end | 2026-09-15T00:00:00.000Z |
+| readiness deadline | activation-compatible code and schema deployed and verified by 2026-09-11T23:59:59Z |
+| if missed | do not compress the two full UTC days of soak; move to the first later epoch that preserves them |
+
+Nothing in this milestone activates v2. Production economics unchanged.
+
+## Pre-cutover gap (Sep 11 to 13)
+
+Read-only inspection on 2026-09-10: no usage_events assigned to
+epoch-2026-09-11, -12 or -13. All six events sit in epoch-2026-09-07 (three,
+two settled), epoch-2026-09-08 (two pending_pricing, held/ineligible) and
+epoch-2026-09-10 (the settled calibration unit). No disposition needed. If a
+reward-eligible unit appears in the gap before cutover it must not be settled
+with the fixed 100,000 pool, not carried into v2, and not silently
+reassigned; it needs an explicit owner disposition. The ordinary settle script
+now refuses any epoch that is not fixed-pool-v1, and the atomic v2 function
+refuses any epoch the schedule does not give to baseline-linear-v1.
+
+## Version resolution (no more global "current" assumptions on the economic path)
+
+Audit of production paths using `CURRENT_MINING_PROTOCOL`,
+`CURRENT_SCORING_VERSION`, `CURRENT_PRICING_VERSION`, `epochEmissionPoints()`:
+
+| path | before | now |
+| --- | --- | --- |
+| ingestion re-score (`ingest.ts`) | `CURRENT_SCORING_VERSION` for every epoch | `scoringForEpoch(epochId)`; a v2 epoch scores `scoreRecordsPico` (BigInt) into `weighted_compute_pico`, `points` is display |
+| gateway adapter pricing | `CURRENT_PRICING_VERSION` | `pricingForEpoch(epoch of occurrence)`; pico_exact versions write `protocol_compute_pico` / `eligible_compute_pico` / `pricing_components_pending` |
+| `dailyEpochFor` binding | `CURRENT_MINING_PROTOCOL.version`, `CURRENT_SCORING_VERSION` | `protocolForEpoch(epoch-of-date)` |
+| settle script pool | `epochEmissionPoints()` | governing protocol's cap; refuses non-fixed-pool epochs |
+| dashboard / session preview | `epochEmissionPoints()`, `CURRENT_*` | today's epoch through the schedule, from the persisted `mining_protocol_versions` rows when loaded |
+| miner config/status routes, `connections.ts` model check, `verify-hosted` | `CURRENT_*` | unchanged: informational or capability checks, not economic writes |
+
+Resolver (`src/lib/protocol/schedule.ts`, and `protocol_for_epoch()` in
+pending 0021): a bound `reward_epochs.protocol_version` wins; otherwise the
+latest scheduled/active/superseded NETWORK version whose
+`effective_from_epoch <= epoch`; drafts never resolve; before the genesis
+version's first epoch the genesis version governs. Deploying code that
+changes a constant cannot flip an epoch: the code schedule keeps
+mining-beta-v2 a draft until the activation package, and the database row is
+what settlement checks.
+
+Historical reproduction (tests): epoch-2026-09-07 → mining-dev-v1 /
+usage_score_v1 / usage-pricing-v2 / fixed 100,000; epoch-2026-09-10 (bound) →
+mining-dev-calibration-v1 / v1 / v2 / zero reward; epoch-2026-09-14 with the
+beta scheduled → mining-beta-v2 / usage_score_v2 / usage-pricing-v3 /
+baseline-linear-v1; 09-11 to 09-13 → v1. The second before the boundary is
+v1; the first second after is v2. No epoch can mix versions: the v2 settlement
+function refuses any eligible unit priced under a different version than the
+epoch's.
+
+## Pricing v3, fresh audit (2026-09-10)
+
+| model | input | output | cache read | cache write | reasoning | source |
+| --- | --- | --- | --- | --- | --- | --- |
+| anthropic/claude-opus-5 | 5,000,000 | 25,000,000 | 500,000 | 6,250,000 (5m) | billed as output | platform.claude.com/docs/en/about-claude/pricing |
+| anthropic/claude-sonnet-4.6 | 3,000,000 | 15,000,000 | 300,000 | 3,750,000 (5m) | billed as output | same |
+| anthropic/claude-haiku-4.5 | 1,000,000 | 5,000,000 | 100,000 | 1,250,000 (5m) | billed as output | same |
+| openai/gpt-5.4 | 2,500,000 | 15,000,000 | 250,000 | none billed (absent → pending if ever used) | billed as output | developers.openai.com/api/docs/pricing |
+| openai/gpt-5-nano | 50,000 | 400,000 | 5,000 | none billed (absent) | billed as output | same |
+
+Units: micro-USD per million tokens; captured 2026-09-10T19:20Z. Excluded
+from v3 (no current first-party authoritative price; gateway listings only,
+and those changed since v2): anthropic/claude-3-haiku (absent from Anthropic's
+table), nvidia/nemotron-3-nano-30b-a3b (OpenRouter route now $0.05/$0.20, v2
+had $0.24 output, cache read now listed), inclusionai/ling-3.0-flash-fin and
+-sante (now $0.06/$0.18, v2 had 0/0). Units on those models are
+`pending_pricing` under v3 and earn nothing.
+
+Rules kept: pico-USD exact valuation; unknown cache price → pending; no
+fallback to the input rate; a unit that used an unpriced class is pending as
+a whole; no request-level rounding; v1/v2 immutable. v3 is registered in code
+(inert: no epoch resolves to it until the beta is scheduled) and inserted
+frozen by pending 0021.
+
+## Pico ingestion path
+
+Trusted ingestion only (`normalizeGatewayObservation` → `usageRecordToInsert`).
+For a pico_exact version the server derives `protocol_compute_pico`
+(exact), `eligible_compute_pico` (= protocol pico when the reward policy made
+it eligible, else 0) and `pricing_components_pending`. A pending unit has
+null pico and `pricing_status = pending_pricing`. The 0019 check constraint
+enforces eligible ≤ protocol. v1/v2 units keep null pico and are never
+repriced. Clients have no write path to usage_events.
+
+## Scoring v2
+
+`weighted_compute_pico = Σ eligible_compute_pico` for the user and epoch,
+computed with BigInt in `scoreRecordsPico`, stored as `numeric(38,0)`. No
+Number in the authoritative path; `points` is a once-rounded micro display.
+The v2 settlement function recomputes the sum from the events and refuses if
+any stored score row differs.
+
+## Emission v2
+
+`effective = floor(100000 × min(N, B) / B) + 0`, B = 10^15 pico, exact
+integer arithmetic in both `settlement-v2.ts` and the SQL function; 0 ≤
+effective ≤ 100,000; undistributed = cap − effective is recorded on the
+epoch and never enters an allocation, the ledger or a balance.
+
+## Settlement atomicity for beta-v2
+
+The ordinary settlement path (`settleEpoch` over the Supabase store) has the
+same multi-request gap M15E proved for the calibration close. **It is not
+used for beta-v2.** Pending 0021 adds `settle_beta_v2_epoch(p_epoch_id)`: one
+transaction with advisory lock, "epoch has ended" (UTC, from the id),
+protocol resolved and checked (live baseline-linear-v1, scoring v2), pricing
+version frozen/active, every eligible unit exact-pico under the epoch's
+pricing version with no pending component and unique dedupe, no duplicate
+economic keys, no prior ledger rows, stored v2 scores equal to the
+recomputed sums, effective pool exact, largest-remainder allocation summing
+exactly to it, ledger rows for positive points only, events settled,
+postconditions (ledger delta = effective, allocation and ledger sums, every
+positive allocation backed by a settled eligible unit, epoch row exact),
+audit returned. SECURITY INVOKER, pinned search_path, EXECUTE for
+service_role only, caller supplies the epoch id and nothing else.
+
+Tests (`beta-v2-settlement.test.ts`, PGlite, chain through 0020 plus
+pending 0021 applied): schedule and resolver in SQL; refusals (not ended, v1
+epoch, bad id, missing pico, foreign pricing version, pending component,
+missing or wrong score rows, anon/authenticated); injected failure after
+finalizing, settled, allocation, ledger, events and postcondition each rolls
+back completely; the successful settlement of $500.33 of eligible compute
+distributes exactly 50,033 points (30,000 / 20,000 / 33) with a ledger delta
+of 50,033 and 49,967 never minted; above the baseline the whole cap; an empty
+epoch nothing; a second attempt refused; settled rows immutable; two
+concurrent attempts give one success and one refusal.
+
+## Shadow mode
+
+`npm run usage:m16a:shadow [-- --epoch epoch-2026-09-14]` reads eligible
+units for the epoch from production (read-only), adds the documented fixture
+set, and prints network pico, baseline progress, effective pool (whole and
+non-binding fractional preview), per-user score, share and estimated
+allocation, every line labelled SHADOW / NON-BINDING. It also prints which
+protocol the code schedule and the database schedule each resolve for the
+epoch, so a mismatch between deployed code and applied schema is visible
+before any activation.
+
+## Active version semantics
+
+`mining_protocol_versions.status`: `draft` (registered, never governs),
+`scheduled` (approved, governs from `effective_from_epoch`, not yet
+reached), `active` (governs now), `superseded` (governed earlier epochs; still
+resolves for them). Historical epochs are reproduced through their bound
+`protocol_version`, so superseding a version never makes its epochs
+unscorable. At most one active network version; one network version per
+boundary epoch.
+
+## Dashboard copy
+
+Before scheduling: "Mining protocol: DEVELOPMENT V1 / PREPARING BETA V2".
+Once scheduled: "DEVELOPMENT V1 / BETA V2 SCHEDULED 2026-09-14 00:00 UTC".
+From the cutover epoch: "BETA V2", scoring "LINEAR VERIFIED COMPUTE", emission
+"UP TO 100,000 USAGE POINTS PER UTC EPOCH". Settled balance is never implied
+before settlement; no token-claim language; development epochs stay
+non-claimable.
+
+## Pending 0021 (`supabase/pending/0021_beta_v2_cutover.sql`, not applied)
+
+`scheduled` status; mining-dev-v1 stamped `effective_from_epoch =
+epoch-2026-09-01`; network versions must name a first epoch unless draft;
+one network version per boundary; `protocol_for_epoch()`; usage-pricing-v3
+inserted frozen with the five audited models; mining-beta-v2 → scheduled for
+epoch-2026-09-14 (the single UPDATE to edit if the target moves);
+`settle_beta_v2_epoch()` with grants. Rollback listed in the file, valid
+until the first v2 settlement.

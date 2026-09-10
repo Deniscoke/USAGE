@@ -71,6 +71,9 @@ export function rowToUsageRecord(row: UsageEventRow): NormalizedUsageRecord {
         ? toSafeInteger(row.protocol_compute_micros, "protocol_compute_micros")
         : undefined,
     protocolPricingVersion: row.protocol_pricing_version ?? null,
+    protocolComputePico: row.protocol_compute_pico ?? null,
+    eligibleComputePico: row.eligible_compute_pico ?? null,
+    pricingComponentsPending: row.pricing_components_pending ?? [],
     epochId: row.epoch_id ?? null,
     carriedForward: row.carried_forward ?? false,
     gatewayId: row.gateway_id ?? null,
@@ -108,6 +111,10 @@ export interface UsageEventInsert {
   economic_status: NonNullable<NormalizedUsageRecord["economicStatus"]>;
   /** Null means no approved price exists. A real 0 means priced at zero. */
   protocol_compute_micros: number | null;
+  /** 0019: exact pico as decimal strings; null unless priced under a pico_exact version. */
+  protocol_compute_pico: string | null;
+  eligible_compute_pico: string | null;
+  pricing_components_pending: string[];
   pricing_status: PricingStatusRow;
   protocol_pricing_version: string | null;
   protocol_pricing_basis: string | null;
@@ -166,6 +173,10 @@ export function usageRecordToInsert(
     // `?? null` on its own would let an explicit null through as "priced",
     // which the database check constraint correctly refuses.
     protocol_compute_micros: protocolCompute,
+    // Exact economics, server-derived (M16A). A client cannot write this table.
+    protocol_compute_pico: record.protocolComputePico ?? null,
+    eligible_compute_pico: record.eligibleComputePico ?? null,
+    pricing_components_pending: record.pricingComponentsPending ?? [],
     pricing_status: protocolCompute === null ? "pending_pricing" : "priced",
     protocol_pricing_version: record.protocolPricingVersion ?? null,
     protocol_pricing_basis: record.protocolPricingVersion ? "protocol_pricing" : null,
@@ -305,6 +316,8 @@ export interface StoredDailyScore {
   /** Eligible usage whose economic weight is not yet established. */
   pendingCostMicros: number;
   points: number;
+  /** usage_score_v2: the exact score, Σ eligible pico as a decimal string. Absent for v1. */
+  weightedComputePico?: string | null;
 }
 
 export function rowToScore(row: ScoreRecordRow): StoredDailyScore {
@@ -315,5 +328,6 @@ export function rowToScore(row: ScoreRecordRow): StoredDailyScore {
     excludedCostMicros: toSafeInteger(row.excluded_cost_micros, "excluded_cost_micros"),
     pendingCostMicros: toSafeInteger(row.pending_cost_micros ?? 0, "pending_cost_micros"),
     points: toDecimal(row.points),
+    weightedComputePico: row.weighted_compute_pico ?? null,
   };
 }

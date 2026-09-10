@@ -28,6 +28,7 @@
     "usage:settle-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/settle-epoch.ts",
     "usage:connections": "node --env-file-if-exists=.env.local --import tsx scripts/inspect-connections.ts",
     "usage:close-calibration": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/close-calibration-epoch.ts",
+    "usage:m16a:shadow": "node --env-file-if-exists=.env.local --import tsx scripts/m16a-shadow.ts",
     "usage:m15c:simulate": "node --import tsx scripts/m15c-simulate.ts",
     "usage:m15b:emission": "node --import tsx scripts/m15b-emission.ts",
     "usage:m15:simulate": "node --import tsx scripts/m15-simulate.ts",

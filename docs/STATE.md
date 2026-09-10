@@ -2,6 +2,23 @@
 
 ## Current milestone
 
+M16A — beta-v2 cutover preparation. **Prepared, not activated.** Target first
+mining-beta-v2 epoch: epoch-2026-09-14 (2026-09-14T00:00:00Z), valid only if
+the inert activation package (this code) is deployed and verified by
+2026-09-11T23:59:59Z. Epoch-aware resolver (`src/lib/protocol/schedule.ts`,
+`protocol_for_epoch()` in pending 0021) replaces global "current version"
+assumptions on every economic write path; pricing v3 freshly audited
+(5 first-party-priced models; claude-3-haiku, nemotron and ling excluded);
+pico ingestion, exact BigInt v2 scoring, atomic `settle_beta_v2_epoch()`
+in `supabase/pending/0021_beta_v2_cutover.sql` (NOT applied). Shadow mode:
+`npm run usage:m16a:shadow`. See docs/M15-ECONOMICS.md → M16A.
+
+Current production state (2026-09-10): 0018, 0019, 0020 applied;
+epoch-2026-09-07 settled v1 development (100,000 points); epoch-2026-09-10
+settled calibration (0 points); ledger 1 row / 100,000; mining-dev-v1 the
+sole active network protocol; mining-beta-v2 draft; v2 NOT active; no units
+in epochs 2026-09-11 to -13.
+
 epoch-2026-09-10 — **CLOSED / SETTLED DEVELOPMENT CALIBRATION, 2026-09-10 19:06 UTC**,
 by exactly one call to `close_development_calibration_epoch` (M15E atomic
 close: complete). Real M14C compute preserved (event `c75acc2e`, key
@@ -14,8 +31,9 @@ mining-dev-v1 remains the sole active network protocol, mining-beta-v2 draft.
 0020 — atomic calibration close function. **Applied to production
 2026-09-10 with explicit owner approval (function only).** UTC-literal
 epoch boundaries, SECURITY INVOKER, service_role-only EXECUTE (anon and
-authenticated proven denied in production). The confirmed close has NOT been
-invoked; dry run passes. Backup: `C:/Users/Admin/USAGE-backups/pre-0020-20260910T190050Z`.
+authenticated proven denied in production). Invoked exactly once on
+2026-09-10 19:06 UTC to close epoch-2026-09-10 (see the current milestone).
+Backup: `C:/Users/Admin/USAGE-backups/pre-0020-20260910T190050Z`.
 
 0019 — v2 economics schema. **Applied to production 2026-09-10 with explicit
 owner approval (schema only).** Additive: pico columns, protocol binding and
@@ -23,8 +41,9 @@ owner approval (schema only).** Additive: pico columns, protocol binding and
 `mining-dev-calibration-v1` (active, calibration, zero emission) and
 `mining-beta-v2` (draft) rows, extended immutability, `audit_epoch()`,
 `check_v2_epoch_settleable()`. Backup: `C:/Users/Admin/USAGE-backups/pre-0019-20260910T183953Z`.
-Nothing activated; epoch-2026-09-10 still open; ledger 100,000 unchanged.
-Calibration dry run passes; the confirmed close awaits owner approval.
+Nothing activated by 0019 itself; ledger 100,000 unchanged. (Historical
+note: at apply time epoch-2026-09-10 was still open; it was closed later the
+same day under 0020.)
 
 M14C — First real paid economic compute. **Done 2026-09-10; one unit, no settlement.**
 
@@ -395,7 +414,8 @@ mining engine never learns which provider a request came from.
 
 **M15 — mining economics and Sybil resistance**, now that the economic unit is
 sound and one real `metered_paid`, `verified`, `eligible` unit exists on
-production. The open epoch `epoch-2026-09-10` holds it unsettled; settling is
+production. `epoch-2026-09-10` has since been settled as a zero-reward
+development calibration epoch (M15D/M15E); the first positive-reward v2 settlement is
 an explicit owner decision, not background work.
 
 Then, before inviting anyone outside a small beta:

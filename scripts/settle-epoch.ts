@@ -20,9 +20,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseSettlementStore } from "../src/lib/db/supabase-settlement-store";
 import { finalizeEpoch, settleEpoch } from "../src/lib/db/settlement";
 import { dailyEpochFor, EpochLifecycleError } from "../src/lib/domain/epoch";
-import { epochEmissionPoints } from "../src/lib/protocol/emission";
-import { CURRENT_SCORING_VERSION } from "../src/lib/domain/scoring";
 import { approvedCalibrationClose } from "../src/lib/db/calibration-close";
+import { protocolForEpoch } from "../src/lib/protocol/schedule";
 import { formatNumber } from "../src/lib/domain/money";
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -41,7 +40,14 @@ async function main(): Promise<number> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), epochEmissionPoints());
+  // The rule comes from the epoch, not from today's protocol.
+  const governing = protocolForEpoch(`epoch-${day}`);
+  if (governing.emissionAlgorithm !== "fixed-pool-v1") {
+    line(`Refused: epoch-${day} is governed by ${governing.version} (${governing.emissionAlgorithm}).`);
+    line("Baseline-linear epochs settle only through the atomic settle_beta_v2_epoch RPC; this script is the fixed-pool development path.");
+    return 1;
+  }
+  const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), governing.epochEmissionPoints);
   // An owner-approved calibration epoch is closed by scripts/close-calibration-epoch.ts
   // with ZERO emission. Settling it here would distribute the fixed
   // mining-dev-v1 pool, which is exactly the error M15D exists to prevent.
@@ -52,7 +58,7 @@ async function main(): Promise<number> {
   }
   const store = createSupabaseSettlementStore(admin);
   const options = {
-    algorithmVersion: CURRENT_SCORING_VERSION,
+    algorithmVersion: governing.scoringVersion,
     // Not a public network yet, and the record says so.
     epochKind: "development",
   };
@@ -75,7 +81,7 @@ async function main(): Promise<number> {
   line("===========================================");
   line();
   line(`Epoch          : ${result.epochId}`);
-  line(`Scoring        : ${CURRENT_SCORING_VERSION}`);
+  line(`Scoring        : ${governing.scoringVersion}`);
   line(`Participants   : ${result.participants}`);
   line(`Network score  : ${formatNumber(result.networkScore, 2)}`);
   line(`Pool           : ${formatNumber(result.pool)} Usage Points`);

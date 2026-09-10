@@ -4,7 +4,7 @@ import { CURRENT_PRICING_VERSION, getPricingSnapshot, listPricingVersions, price
 import { auditUnknownCachePrices, exactProtocolComputeValueFor, picoToMicrosRounded, priceTokensPico } from "@/lib/pricing/exact";
 import { USAGE_PRICING_V1 } from "@/lib/pricing/usage-pricing-v1";
 import { USAGE_PRICING_V2 } from "@/lib/pricing/usage-pricing-v2";
-import { USAGE_PRICING_V3_DRAFT } from "@/lib/pricing/usage-pricing-v3-draft";
+import { USAGE_PRICING_V3, USAGE_PRICING_V3_EXCLUDED } from "@/lib/pricing/usage-pricing-v3";
 import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
 import { LINEAR_RULE, actorUnits, honestPopulation, scoreEpoch, splitExperiment } from "./simulator";
 import { FIXED_FULL_POOL, baselineUtilisation, difficultyTarget, epochEconomics, farmingEquilibrium, hybrid, maxPointsForContribution, minimumActivity } from "./emission";
@@ -175,13 +175,22 @@ describe("unknown cache price policy", () => {
     expect(fresh.pendingComponents).toEqual([]);
   });
 
-  it("v3 is a DRAFT: same prices as v2, pending policy, and NOT registered where events can be priced with it", () => {
-    expect(USAGE_PRICING_V3_DRAFT.status).toBe("draft");
-    expect(USAGE_PRICING_V3_DRAFT.unknownCachePolicy).toBe("pending");
-    expect(USAGE_PRICING_V3_DRAFT.prices).toBe(USAGE_PRICING_V2.prices);
-    expect(getPricingSnapshot("usage-pricing-v3")).toBeNull();
-    expect(listPricingVersions()).toEqual(["usage-pricing-v1", "usage-pricing-v2"]);
+  it("v3 is registered with the pending policy and pico valuation; the default version for epoch-less callers stays v2", () => {
+    expect(USAGE_PRICING_V3.unknownCachePolicy).toBe("pending");
+    expect(USAGE_PRICING_V3.valuation).toBe("pico_exact");
+    expect(getPricingSnapshot("usage-pricing-v3")).toBe(USAGE_PRICING_V3);
+    expect(listPricingVersions()).toEqual(["usage-pricing-v1", "usage-pricing-v2", "usage-pricing-v3"]);
     expect(CURRENT_PRICING_VERSION).toBe("usage-pricing-v2");
+    // Fresh audit (M16A): only first-party-priced models; everything else is excluded by name.
+    expect(USAGE_PRICING_V3.prices.map((p) => p.model).sort()).toEqual(["anthropic/claude-haiku-4.5", "anthropic/claude-opus-5", "anthropic/claude-sonnet-4.6", "openai/gpt-5-nano", "openai/gpt-5.4"]);
+    expect(USAGE_PRICING_V3_EXCLUDED.map((e) => e.model)).toContain("nvidia/nemotron-3-nano-30b-a3b");
+    expect(USAGE_PRICING_V2.prices.map((p) => p.model).length).toBe(9);
+  });
+
+  it("v3 never falls back to the input rate: a unit that used an unpriced cache class is pending as a whole", () => {
+    expect(protocolComputeValue("usage-pricing-v3", "openai/gpt-5.4", { inputTokens: 1000, cachedReadTokens: 0, cachedWriteTokens: 10, outputTokens: 0 })).toBeNull();
+    expect(protocolComputeValue("usage-pricing-v3", "openai/gpt-5.4", { inputTokens: 1000, cachedReadTokens: 100, cachedWriteTokens: 0, outputTokens: 0 })!.micros).toBe(2500 + 25);
+    expect(protocolComputeValue("usage-pricing-v3", "nvidia/nemotron-3-nano-30b-a3b", { inputTokens: 1, cachedReadTokens: 0, cachedWriteTokens: 0, outputTokens: 0 })).toBeNull();
   });
 });
 

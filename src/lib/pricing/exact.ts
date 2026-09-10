@@ -30,7 +30,7 @@
  * NOTHING HERE IS ACTIVE. `protocolComputeValue` (micro, per-request rounding)
  * remains what production writes. Settled v1 history is not re-priced.
  */
-import { findModelPrice } from "./compute";
+import { findModelPrice, getPricingSnapshot } from "./compute";
 import type { ProtocolModelPrice } from "./types";
 
 export type UnknownCachePolicy =
@@ -113,10 +113,15 @@ export function exactProtocolComputeValueFor(
   version: string,
   model: string,
   tokens: ExactComputeTokens,
-  policy: UnknownCachePolicy = "input_rate",
+  policy: UnknownCachePolicy = getPricingSnapshot(version)?.unknownCachePolicy ?? "input_rate",
 ): ExactProtocolComputeValue | null {
   const price = findModelPrice(version, model);
   return price ? exactProtocolComputeValue(price, version, tokens, policy) : null;
+}
+
+/** True when the snapshot values compute exactly in pico-USD (v3+). */
+export function isPicoExactVersion(version: string): boolean {
+  return getPricingSnapshot(version)?.valuation === "pico_exact";
 }
 
 /**

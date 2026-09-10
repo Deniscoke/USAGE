@@ -217,6 +217,39 @@ export function scoreDaily(
     .map(([day, dayRecords]) => ({ day, ...scoreRecords(dayRecords, version) }));
 }
 
+/**
+ * usage_score_v2, exact. The score IS Σ eligible_compute_pico over the
+ * eligible records, as a BigInt; it never passes through a JavaScript
+ * Number. Records without a pico value (priced under v1/v2, or pending)
+ * contribute nothing and are counted so the caller can refuse to settle an
+ * epoch that mixes them in.
+ */
+export function scoreRecordsPico(records: readonly NormalizedUsageRecord[]): {
+  weightedComputePico: bigint;
+  /** Eligible records that carry no exact pico value: a v2 epoch must not settle with any. */
+  eligibleWithoutPico: number;
+  pendingPricing: number;
+} {
+  let weighted = 0n;
+  let eligibleWithoutPico = 0;
+  let pendingPricing = 0;
+  for (const record of records) {
+    if (record.pricingComponentsPending && record.pricingComponentsPending.length > 0) pendingPricing += 1;
+    if (!isEconomicallyEligible(record)) continue;
+    if (record.eligibleComputePico === null || record.eligibleComputePico === undefined) {
+      eligibleWithoutPico += 1;
+      continue;
+    }
+    weighted += BigInt(record.eligibleComputePico);
+  }
+  return { weightedComputePico: weighted, eligibleWithoutPico, pendingPricing };
+}
+
+/** Display only: pico to micro-USD, rounded once, as a Number. Never an input to settlement. */
+export function picoToDisplayMicros(pico: bigint): number {
+  return Number((pico + 500_000n) / 1_000_000n);
+}
+
 export function totalPoints(scores: readonly DailyScore[]): number {
   return roundPoints(scores.reduce((acc, s) => acc + s.points, 0));
 }

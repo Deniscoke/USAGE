@@ -69,6 +69,14 @@ export interface DashboardSnapshot {
   settledPoints: number;
   /** Lifecycle state of the epochs the user has usage in, by epoch id. */
   epochStates: Record<string, EpochStateRow>;
+  /** mining_protocol_versions as persisted: the authority for which protocol governs which epoch. */
+  protocolRows: ProtocolVersionRowLite[];
+}
+
+export interface ProtocolVersionRowLite {
+  version: string; status: string; role: string | null; effective_from_epoch: string | null; effective_from?: string | null; scoring_version: string; pricing_version: string;
+  epoch_emission_points: number | string; emission_algorithm: string | null; baseline_compute_pico: string | number | null; floor_points: number | string | null;
+  undistributed_policy: string | null; claimable: boolean | null; network: string;
 }
 
 const PAGE_SIZE = 1000;
@@ -102,6 +110,7 @@ export async function loadDashboardSnapshot(
     connectionRows,
     ledgerRows,
     epochRows,
+    protocolRows,
     credentialRows,
     networkRows,
   ] = await Promise.all([
@@ -161,6 +170,15 @@ export async function loadDashboardSnapshot(
       .then(({ data, error }) => {
         if (error) throw new Error(`loadEpochs: ${error.message}`);
         return (data ?? []) as { id: string; state: EpochStateRow }[];
+      }),
+    // Public rows (0008 policy). Columns from 0019 are read untyped so this
+    // compiles against the generated types; missing ones read as null.
+    (supabase as unknown as { from: (t: string) => { select: (c: string) => PromiseLike<{ data: unknown; error: { message: string } | null }> } })
+      .from("mining_protocol_versions")
+      .select("version, status, role, effective_from_epoch, effective_from, scoring_version, pricing_version, epoch_emission_points, emission_algorithm, baseline_compute_pico, floor_points, undistributed_policy, claimable, network")
+      .then(({ data, error }) => {
+        if (error) throw new Error(`loadProtocolVersions: ${error.message}`);
+        return (data ?? []) as ProtocolVersionRowLite[];
       }),
     // Column-level grants mean a user can never select token_hash here.
     supabase
@@ -247,5 +265,6 @@ export async function loadDashboardSnapshot(
       0,
     ),
     epochStates: Object.fromEntries(epochRows.map((row) => [row.id, row.state])),
+    protocolRows,
   };
 }

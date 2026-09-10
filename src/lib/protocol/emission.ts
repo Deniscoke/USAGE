@@ -21,7 +21,7 @@ import { CURRENT_PRICING_VERSION } from "@/lib/pricing/compute";
 
 export type ProtocolNetwork = "development" | "production";
 /** `draft` exists only in code: the database check constraint (0008) allows active|superseded, so a draft is never inserted. */
-export type ProtocolStatus = "active" | "superseded" | "draft";
+export type ProtocolStatus = "active" | "superseded" | "draft" | "scheduled";
 
 export interface MiningProtocolVersion {
   version: string;
@@ -34,6 +34,8 @@ export interface MiningProtocolVersion {
   effectiveFrom: string;
   network: ProtocolNetwork;
   status: ProtocolStatus;
+  /** First epoch id this version governs (`epoch-YYYY-MM-DD`, UTC). Null until scheduled. */
+  effectiveFromEpoch?: string | null;
 }
 
 export const MINING_DEV_V1: MiningProtocolVersion = {

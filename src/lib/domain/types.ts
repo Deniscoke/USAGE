@@ -101,6 +101,17 @@ export interface NormalizedUsageRecord {
    */
   protocolComputeMicros?: number;
   protocolPricingVersion?: string | null;
+  /**
+   * Exact protocol value in pico-USD (10^-12 USD), as a decimal string so no
+   * JavaScript Number ever touches it. Present only for units priced under a
+   * `pico_exact` pricing version (usage-pricing-v3+). AUTHORITATIVE for
+   * usage_score_v2; `protocolComputeMicros` is display for such units.
+   */
+  protocolComputePico?: string | null;
+  /** Exact eligible value in pico-USD; 0 when the reward policy held it. */
+  eligibleComputePico?: string | null;
+  /** Token classes the pricing version could not price; non-empty means pending as a whole. */
+  pricingComponentsPending?: string[];
 
   /**
    * The one epoch this event was assigned to at ingestion. Never revised, so a

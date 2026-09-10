@@ -194,6 +194,7 @@ export function createSupabaseIngestStore(admin: SupabaseClient<Database>): Inge
           excluded_cost_micros: score.excludedCostMicros,
           pending_cost_micros: score.pendingCostMicros,
           points: score.points,
+          weighted_compute_pico: score.weightedComputePico ?? null,
         })),
         { onConflict: "user_id,day,algorithm_version" },
       );

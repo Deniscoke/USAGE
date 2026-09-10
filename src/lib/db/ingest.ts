@@ -1,6 +1,7 @@
 import { assignEpoch, epochDay, type EpochState } from "@/lib/domain/epoch";
 import { aggregateDaily, utcDay } from "@/lib/domain/normalize";
-import { CURRENT_SCORING_VERSION, scoreRecords } from "@/lib/domain/scoring";
+import { SCORING_VERSION_V2_DRAFT, picoToDisplayMicros, scoreRecords, scoreRecordsPico } from "@/lib/domain/scoring";
+import { scoringForEpoch } from "@/lib/protocol/schedule";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import type { UsageWindow } from "@/lib/providers/adapter";
 import { listPullIntegrations } from "@/lib/providers/registry";
@@ -240,9 +241,28 @@ export async function ingestRecords(
   const epochIds = [...new Set(records.map((record) => record.epochId))].sort();
   const epochEvents = await store.loadEventsForEpochs(userId, epochIds);
 
+  // The scoring rule comes from the EPOCH the events were assigned to, never
+  // from a global current version: a v1 epoch scores v1 forever, a
+  // mining-beta-v2 epoch scores v2 exactly, and a deploy cannot flip an epoch
+  // that is already collecting usage.
   const scores: StoredDailyScore[] = epochIds.map((epochId) => {
     const events = epochEvents.filter((event) => event.epochId === epochId);
-    const scored = scoreRecords(events, CURRENT_SCORING_VERSION);
+    const version = scoringForEpoch(epochId);
+    if (version === SCORING_VERSION_V2_DRAFT) {
+      const exact = scoreRecordsPico(events);
+      const legacy = scoreRecords(events, version);
+      return {
+        day: epochDay(epochId),
+        algorithmVersion: version,
+        weightedCostMicros: legacy.weightedCostMicros,
+        excludedCostMicros: legacy.excludedCostMicros,
+        pendingCostMicros: legacy.pendingCostMicros,
+        // Display only. The authoritative score is the pico column.
+        points: picoToDisplayMicros(exact.weightedComputePico),
+        weightedComputePico: exact.weightedComputePico.toString(),
+      };
+    }
+    const scored = scoreRecords(events, version);
     return {
       day: epochDay(epochId),
       algorithmVersion: scored.algorithmVersion,

@@ -6,7 +6,8 @@ import {
   type RewardEpoch,
 } from "@/lib/domain/epoch";
 import { EMPTY_TOTALS, utcDay } from "@/lib/domain/normalize";
-import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
+import { protocolForEpoch, protocolStatusView, scheduleFromRows, type ProtocolStatusView } from "@/lib/protocol/schedule";
+import type { ProtocolVersionRowLite } from "@/lib/db/usage-repository";
 import type {
   DailyAggregate,
   NormalizedUsageRecord,
@@ -15,8 +16,6 @@ import type {
   VerificationType,
 } from "@/lib/domain/types";
 import {
-  CURRENT_MINING_PROTOCOL,
-  epochEmissionPoints,
   type ProtocolNetwork,
 } from "@/lib/protocol/emission";
 import { buildActivityFeed, type ActivityItem } from "@/lib/product/activity";
@@ -106,11 +105,14 @@ export interface DashboardData {
     state: EpochState;
   };
 
-  /** Which protocol produced these numbers, and whether it is a public network. */
+  /** Which protocol governs TODAY'S epoch (from the persisted schedule), and whether it is a public network. */
   protocol: {
     version: string;
     network: ProtocolNetwork;
+    /** The scheduled cap for today's epoch. Under baseline-linear-v1 it is a cap, not an amount. */
     emissionPoints: number;
+    /** Cutover-aware copy: DEVELOPMENT V1 / PREPARING BETA V2 / BETA V2 SCHEDULED … / BETA V2. */
+    status: ProtocolStatusView;
   };
 
   mining: {
@@ -146,6 +148,8 @@ export interface DashboardInput {
   minerCredentials?: readonly MinerCredentialSummary[];
   /** Scored points from everyone else in today's epoch. Zero, never invented. */
   otherParticipantsScore?: number;
+  /** mining_protocol_versions rows, when the repository loaded them; the persisted schedule. */
+  protocolRows?: ProtocolVersionRowLite[];
   networkParticipants?: number;
   now?: Date;
 }
@@ -197,6 +201,7 @@ export function buildDashboardView({
   proofStatusById,
   minerCredentials = [],
   otherParticipantsScore = 0,
+  protocolRows = [],
   networkParticipants = 0,
   now = new Date(),
 }: DashboardInput): DashboardData {
@@ -230,6 +235,11 @@ export function buildDashboardView({
 
   // An epoch nobody has closed is open: it only leaves OPEN by an explicit act.
   const epochState: EpochState = epochStates[epochIdForDate(now)] ?? "open";
+  // The protocol for TODAY'S epoch, from the persisted schedule when the
+  // repository supplied it; never from a deploy-time constant.
+  const schedule = protocolRows.length ? scheduleFromRows(protocolRows) : undefined;
+  const todayProtocol = protocolForEpoch(epochIdForDate(now), schedule);
+  const todayPool = todayProtocol.epochEmissionPoints;
 
   const todayScore = scoreByDay.get(today);
   const userScore = todayScore?.points ?? 0;
@@ -240,7 +250,7 @@ export function buildDashboardView({
   const reward = estimateReward({
     userScore,
     networkScore,
-    rewardPoolPoints: epochEmissionPoints(),
+    rewardPoolPoints: todayPool,
   });
 
   const capabilities = new Map(listIntegrations().map((i) => [i.provider, i]));
@@ -282,13 +292,13 @@ export function buildDashboardView({
     pricingVersion:
       recentEvents.find((event) => event.protocolPricingVersion)?.protocolPricingVersion ?? null,
     scoring: {
-      version: CURRENT_SCORING_VERSION,
+      version: todayProtocol.scoringVersion,
       totalPoints: Math.round(scores.reduce((acc, score) => acc + score.points, 0) * 10_000) / 10_000,
       scoredDays: scores.filter((score) => score.points > 0).length,
     },
 
     epoch: {
-      definition: dailyEpochFor(now, epochEmissionPoints(), epochState),
+      definition: dailyEpochFor(now, todayPool, epochState),
       userScore,
       networkScore,
       networkParticipants,
@@ -300,9 +310,10 @@ export function buildDashboardView({
     },
 
     protocol: {
-      version: CURRENT_MINING_PROTOCOL.version,
-      network: CURRENT_MINING_PROTOCOL.network,
-      emissionPoints: epochEmissionPoints(),
+      version: todayProtocol.version,
+      network: todayProtocol.network,
+      emissionPoints: todayPool,
+      status: protocolStatusView(epochIdForDate(now), schedule),
     },
 
     mining: {
