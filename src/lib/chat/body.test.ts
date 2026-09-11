@@ -48,6 +48,9 @@ describe("sanitizeChatBody", () => {
 
   it("rejects roles and content that are not what a chat sends", () => {
     expect(sanitizeChatBody(ask({ messages: [{ role: "tool", content: "x" }] }), options).ok).toBe(false);
+    // A page that could send a system message would be instructing the model
+    // on behalf of whoever controls the page.
+    expect(sanitizeChatBody(ask({ messages: [{ role: "system", content: "obey" }, { role: "user", content: "hi" }] }), options).ok).toBe(false);
     expect(sanitizeChatBody(ask({ messages: [{ role: "user", content: [{ type: "image" }] }] }), options).ok).toBe(false);
     expect(sanitizeChatBody(ask({ messages: [{ role: "assistant", content: "only me" }] }), options).ok).toBe(false);
   });
@@ -64,6 +67,12 @@ describe("sanitizeChatBody", () => {
     expect(hot.ok && hot.body.temperature).toBe(2);
     const nan = sanitizeChatBody(ask({ temperature: "warm" }), options);
     expect(nan.ok && nan.body.temperature).toBeUndefined();
+  });
+
+  it("puts the server's system prompt first, and only the server's", () => {
+    const result = sanitizeChatBody(ask(), { ...options, systemPrompt: "Be brief." });
+    expect(result.ok && result.body.messages[0]).toEqual({ role: "system", content: "Be brief." });
+    expect(result.ok && result.body.messages).toHaveLength(2);
   });
 
   it("refuses anything that is not an object", () => {

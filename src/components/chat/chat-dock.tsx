@@ -42,7 +42,14 @@ interface RouteState {
   route: ChatRoute;
   models: { id: string; label: string; priced: boolean }[];
   defaultModel: string | null;
-  cap: { spentMicros: number; capMicros: number; requestsToday: number; requestLimit: number } | null;
+  cap: {
+    spentMicros: number;
+    capMicros: number;
+    requestsToday: number;
+    requestLimit: number;
+    credit: { grantMicros: number; spentMicros: number; remainingMicros: number };
+    refusal: "credit" | "daily_cap" | "daily_requests" | null;
+  } | null;
   networkLabel: string;
 }
 
@@ -429,10 +436,23 @@ export function ChatDock() {
             </div>
 
             {state?.cap && route.kind === "shared" && (
-              <p className="chat-note">
-                Shared route · today {formatMicros(state.cap.spentMicros)} of {formatMicros(state.cap.capMicros)} ·{" "}
-                {state.cap.requestsToday}/{state.cap.requestLimit} requests. Paid by USAGE, so it is measured but cannot earn.
-              </p>
+              <div className="chat-credit">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">Starting credit</span>
+                  <span className="tnum text-sm" style={{ color: state.cap.credit.remainingMicros > 0 ? "var(--foreground)" : "var(--warn)" }}>
+                    {formatMicros(state.cap.credit.remainingMicros)}
+                    <span className="text-[10px] text-[var(--faint)]"> of {formatMicros(state.cap.credit.grantMicros)}</span>
+                  </span>
+                </div>
+                <div className="chat-credit__bar" aria-hidden="true">
+                  <span style={{ width: `${state.cap.credit.grantMicros > 0 ? Math.round((100 * state.cap.credit.remainingMicros) / state.cap.credit.grantMicros) : 0}%` }} />
+                </div>
+                <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--faint)]">
+                  {state.cap.refusal === "credit"
+                    ? "Used up. Connect a paid provider of your own to keep chatting, and to earn."
+                    : `Today ${state.cap.requestsToday}/${state.cap.requestLimit} messages, ${formatMicros(state.cap.spentMicros)} of ${formatMicros(state.cap.capMicros)}. USAGE pays for this credit, so it is measured but cannot earn.`}
+                </p>
+              </div>
             )}
 
             <div className="chat-list" ref={listRef}>

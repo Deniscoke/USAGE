@@ -57,7 +57,14 @@ export async function GET(request: NextRequest): Promise<Response> {
       models,
       defaultModel,
       cap: cap
-        ? { spentMicros: cap.spentMicros, capMicros: cap.capMicros, requestsToday: cap.requestsToday, requestLimit: cap.requestLimit }
+        ? {
+            spentMicros: cap.spentMicros,
+            capMicros: cap.capMicros,
+            requestsToday: cap.requestsToday,
+            requestLimit: cap.requestLimit,
+            credit: cap.credit,
+            refusal: cap.refusal,
+          }
         : null,
       networkLabel: networkLabel(CURRENT_MINING_PROTOCOL.network),
     },

@@ -3,6 +3,7 @@ import { createGatewayRoute } from "@/lib/gateway/handler";
 import { resolveConnectionGateway } from "@/lib/gateway/connection-gateway";
 import { authenticateWebSession } from "@/lib/chat/auth";
 import { sanitizeChatBody } from "@/lib/chat/body";
+import { CHAT_SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
 import { configuredSharedGateway, pickChatRoute } from "@/lib/chat/route";
 import { fundedUsageToday } from "@/lib/chat/funded-usage";
 import { buildMinerRoutes } from "@/lib/miner/routes";
@@ -113,11 +114,11 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     const usage = await fundedUsageToday(admin, userId);
     if (!usage.allowed) {
-      return openAiError(
-        429,
-        "rate_limit_error",
-        "Today's allowance on the shared route is used up. Connect a paid provider of your own to keep going.",
-      );
+      const message =
+        usage.refusal === "credit"
+          ? "Your starting credit is used up. Connect a paid provider of your own to keep going."
+          : "Today's allowance on the shared route is used up. It resets at midnight UTC, or connect a paid provider of your own.";
+      return openAiError(429, "rate_limit_error", message);
     }
 
     const snapshot = getPricingSnapshot(pricingForEpoch(epochIdForDate(new Date())));
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       allowedModels,
       maxOutputTokens: 1024,
       includeCost: chosen.gatewayId === "openrouter",
+      systemPrompt: CHAT_SYSTEM_PROMPT,
     });
     if (!sanitized.ok) return openAiError(400, "invalid_request_error", sanitized.message);
 
@@ -141,6 +143,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     allowedModels: null,
     maxOutputTokens: 4096,
     includeCost: (own.providerFamily ?? own.provider) === "openrouter",
+    systemPrompt: CHAT_SYSTEM_PROMPT,
   });
   if (!sanitized.ok) return openAiError(400, "invalid_request_error", sanitized.message);
 

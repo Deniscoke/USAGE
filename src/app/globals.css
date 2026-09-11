@@ -228,3 +228,7 @@ body.chat-open > main {
   body.chat-open > main { transform: none; filter: none; }
   .chat-cursor { animation: none; }
 }
+
+.chat-credit { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.chat-credit__bar { margin-top: 6px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.chat-credit__bar > span { display: block; height: 100%; background: var(--routed); transition: width 400ms ease; }

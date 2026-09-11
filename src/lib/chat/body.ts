@@ -41,6 +41,8 @@ export function sanitizeChatBody(
     maxOutputTokens: number;
     /** Ask the provider to state cost in the stream (OpenRouter). */
     includeCost: boolean;
+    /** Prepended by the server. The browser cannot supply one. */
+    systemPrompt?: string;
   },
 ): SanitizeResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -65,7 +67,10 @@ export function sanitizeChatBody(
   for (const item of raw.messages) {
     if (typeof item !== "object" || item === null) return { ok: false, message: "Malformed message." };
     const { role, content } = item as { role?: unknown; content?: unknown };
-    if (role !== "user" && role !== "assistant" && role !== "system") {
+    // No system role from the browser: the system message is the server's,
+    // and a page that could set it would be instructing the model on behalf
+    // of whoever controls the page.
+    if (role !== "user" && role !== "assistant") {
       return { ok: false, message: "Malformed message role." };
     }
     if (typeof content !== "string") return { ok: false, message: "Messages must be text." };
@@ -78,7 +83,7 @@ export function sanitizeChatBody(
 
   const body: SanitizedChatBody = {
     model,
-    messages,
+    messages: options.systemPrompt ? [{ role: "system", content: options.systemPrompt }, ...messages] : messages,
     stream: true,
     stream_options: { include_usage: true },
     max_tokens: clampInt(raw.max_tokens, 1, options.maxOutputTokens, options.maxOutputTokens),
