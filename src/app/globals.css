@@ -319,3 +319,36 @@ body.chat-open > main {
   .chat-doc .md-table th, .chat-doc .md-table td { border-color: #999; }
   .chat-doc .md-quote { border-left-color: #999; color: #333; }
 }
+
+/* Polish: an expanded panel, a full-bleed one on a phone, per-reply tools. */
+.chat-panel--expanded {
+  width: min(980px, calc(100vw - 44px));
+  height: calc(100vh - 44px);
+}
+.chat-panel--expanded .chat-list { padding: 18px 22px; }
+.chat-panel--expanded .chat-msg { max-width: 76ch; }
+.chat-panel--expanded .chat-msg--assistant { align-self: flex-start; }
+
+.chat-msg__tools { display: flex; gap: 10px; margin: 5px 4px 0; }
+.chat-msg__tools .chat-link { text-decoration: none; }
+.chat-msg__tools .chat-link:hover { text-decoration: underline; color: var(--muted); }
+
+.chat-input { max-height: 180px; overflow-y: auto; }
+
+/* On a phone the panel is the screen; a floating card would be a toy. */
+@media (max-width: 560px) {
+  .chat-panel,
+  .chat-panel--expanded {
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    transform-origin: bottom center;
+  }
+  .chat-orb { right: 16px; bottom: 16px; }
+  body.chat-open > main { transform: none; filter: none; }
+}

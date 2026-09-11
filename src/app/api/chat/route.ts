@@ -8,6 +8,7 @@ import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
 import { epochIdForDate } from "@/lib/domain/epoch";
 import { pricingForEpoch } from "@/lib/protocol/schedule";
 import { getPricingSnapshot } from "@/lib/pricing/compute";
+import { humaniseModel } from "@/lib/chat/model-name";
 import { createConnectionStore } from "@/lib/providers/connections";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -81,7 +82,7 @@ async function modelsFor(
     // Only models with an approved protocol price: the shared route spends
     // USAGE's money and every unit it produces must at least be priceable.
     const snapshot = getPricingSnapshot(pricingForEpoch(epochIdForDate(new Date())));
-    return (snapshot?.prices ?? []).map((price) => ({ id: price.model, label: price.model, priced: true }));
+    return (snapshot?.prices ?? []).map((price) => ({ id: price.model, label: humaniseModel(price.model), priced: true }));
   }
 
   if (route.kind === "provider") {
@@ -94,7 +95,7 @@ async function modelsFor(
       .not("status", "in", "(disabled,unsupported)");
     const rows = (data ?? []) as Pick<ProviderModelRow, "upstream_model_id" | "display_name" | "protocol_model_key" | "status">[];
     return rows
-      .map((row) => ({ id: row.upstream_model_id, label: row.display_name ?? row.upstream_model_id, priced: row.protocol_model_key !== null }))
+      .map((row) => ({ id: row.upstream_model_id, label: row.display_name ?? humaniseModel(row.upstream_model_id), priced: row.protocol_model_key !== null }))
       .sort((a, b) => Number(b.priced) - Number(a.priced) || a.label.localeCompare(b.label));
   }
 
