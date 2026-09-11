@@ -435,15 +435,27 @@ function EmptyState() {
         Connect an AI tool and use it normally. Every request USAGE routes is verified and starts
         counting toward the current epoch.
       </p>
+      {/* Two people from outside this account reached exactly here and
+          stopped. "Connect your AI" sent them to a page of choices, and the
+          choice that works was several clicks further in. The button that
+          unblocks somebody is the one that does the thing. */}
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <Link
-          href="/onboarding"
+        <a
+          href="/api/providers/oauth/openrouter/start"
           className="rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)] transition-opacity hover:opacity-90"
         >
-          Connect your AI
+          Connect OpenRouter
+        </a>
+        <Link href="/onboarding" className="text-xs text-[var(--routed)] hover:underline">
+          Other ways to connect
         </Link>
         <DemoIngestButton />
       </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
+        OpenRouter is the one connection that can earn today: it states per request what the
+        compute cost and whether the account has purchased credit, which is what USAGE needs before
+        it can reward anything. Sign in with an account that has credit on it.
+      </p>
     </div>
   );
 }

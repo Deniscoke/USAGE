@@ -149,6 +149,31 @@ export default async function ProvidersPage() {
         be reachable several ways, each with its own status.
       </p>
 
+      {connections.length === 0 && email && (
+        <section className="mt-8">
+          <div className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4">
+            <p className="text-sm">Start here</p>
+            <p className="mt-2 max-w-2xl text-[11px] leading-relaxed text-[var(--muted)]">
+              OpenRouter is the one connection that can earn today. It states, per request, what
+              the compute cost and whether the account has purchased credit — the two things USAGE
+              needs before it can reward anything. Connect it by signing in, with an account that
+              has credit on it.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <a
+                href="/api/providers/oauth/openrouter/start"
+                className="rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)]"
+              >
+                Connect OpenRouter
+              </a>
+              <Link href="/providers/add" className="text-[11px] text-[var(--routed)] hover:underline">
+                Connect something else
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {connections.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
