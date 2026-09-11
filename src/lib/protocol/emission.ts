@@ -127,9 +127,12 @@ export const MINING_BETA_V2_DRAFT: MiningProtocolVersion & EmissionParameters = 
   epochEmissionPoints: 100_000,
   scoringVersion: "usage_score_v2",
   pricingVersion: "usage-pricing-v3",
-  effectiveFrom: "TBD-owner-cutover-epoch",
+  effectiveFrom: "2026-09-14",
   network: "development",
-  status: "draft",
+  // SCHEDULED, not active: approved and bound to a future epoch, governing
+  // nothing before it. Every epoch up to 2026-09-13 stays mining-dev-v1 and
+  // stays reproducible under the versions it recorded.
+  status: "scheduled",
   emissionAlgorithm: "baseline-linear-v1",
   baselineComputePico: 1_000_000_000_000_000n,
   floorPoints: 0,

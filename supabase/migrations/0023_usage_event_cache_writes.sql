@@ -1,4 +1,4 @@
--- 0022 — record the tokens a request wrote to a provider's prompt cache.
+-- 0023 — record the tokens a request wrote to a provider's prompt cache.
 --
 -- WHY. On 2026-09-11 one Claude Code message produced this row:
 --

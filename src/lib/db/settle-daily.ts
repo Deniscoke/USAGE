@@ -51,6 +51,61 @@ export interface SettleDailyResult {
 
 export { isDayComplete, lastCompleteDay };
 
+/** What `settle_beta_v2_epoch` returns: one audit row, or a raise. */
+interface BetaV2Audit {
+  epoch_id: string;
+  state: string;
+  protocol_version: string;
+  scheduled_points: number;
+  effective_points: number;
+  undistributed_points: number;
+  distributed_points: number;
+  ledger_points: number;
+  participants: number;
+}
+
+async function settleThroughDatabase(
+  admin: SupabaseClient<Database>,
+  epochId: string,
+  protocolVersion: string,
+): Promise<SettleDailyResult> {
+  // The function is declared in a migration, so it is not in the generated
+  // database types. Narrowed to exactly what it returns rather than widened to
+  // `any`, so a change in its shape is still a type error here.
+  const call = admin.rpc as unknown as (
+    name: string,
+    params: Record<string, string>,
+  ) => Promise<{ data: BetaV2Audit[] | BetaV2Audit | null; error: { message: string } | null }>;
+  const { data, error } = await call.call(admin, "settle_beta_v2_epoch", { p_epoch_id: epochId });
+
+  if (error) {
+    // Every refusal inside that function is deliberate and already rolled
+    // back: an epoch that has not ended, a unit that is not exact-pico, a
+    // stored score that does not match the recomputed sum. Surfacing the
+    // message verbatim is the point -- it names which invariant failed.
+    return { outcome: "refused", epochId, protocolVersion, reason: error.message };
+  }
+
+  const audit = (Array.isArray(data) ? data[0] : data) as BetaV2Audit | undefined;
+  if (!audit) {
+    return { outcome: "skipped", epochId, protocolVersion, reason: `${epochId} returned no audit row; nothing was credited.` };
+  }
+
+  return {
+    outcome: audit.participants === 0 ? "skipped" : "settled",
+    epochId,
+    protocolVersion: audit.protocol_version ?? protocolVersion,
+    reason:
+      audit.participants === 0
+        ? `${epochId} had no eligible compute; the pool was not minted.`
+        : `${epochId} settled for ${audit.participants} participant(s); ${audit.undistributed_points} point(s) were never minted.`,
+    participants: Number(audit.participants),
+    pool: Number(audit.effective_points),
+    distributed: Number(audit.distributed_points),
+    credited: Number(audit.ledger_points),
+  };
+}
+
 export async function settleDailyEpoch(
   admin: SupabaseClient<Database>,
   input: {
@@ -79,6 +134,19 @@ export async function settleDailyEpoch(
 
   // The rule comes from the epoch, not from today's protocol.
   const governing = protocolForEpoch(epochId);
+
+  // baseline-linear-v1 settles inside the database, in one transaction.
+  //
+  // Not a preference. M15E showed the multi-request path cannot hold the
+  // invariants a positive-ledger settlement needs: the effective pool, the
+  // largest-remainder allocation and the ledger rows must be computed and
+  // written under one lock, or two concurrent runs can each credit a share of
+  // the same pool. The function raises and rolls everything back rather than
+  // credit anything it cannot prove.
+  if (governing.emissionAlgorithm === "baseline-linear-v1") {
+    return settleThroughDatabase(admin, epochId, governing.version);
+  }
+
   if (governing.emissionAlgorithm !== "fixed-pool-v1") {
     return {
       outcome: "refused",

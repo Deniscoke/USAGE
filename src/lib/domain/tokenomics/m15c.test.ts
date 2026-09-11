@@ -35,16 +35,19 @@ describe("mining-beta-v2 parameters (draft)", () => {
     expect(MINING_BETA_V2_PARAMETERS.baselineComputePico).toBe(1_000_000_000n * 1_000_000n); // $1000 in micro × pico/micro
     expect(MINING_BETA_V2_PARAMETERS.floorPoints).toBe(0n);
     expect(MINING_BETA_V2_PARAMETERS.undistributedPolicy).toBe("never_minted");
-    expect(MINING_BETA_V2_DRAFT.status).toBe("draft");
+    // Scheduled, not draft: approved and bound to epoch-2026-09-14. The
+    // PARAMETERS above are what must stay locked; the status is allowed to
+    // advance, and only through a named epoch.
+    expect(MINING_BETA_V2_DRAFT.status).toBe("scheduled");
     expect(MINING_BETA_V2_DRAFT.baselineComputePico).toBe(B);
   });
 
-  it("mining-dev-v1 is untouched and still the active protocol", () => {
+  it("mining-dev-v1 is untouched and still governs every epoch before the cutover", () => {
     expect(CURRENT_MINING_PROTOCOL).toBe(MINING_DEV_V1);
     expect(MINING_DEV_V1.scoringVersion).toBe("usage_score_v1");
     expect(MINING_DEV_V1.status).toBe("active");
     expect(listMiningProtocols().map((v) => v.version)).toEqual(["mining-dev-v1"]);
-    expect(getMiningProtocol("mining-beta-v2")?.status).toBe("draft");
+    expect(getMiningProtocol("mining-beta-v2")?.status).toBe("scheduled");
   });
 
   it("§2 parameter table", () => {

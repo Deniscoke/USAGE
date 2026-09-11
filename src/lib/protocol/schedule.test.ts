@@ -35,9 +35,26 @@ describe("epoch-aware protocol resolution", () => {
     expect(protocolForEpoch("epoch-2026-09-10").version).toBe("mining-dev-v1");
   });
 
-  it("a DRAFT never resolves: today's code schedule gives mining-dev-v1 for 2026-09-14 and beyond", () => {
-    expect(protocolForEpoch("epoch-2026-09-14").version).toBe("mining-dev-v1");
-    expect(protocolForEpoch("epoch-2030-01-01").version).toBe("mining-dev-v1");
+  it("a DRAFT still never resolves, whatever else is on the schedule", () => {
+    // The rule that matters is unchanged: an unapproved version governs
+    // nothing. What changed is that mining-beta-v2 is no longer a draft -- it
+    // is SCHEDULED, bound to a named epoch, which is a different state.
+    const draftOnly = CODE_SCHEDULE.map((s) =>
+      s.version === "mining-beta-v2" ? { ...s, status: "draft" as const, effectiveFromEpoch: null } : s,
+    );
+    expect(protocolForEpoch("epoch-2026-09-14", draftOnly).version).toBe("mining-dev-v1");
+    expect(protocolForEpoch("epoch-2030-01-01", draftOnly).version).toBe("mining-dev-v1");
+  });
+
+  it("the live code schedule hands over to mining-beta-v2 at epoch-2026-09-14", () => {
+    // The database resolves the same boundary through protocol_for_epoch().
+    // If these two ever disagree, an epoch is scored under one rule and
+    // settled under another.
+    expect(protocolForEpoch("epoch-2026-09-13").version).toBe("mining-dev-v1");
+    expect(protocolForEpoch("epoch-2026-09-14").version).toBe("mining-beta-v2");
+    expect(protocolForEpoch("epoch-2030-01-01").version).toBe("mining-beta-v2");
+    expect(pricingForEpoch("epoch-2026-09-13")).toBe("usage-pricing-v2");
+    expect(pricingForEpoch("epoch-2026-09-14")).toBe("usage-pricing-v3");
   });
 
   it("with mining-beta-v2 SCHEDULED for epoch-2026-09-14: 09-13 is still v1, 09-14 onward is beta-v2 / v2 / v3 / baseline-linear-v1", () => {
@@ -88,9 +105,9 @@ describe("epoch-aware protocol resolution", () => {
 });
 
 describe("dashboard protocol status copy", () => {
-  it("before scheduling: DEVELOPMENT V1 / PREPARING BETA V2", () => {
+  it("names the cutover once it is scheduled", () => {
     const v = protocolStatusView("epoch-2026-09-11");
-    expect(v.headline).toBe("DEVELOPMENT V1 / PREPARING BETA V2");
+    expect(v.headline).toBe("DEVELOPMENT V1 / BETA V2 SCHEDULED 2026-09-14 00:00 UTC");
     expect(v.emissionLabel).toMatch(/^100,000 DEVELOPMENT POINTS/);
   });
   it("scheduled: names the UTC target; after cutover: BETA V2, linear, UP TO the cap", () => {

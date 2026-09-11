@@ -19,7 +19,7 @@ import type { GatewayObservation } from "@/lib/providers/vercel-gateway/observat
  * ones. Nothing here touches production.
  */
 
-const DAY = "2027-03-10";
+const DAY = "2026-03-10";
 const EPOCH = `epoch-${DAY}`;
 const KEY = generateSigningKeyPair("m15d-test");
 const ISSUANCE = { issuer: "usage://issuer/production", keyId: KEY.keyId, privateKeyBase64: KEY.privateKeyBase64 };
@@ -116,14 +116,14 @@ describe("the conflict the close must avoid", () => {
   });
 
   it("the database refuses a claimable development epoch and a claimable development protocol", async () => {
-    await expect(db.asServiceRole(`insert into reward_epochs (id, starts_at, ends_at, reward_pool_points, scoring_version, epoch_kind, state, claimable) values ('epoch-2027-01-01', '2027-01-01', '2027-01-02', 0, 'usage_score_v1', 'development', 'open', true)`)).rejects.toThrow(/development_not_claimable/);
+    await expect(db.asServiceRole(`insert into reward_epochs (id, starts_at, ends_at, reward_pool_points, scoring_version, epoch_kind, state, claimable) values ('epoch-2026-01-01', '2026-01-01', '2026-01-02', 0, 'usage_score_v1', 'development', 'open', true)`)).rejects.toThrow(/development_not_claimable/);
     await expect(db.asServiceRole(`update mining_protocol_versions set claimable = true where version = 'mining-dev-v1'`)).rejects.toThrow(/development_not_claimable/);
   });
 });
 
 describe("fail closed", () => {
   it("refuses an epoch that is not owner-approved, before any read", async () => {
-    await expect(closeCalibrationEpoch(settlement, reads, "epoch-2027-03-11", [approved])).rejects.toThrow(/not an owner-approved/);
+    await expect(closeCalibrationEpoch(settlement, reads, "epoch-2026-03-11", [approved])).rejects.toThrow(/not an owner-approved/);
     await expect(closeCalibrationEpoch(settlement, reads, EPOCH, [])).rejects.toThrow(/not an owner-approved/);
   });
 
@@ -195,7 +195,7 @@ describe("historical audit from persisted data only", () => {
   });
 
   it("a normal mining-dev-v1 epoch still reproduces the fixed 100,000 emission and is told apart by its protocol binding", async () => {
-    const otherDay = "2027-03-12";
+    const otherDay = "2026-03-12";
     const miner = await db.createUser("m15d-miner@example.com");
     await ingestGatewayObservations(createSqlIngestStore(db), miner, [{ environment: "live", generationId: "gen-1789057887-M15DNORMAL", model: "openai/gpt-5-nano", clientType: "usage-miner", servedByProvider: "Azure", gatewayId: "connection:22222222-2222-4222-8222-222222222222", endpointTrusted: true, funding: { class: "paid_account", basis: "fixture:SIMULATED paid_account" }, occurredAt: `${otherDay}T10:00:00.000Z`, usage: { inputTokens: 100_000, outputTokens: 10_000 }, cost: { value: "0.009", currency: "USD" }, finishReason: "stop" }], { issuance: ISSUANCE });
     const epoch = dailyEpochFor(new Date(`${otherDay}T12:00:00.000Z`), 100_000);

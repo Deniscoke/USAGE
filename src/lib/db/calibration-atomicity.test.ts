@@ -100,7 +100,7 @@ describe("current application path: separate autocommitted writes", () => {
   const base = () => createSqlSettlementStore(db);
 
   it("A. failure after the FINALIZING write leaves the epoch finalizing", async () => {
-    const a = await seedUnit("2027-04-01", "m15e-a@example.com", "gen-m15e-a");
+    const a = await seedUnit("2026-04-01", "m15e-a@example.com", "gen-m15e-a");
     const before = await stateOf(a);
     await expect(closeCalibrationEpoch(failingAfter(base(), "finalizing"), readsOver(), a.epochId, [a])).rejects.toThrow(/after finalizing/);
     const after = await stateOf(a);
@@ -110,7 +110,7 @@ describe("current application path: separate autocommitted writes", () => {
   });
 
   it("B. failure after the SETTLED write leaves a settled epoch with no allocation and an unsettled event", async () => {
-    const a = await seedUnit("2027-04-02", "m15e-b@example.com", "gen-m15e-b");
+    const a = await seedUnit("2026-04-02", "m15e-b@example.com", "gen-m15e-b");
     await expect(closeCalibrationEpoch(failingAfter(base(), "settled"), readsOver(), a.epochId, [a])).rejects.toThrow(/after settled/);
     const after = await stateOf(a);
     expect(after.epoch?.state).toBe("settled"); // PARTIAL STATE: settled and now immutable
@@ -119,7 +119,7 @@ describe("current application path: separate autocommitted writes", () => {
   });
 
   it("C/E. failure after the allocation write (= before the event update) leaves a settled epoch and allocation with an eligible event", async () => {
-    const a = await seedUnit("2027-04-03", "m15e-c@example.com", "gen-m15e-c");
+    const a = await seedUnit("2026-04-03", "m15e-c@example.com", "gen-m15e-c");
     await expect(closeCalibrationEpoch(failingAfter(base(), "allocation"), readsOver(), a.epochId, [a])).rejects.toThrow(/after allocation/);
     const after = await stateOf(a);
     expect(after.epoch?.state).toBe("settled");
@@ -128,7 +128,7 @@ describe("current application path: separate autocommitted writes", () => {
   });
 
   it("D. the ledger phase is skipped for zero points, so it cannot fail; the ledger is untouched in every case", async () => {
-    const a = await seedUnit("2027-04-04", "m15e-d@example.com", "gen-m15e-d");
+    const a = await seedUnit("2026-04-04", "m15e-d@example.com", "gen-m15e-d");
     const before = await stateOf(a);
     await expect(closeCalibrationEpoch(failingAfter(base(), "markSettled"), readsOver(), a.epochId, [a])).rejects.toThrow(/before postconditions/);
     const after = await stateOf(a);
@@ -137,7 +137,7 @@ describe("current application path: separate autocommitted writes", () => {
   });
 
   it("F. failure after the event update but before postconditions: everything is already committed; the application reports failure anyway", async () => {
-    const a = await seedUnit("2027-04-05", "m15e-f@example.com", "gen-m15e-f");
+    const a = await seedUnit("2026-04-05", "m15e-f@example.com", "gen-m15e-f");
     await expect(closeCalibrationEpoch(failingAfter(base(), "markSettled"), readsOver(), a.epochId, [a])).rejects.toThrow(/before postconditions/);
     const after = await stateOf(a);
     expect(after.epoch?.state).toBe("settled");
@@ -251,7 +251,7 @@ describe("the production text of 0020 carries no fault hook", () => {
 });
 
 describe("pending 0020: epoch boundaries are UTC regardless of session TimeZone", () => {
-  const zones: [string, string][] = [["UTC", "2027-06-01"], ["Europe/Prague", "2027-06-02"], ["America/New_York", "2027-06-03"], ["Asia/Tokyo", "2027-06-04"]];
+  const zones: [string, string][] = [["UTC", "2026-06-01"], ["Europe/Prague", "2026-06-02"], ["America/New_York", "2026-06-03"], ["Asia/Tokyo", "2026-06-04"]];
   for (const [zone, day] of zones) {
     it(`${zone}: persisted starts_at/ends_at are exactly ${day}T00:00:00Z and the next UTC midnight`, async () => {
       const u = await seedUnit(day, `m15e-tz-${day}@example.com`, `gen-m15e-tz-${day}`);
@@ -277,7 +277,7 @@ describe("pending 0020: close_development_calibration_epoch is one transaction",
   let initial: State;
 
   beforeAll(async () => {
-    a = await seedUnit("2027-05-10", "m15e-atomic@example.com", "gen-m15e-atomic");
+    a = await seedUnit("2026-05-10", "m15e-atomic@example.com", "gen-m15e-atomic");
     await installFunctionFor(a);
     initial = await stateOf(a);
     expect(initial.epoch).toBeNull();
@@ -293,7 +293,7 @@ describe("pending 0020: close_development_calibration_epoch is one transaction",
   }
 
   it("refuses any epoch id other than the approved one, before locking or reading", async () => {
-    await expect(db.asServiceRole(`select * from public.close_development_calibration_epoch('epoch-2027-05-11')`)).rejects.toThrow(/not the owner-approved/);
+    await expect(db.asServiceRole(`select * from public.close_development_calibration_epoch('epoch-2026-05-11')`)).rejects.toThrow(/not the owner-approved/);
     expect(await stateOf(a)).toEqual(initial);
   });
 
@@ -353,7 +353,7 @@ describe("pending 0020: close_development_calibration_epoch is one transaction",
 
 describe("pending 0020: concurrency on a fresh epoch", () => {
   it("two simultaneous first attempts: one settles, the other is refused as already settled", async () => {
-    const b = await seedUnit("2027-05-20", "m15e-race@example.com", "gen-m15e-race");
+    const b = await seedUnit("2026-05-20", "m15e-race@example.com", "gen-m15e-race");
     await installFunctionFor(b);
     const results = await Promise.allSettled([
       db.asServiceRole(`select * from public.close_development_calibration_epoch($1)`, [b.epochId]),

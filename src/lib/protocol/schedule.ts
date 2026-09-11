@@ -60,7 +60,12 @@ function entry(v: MiningProtocolVersion & Partial<EmissionParameters>, effective
 export const CODE_SCHEDULE: readonly ProtocolScheduleEntry[] = Object.freeze([
   entry({ ...MINING_DEV_V1, ...MINING_DEV_V1_EMISSION }, "epoch-2026-09-01", "active"),
   entry(MINING_DEV_CALIBRATION_V1, "epoch-2026-09-10", "active"),
-  entry(MINING_BETA_V2_DRAFT, null, "draft"),
+  // From this epoch the network mines under baseline-linear emission: the
+  // pool scales with how much verified compute the network actually did, and
+  // what is not distributed is never minted. The database resolves the same
+  // boundary through protocol_for_epoch(); the two must agree, which is why
+  // the migration and this constant are deployed together.
+  entry(MINING_BETA_V2_DRAFT, "epoch-2026-09-14", "scheduled"),
 ]);
 
 export class ProtocolResolutionError extends Error {
