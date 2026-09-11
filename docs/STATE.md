@@ -2,6 +2,28 @@
 
 ## Current milestone
 
+M16E — the route is proven and points settle themselves. On 2026-09-11 one
+real Claude Code message through `/api/gateway/provider/<id>/anthropic`
+produced `routed` + `confirmed` + `reward_status: eligible`,
+`economic_source_class: metered_paid`, `dedupe_status: unique`, in
+epoch-2026-09-11: the chain from installer to economic record is proven end to
+end. Two billed requests per user message, because Claude Code makes its own
+background `claude-haiku-4.5` call.
+
+Settlement no longer waits for an operator. `/api/cron/settle-epoch` runs at
+00:20 UTC daily (vercel.json, bearer `CRON_SECRET`) through
+`settleDailyEpoch`, which the operator script now calls too, so the automated
+and manual paths cannot drift. It refuses rather than writes on: an incomplete
+day, a non-fixed-pool epoch, a calibration epoch, an already-settled epoch, and
+a settlement that does not distribute its pool. Naming a day explicitly is the
+only way to settle one still in progress.
+
+**Migration 0022 is written and NOT applied.** It adds a nullable
+`usage_events.cache_write_tokens`. Nothing is lost without it: the value is
+already in `raw_metadata` (71099 on the proving request, which is what makes 27
+cents out of 71 visible tokens). Apply it before deploying any code that writes
+the column.
+
 M16D — miner web distribution. **Deployed. 0.4.5 is the public build**
 (released 2026-09-11, four assets, unsigned, checksums from the release
 itself). The website is now the official way to get the
