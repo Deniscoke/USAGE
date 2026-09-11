@@ -1,5 +1,5 @@
 "use client";
-import type { ProviderStatusView } from "@/lib/providers/status-view";
+import { connectionHeadline, type ConnectionHeadline, type ProviderStatusView } from "@/lib/providers/status-view";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -55,6 +55,20 @@ export interface ConnectionCard {
  * Connection, credential, routing, usage evidence, pricing, funding, mining:
  * seven lines that are never one word. "Routable and priced" is not "earns".
  */
+/** Colour says what kind of state it is; the words say what it means. */
+function headlineColor(tone: ConnectionHeadline["tone"]): string {
+  switch (tone) {
+    case "earning":
+      return "var(--verified)";
+    case "working":
+      return "var(--warn)";
+    case "blocked":
+      return "var(--reported)";
+    default:
+      return "var(--faint)";
+  }
+}
+
 export function StatusRows({ view, compact = false }: { view: ProviderStatusView; compact?: boolean }) {
   const tone = (ok: boolean, warn = false) => (ok ? "var(--verified)" : warn ? "var(--warn)" : "var(--faint)");
   const rows: { label: string; value: string; color: string }[] = [
@@ -193,6 +207,7 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
   const [revokeState, revokeAction, revoking] = useActionState(revokeProviderConnection, EMPTY);
 
   const disconnected = Boolean(revokeState.message) || connection.status === "revoked";
+  const headline = connectionHeadline(connection.view);
 
   return (
     <li className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -213,30 +228,43 @@ export function ConnectionRow({ connection }: { connection: ConnectionCard }) {
         </span>
       </div>
 
-      <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-        {connection.capabilities.map((capability) => (
-          <div key={capability.label}>
-            <dt className="text-[var(--faint)]">{capability.label}</dt>
-            <dd style={{ color: capability.supported ? "var(--verified)" : "var(--faint)" }}>
-              {capability.supported ? "✓ supported" : "— unavailable"}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <div className="mt-3 border-t border-[var(--border)] pt-3">
-        <StatusRows view={connection.view} />
-        <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
-          {connection.miningDetail}
+      <div
+        className="mt-3 rounded-md border-l-2 bg-[var(--surface-2)] px-3 py-2.5"
+        style={{ borderColor: headlineColor(headline.tone) }}
+      >
+        <p className="text-xs font-medium" style={{ color: headlineColor(headline.tone) }}>
+          {headline.title}
         </p>
-        {connection.modelCount > 0 && (
-          <p className="tnum mt-1 text-[11px] text-[var(--faint)]">
-            {connection.modelCount} model{connection.modelCount === 1 ? "" : "s"} discovered ·{" "}
-            {connection.pricedModelCount} priced · {connection.modelCount - connection.pricedModelCount}{" "}
-            pending pricing
-          </p>
-        )}
+        <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">{headline.detail}</p>
       </div>
+
+      <details className="mt-3 border-t border-[var(--border)] pt-3">
+        <summary className="cursor-pointer text-[11px] text-[var(--routed)]">
+          What USAGE can see through this connection
+        </summary>
+
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+          {connection.capabilities.map((capability) => (
+            <div key={capability.label}>
+              <dt className="text-[var(--faint)]">{capability.label}</dt>
+              <dd style={{ color: capability.supported ? "var(--verified)" : "var(--faint)" }}>
+                {capability.supported ? "✓ supported" : "— unavailable"}
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          <StatusRows view={connection.view} />
+          {connection.modelCount > 0 && (
+            <p className="tnum mt-2 text-[11px] text-[var(--faint)]">
+              {connection.modelCount} model{connection.modelCount === 1 ? "" : "s"} discovered ·{" "}
+              {connection.pricedModelCount} priced ·{" "}
+              {connection.modelCount - connection.pricedModelCount} pending pricing
+            </p>
+          )}
+        </div>
+      </details>
 
       {!disconnected && (
         <details className="mt-3 border-t border-[var(--border)] pt-3">

@@ -74,6 +74,74 @@ const FUNDING_LABEL: Record<string, string> = {
   unknown: "Unknown — the provider has not stated how this account is funded",
 };
 
+/**
+ * The one sentence a person reads first.
+ *
+ * The seven status rows are all true and all necessary, but thirteen uppercase
+ * codes before a single sentence is a wall, and the question everybody
+ * actually arrives with is smaller than that: can I use this, and does it
+ * earn? This answers exactly that, and the rows stay underneath for whoever
+ * wants to see the working.
+ *
+ * It never merges the facts it summarises: "connected" and "earning" remain
+ * separate words, because a connection that routes perfectly and earns nothing
+ * is a normal, correct state and must not read as a fault.
+ */
+export interface ConnectionHeadline {
+  tone: "earning" | "working" | "blocked" | "disconnected";
+  title: string;
+  detail: string;
+}
+
+export function connectionHeadline(view: ProviderStatusView): ConnectionHeadline {
+  if (view.connection.state === "revoked") {
+    return {
+      tone: "disconnected",
+      title: "Disconnected",
+      detail:
+        "You disconnected this. Reconnect it with a new key to use it again — its history stays attached.",
+    };
+  }
+  if (view.credential === "rejected") {
+    return {
+      tone: "blocked",
+      title: "The key was refused",
+      detail: "The provider rejected this credential. Reconnect with a new key.",
+    };
+  }
+  if (view.connection.state === "validating") {
+    return {
+      tone: "blocked",
+      title: "Never finished connecting",
+      detail: "This was saved but never validated, so there is nothing to route through yet.",
+    };
+  }
+  if (view.routing === "unsupported") {
+    return {
+      tone: "blocked",
+      title: "Cannot carry requests",
+      detail: "USAGE cannot route requests through this connection, so nothing can be measured.",
+    };
+  }
+  if (view.mining.outcome === "eligible") {
+    return {
+      tone: "earning",
+      title: "Working, and it earns",
+      detail: "Requests routed through this connection are measured, priced and reward eligible.",
+    };
+  }
+  if (view.mining.outcome === "ineligible") {
+    return { tone: "blocked", title: "Working, but it never earns", detail: view.mining.reason };
+  }
+  return {
+    // The state the owner kept asking about: everything green except the one
+    // thing that decides a reward.
+    tone: "working",
+    title: "Working. It does not earn yet",
+    detail: view.mining.reason,
+  };
+}
+
 export function deriveProviderStatusView(input: ProviderStatusInput): ProviderStatusView {
   const connectionState: ConnectionStatusDetailRow = input.revoked ? "revoked" : input.connectionStatus;
   const credential: ProviderStatusView["credential"] =
