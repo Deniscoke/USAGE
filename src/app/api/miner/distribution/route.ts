@@ -1,4 +1,5 @@
 import { loadDistribution } from "@/lib/miner/distribution-source";
+import { NPM_PACKAGE_NAME, NPX_COMMAND, loadNpmPackage } from "@/lib/miner/npm-package";
 import { MINIMUM_MINER_VERSION, MINER_PROTOCOL_VERSION } from "@/lib/miner/release";
 
 /**
@@ -24,7 +25,7 @@ export const runtime = "nodejs";
 export const revalidate = 900;
 
 export async function GET() {
-  const distribution = await loadDistribution();
+  const [distribution, npm] = await Promise.all([loadDistribution(), loadNpmPackage()]);
 
   return Response.json(
     {
@@ -48,6 +49,10 @@ export async function GET() {
       stableDownloadUrl: distribution.stableUrl,
       releaseUrl: distribution.releaseUrl,
       files: distribution.files,
+      // The installer-free path, reported only once it exists.
+      npm: npm.published
+        ? { name: NPM_PACKAGE_NAME, version: npm.version, command: NPX_COMMAND }
+        : null,
     },
     {
       headers: {

@@ -11,6 +11,7 @@ import {
   type MinerDistribution,
 } from "@/lib/miner/distribution";
 import { MINER_PREPARED_VERSION, MINER_SOURCE_REPOSITORY } from "@/lib/miner/release";
+import { NPM_PACKAGE_NAME, NPX_COMMAND, loadNpmPackage } from "@/lib/miner/npm-package";
 
 /**
  * Download USAGE Miner.
@@ -132,7 +133,7 @@ function Checksum({ file }: { file: DistributionFile }) {
 }
 
 export default async function DownloadPage() {
-  const distribution = await loadDistribution();
+  const [distribution, npm] = await Promise.all([loadDistribution(), loadNpmPackage()]);
   const setup = distribution.setup;
   const releaseDate = formatReleaseDate(distribution.publishedAt);
   // True only while a newer build exists that nobody can download yet.
@@ -184,6 +185,31 @@ export default async function DownloadPage() {
           page offers {distribution.version} — the newest build that actually exists at a public
           URL. This notice disappears by itself when {MINER_PREPARED_VERSION} is released.
         </p>
+      )}
+
+      {npm.published && (
+        <Panel className="mt-8" title="Already have Node? Skip the installer">
+          <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+            One command opens the same window, and Windows shows no warning — not because the
+            warning was suppressed, but because nothing unknown is executed. The code runs under the
+            node.exe you already have, and npm checks its integrity.
+          </p>
+          <code className="mt-2 block overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
+            {NPX_COMMAND}
+          </code>
+          <p className="mt-2 text-[10px] leading-relaxed text-[var(--faint)]">
+            Version {npm.version} on npm, published straight from the build workflow with a
+            provenance attestation, so anyone can check which commit and which run produced it.
+            Windows only.{" "}
+            <a
+              href={`https://www.npmjs.com/package/${NPM_PACKAGE_NAME}`}
+              className="text-[var(--routed)] hover:underline"
+            >
+              Package
+            </a>
+            .
+          </p>
+        </Panel>
       )}
 
       <div className="mt-8 space-y-3">
