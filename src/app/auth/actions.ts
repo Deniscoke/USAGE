@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -15,6 +16,26 @@ import { safeRedirectPath } from "@/lib/auth/routing";
 
 export interface AuthFormState {
   error?: string;
+  /** Something that went right. "Check your email" is not an error. */
+  notice?: string;
+}
+
+/**
+ * Where a confirmation email should send somebody back to.
+ *
+ * Stated explicitly rather than left to the Supabase project's Site URL: that
+ * setting still read `http://localhost:3000` from development, so every
+ * confirmation link USAGE sent pointed at the reader's own machine. A link in
+ * an email is read on a device that is not this one, so the address has to be
+ * the public one, and it has to come from the request rather than a constant
+ * that a preview deployment would get wrong.
+ */
+async function confirmationRedirect(): Promise<string> {
+  const configured = process.env.NEXT_PUBLIC_USAGE_URL;
+  if (configured) return new URL("/auth/callback", configured).toString();
+  const host = (await headers()).get("host");
+  const protocol = host?.startsWith("localhost") ? "http" : "https";
+  return host ? `${protocol}://${host}/auth/callback` : "/auth/callback";
 }
 
 function readCredentials(formData: FormData): { email: string; password: string } | null {
@@ -46,12 +67,18 @@ export async function signUp(_state: AuthFormState, formData: FormData): Promise
   if (!credentials) return { error: "Email and password are required." };
   if (credentials.password.length < 6) return { error: "Password must be at least 6 characters." };
 
-  const { data, error } = await supabase.auth.signUp(credentials);
+  const { data, error } = await supabase.auth.signUp({
+    ...credentials,
+    options: { emailRedirectTo: await confirmationRedirect() },
+  });
   if (error) return { error: error.message };
 
-  // With email confirmation enabled there is no session yet.
+  // With email confirmation enabled there is no session yet. This is the
+  // expected path, not a failure, and it no longer reads as one.
   if (!data.session) {
-    return { error: "Check your email to confirm your account, then sign in." };
+    return {
+      notice: `Check ${credentials.email} for a confirmation link, then sign in. The link works once and expires.`,
+    };
   }
 
   revalidatePath("/dashboard");

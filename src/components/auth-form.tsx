@@ -9,11 +9,14 @@ interface AuthFormProps {
   title: string;
   submitLabel: string;
   next?: string;
+  /** Something to say before the reader has done anything, e.g. after a
+      confirmation link sent them here. */
+  notice?: string;
   footer: { prompt: string; href: string; linkLabel: string };
 }
 
-export function AuthForm({ action, title, submitLabel, next, footer }: AuthFormProps) {
-  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(action, {});
+export function AuthForm({ action, title, submitLabel, next, notice, footer }: AuthFormProps) {
+  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(action, { notice });
 
   return (
     <div className="mx-auto w-full max-w-sm px-6 py-16">
@@ -55,6 +58,15 @@ export function AuthForm({ action, title, submitLabel, next, footer }: AuthFormP
         {state.error && (
           <p className="rounded-md border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_7%,transparent)] px-3 py-2 text-xs text-[var(--warn)]">
             {state.error}
+          </p>
+        )}
+
+        {/* "Check your email" was shown in the same orange box as a failure,
+            so the one moment sign-up goes right looked like it had gone
+            wrong. */}
+        {state.notice && (
+          <p className="rounded-md border border-[color-mix(in_srgb,var(--verified)_30%,transparent)] bg-[color-mix(in_srgb,var(--verified)_7%,transparent)] px-3 py-2 text-xs leading-relaxed text-[var(--verified)]">
+            {state.notice}
           </p>
         )}
 
