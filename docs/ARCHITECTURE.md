@@ -893,6 +893,37 @@ proof reference — and which rows are refused: unconfirmed, reported-only,
 held, unpriced, unsettled, duplicate or conflict, free or promotional. Local
 observations are never candidates: their table has no economic column.
 
+## USAGE Chat (M17)
+
+The second way in. The miner is for people already living in Claude Code or
+Codex; the chat is for everybody else. It is not a second gateway.
+
+- **One trust boundary.** `createGatewayRoute` gained an `authenticate` hook.
+  Miner routes leave it unset (device credential in headers). The chat passes
+  the signed-in Supabase session, yielding an identity with `origin: "web"`,
+  the `miner:route` scope only, a stable per-user rate-limit key and no
+  credential row (ingestion receives `null`). Binding, scope, rate limit,
+  resolution, observation, signing and ingestion are the same code.
+- **Two doors, one rule.** `?via=provider:<id>` resolves the person's own
+  connection through the shared `resolveConnectionGateway` (also used by the
+  universal provider route). `?via=shared` uses USAGE's funded gateway. The
+  panel shows the server's choice; it cannot pick another.
+- **Shared route guards, in order:** refused if the person has an eligible
+  route of their own; daily cap per account in micro-USD and in requests,
+  read from persisted `usage_events` on both funded gateways; models limited
+  to the epoch's protocol price list; output capped at 1,024 tokens. HELD by
+  the reward policy because USAGE paid.
+- **The browser is not a miner.** `sanitizeChatBody` rebuilds the body from
+  an allowlist: model, bounded messages, `stream` + usage always on, clamped
+  `max_tokens` and `temperature`, `usage.include` only for OpenRouter.
+- **Nothing stored.** Conversations live in localStorage under
+  `usage.chat.v1.<userId>`, trimmed by count and bytes; USAGE keeps metadata
+  only. A receipt per reply is read back from the persisted unit, never from
+  the stream.
+- **Motion.** The launcher orb and panel are CSS transitions on `<body>`
+  classes, rendered through a portal so `<main>` can be transformed behind
+  them; disabled under `prefers-reduced-motion`.
+
 ## Miner distribution (M16D)
 
 The website is the official download surface; GitHub Releases are the binary

@@ -2,6 +2,35 @@
 
 ## Current milestone
 
+**M17 — USAGE Chat (2026-09-12).** A second front door: sign in and talk to a
+model from inside the website, no miner, no terminal, no local tool. Every
+message goes through `createGatewayRoute` -- the SAME trust boundary the
+miner uses -- via a new `authenticate` hook that accepts the signed-in browser
+session (`origin: "web"`, scope `miner:route` only, no credential row). So a
+chat reply is measured, priced, signed and attributed exactly like a Claude
+Code request and lands in `usage_events` with the same verdicts.
+
+Route rule (shared with the miner, `src/lib/chat/route.ts`): the person's own
+ELIGIBLE connection first (earns); else USAGE's shared key (HELD, capped per
+account per day in money AND requests, `src/lib/chat/spend.ts`); else their
+own HELD connection. The shared route prefers `OPENROUTER_API_KEY` and falls
+back to `AI_GATEWAY_API_KEY`; production currently has only the latter, so the
+shared route runs on Vercel AI Gateway until the owner adds the OpenRouter
+key. It is refused to anyone who has an earning route of their own, and it
+accepts only models with an approved protocol price.
+
+The browser body is rebuilt from an allowlist (`src/lib/chat/body.ts`), never
+forwarded. Conversation history lives in the browser's localStorage under the
+account key and nowhere else (rule 3). Each reply carries a receipt read back
+from the persisted unit (`/api/chat/receipt`). The launcher is the site's one
+piece of motion: an orb that breathes on hover, a panel that comes forward
+while `<main>` settles back; all CSS, all off under prefers-reduced-motion.
+
+Owner's design intent, recorded: users buy credit later and USAGE pays the
+provider from it. That changes the shared route's funding class to "prepaid
+via USAGE" and is a reward-policy decision plus a payments/VAT/company step,
+not built here. Until then the shared route is measured and HELD by design.
+
 **mining-beta-v2 is SCHEDULED for epoch-2026-09-14.** Migration 0022 applied to
 production 2026-09-11 and verified: `mining_protocol_versions` has beta-v2
 `scheduled` from `epoch-2026-09-14` (baseline-linear-v1, usage_score_v2,

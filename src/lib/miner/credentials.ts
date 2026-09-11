@@ -12,10 +12,17 @@ import { bindingFromClaims, isRouteSessionToken, verifyRouteSessionToken, type R
  */
 
 export interface MinerIdentity {
+  /**
+   * The device credential row for a miner. For a signed-in browser session
+   * (`origin: "web"`) it is a stable per-user key used for rate limiting only
+   * and names no row; ingestion is given null in that case.
+   */
   credentialId: string;
   userId: string;
   name: string;
   scopes: MinerScope[];
+  /** What authenticated this request. Absent means a device credential. */
+  origin?: "device" | "web";
   /**
    * Set when the request was authenticated by a route-session token (M16C0):
    * the identity is the parent device credential, narrowed to `miner:route`

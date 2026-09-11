@@ -13,6 +13,7 @@ import {
   type ConnectionCard,
 } from "@/components/provider-catalog";
 import { InstallMinerNextStep } from "@/components/miner-status";
+import { ChatDock } from "@/components/chat/chat-dock";
 import { loadDeviceViews } from "@/lib/miner/device-view";
 import { loadDistribution } from "@/lib/miner/distribution-source";
 import { minerPresence, type MinerPresence } from "@/lib/miner/presence";
@@ -133,6 +134,7 @@ export default async function ProvidersPage() {
         </Link>
         <div className="flex items-center gap-3">
           {email && <span className="text-[11px] text-[var(--muted)]">{email}</span>}
+          {email && <ChatDock />}
           <Link
             href={email ? "/providers/add" : "/sign-up"}
             className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--muted)] hover:border-[var(--verified)] hover:text-[var(--foreground)]"

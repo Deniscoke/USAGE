@@ -1,10 +1,5 @@
 import { createGatewayRoute } from "@/lib/gateway/handler";
-import { protocolGateway } from "@/lib/compute/protocol-gateway";
-import { fundingEvidenceForConnection } from "@/lib/protocol/funding";
-import { createConnectionStore, ConnectionError } from "@/lib/providers/connections";
-import { createAdminSupabase } from "@/lib/supabase/admin";
-import { SsrfError } from "@/lib/net/ssrf";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { resolveConnectionGateway } from "@/lib/gateway/connection-gateway";
 
 /**
  * The universal provider route.
@@ -38,47 +33,8 @@ export const { POST, GET } = createGatewayRoute({
   // surface of the same connection is refused here, and vice versa.
   surface: "openai_compatible",
 
-  async resolve({ userId, params }) {
-    if (!isSupabaseConfigured()) {
-      return openAiError(503, "api_error", "USAGE is not configured.");
-    }
-
-    const connectionId = String(params.connectionId ?? "");
-    const store = createConnectionStore(createAdminSupabase());
-
-    try {
-      // Ownership, revocation, protocol and a fresh SSRF check all happen here.
-      const resolved = await store.resolveForRequest(connectionId, userId);
-
-      return {
-        gateway: protocolGateway({
-          protocol: resolved.protocol,
-          connectionId,
-          baseUrl: resolved.baseUrl,
-          providerSlug: resolved.connection.provider,
-          endpointTrusted: resolved.endpointTrusted,
-          pathPrefix: resolved.pathPrefix,
-          providerFamily: resolved.providerFamily,
-          // What the provider told USAGE about this account when it was
-          // connected. Nothing in the request can change it.
-          funding: fundingEvidenceForConnection(resolved.connection),
-        }),
-        credential: resolved.credential,
-        onOutcome: (outcome) => {
-          void store.recordOutcome(connectionId, outcome).catch(() => undefined);
-        },
-      };
-    } catch (error) {
-      if (error instanceof ConnectionError) {
-        // A connection that is not yours is indistinguishable from one that
-        // does not exist, so probing for other users' ids reveals nothing.
-        const status = error.code === "not_found" ? 404 : error.code === "revoked" ? 403 : 400;
-        return openAiError(status, "invalid_request_error", error.message);
-      }
-      if (error instanceof SsrfError) {
-        return openAiError(400, "invalid_request_error", error.message);
-      }
-      return openAiError(500, "api_error", "That connection could not be used.");
-    }
-  },
+  // Shared with the web chat, which is the same trust boundary with a
+  // different front door.
+  resolve: ({ userId, params }) =>
+    resolveConnectionGateway({ connectionId: String(params.connectionId ?? ""), userId, error: openAiError }),
 });

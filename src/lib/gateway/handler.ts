@@ -9,7 +9,7 @@ import {
   logGatewayRequest,
   scheduleAfterResponse,
 } from "@/lib/gateway/observability";
-import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
+import { authenticateMiner, createSupabaseMinerStore, hasScope, type MinerAuthResult } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import type { MinerIdentity } from "@/lib/miner/credentials";
 import type { WireSurface } from "@/lib/providers/surfaces";
@@ -63,6 +63,15 @@ export interface GatewayRouteOptions {
   }): Promise<ResolvedGateway | Response>;
   /** What produced the traffic, e.g. "claude-code". Non-PII. */
   clientType: string;
+  /**
+   * How the caller is authenticated. Absent means a miner credential in the
+   * request headers -- every miner route. The web chat supplies the signed-in
+   * browser session instead, and everything after authentication (binding,
+   * scope, rate limit, resolution, observation, signing, ingestion) is the
+   * same code, because a second copy of the trust boundary is how two
+   * surfaces grow two security models.
+   */
+  authenticate?(request: NextRequest): Promise<MinerAuthResult>;
   /**
    * The wire surface this route serves for a `[connectionId]` route (M16C0).
    * A route-session token is bound to one connection and one surface and is
@@ -157,7 +166,7 @@ async function recordObservation(
   observation: GatewayObservation,
   userId: string,
   trust: TrustAssessment,
-  minerCredentialId: string,
+  minerCredentialId: string | null,
 ): Promise<void> {
   if (!isSupabaseConfigured()) {
     // No trusted persistence available, so nothing here can be a confirmed
@@ -208,10 +217,9 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
     const path = (params.path ?? []) as string[];
     const upstreamPath = path.join("/");
 
-    const auth = await authenticateMiner(
-      readPresentedToken(request.headers),
-      await resolveMinerStore(),
-    );
+    const auth = options.authenticate
+      ? await options.authenticate(request)
+      : await authenticateMiner(readPresentedToken(request.headers), await resolveMinerStore());
     if (!auth.ok) {
       logGatewayRequest({
         requestId,
@@ -322,7 +330,7 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
           user: auth.identity.userId,
           tags: [
             "usage",
-            "miner",
+            auth.identity.origin === "web" ? "web" : "miner",
             clientType,
             environment === "live" ? "production" : "development",
           ],
@@ -418,7 +426,8 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
           observation,
           auth.identity.userId,
           trust,
-          auth.identity.credentialId,
+          // A browser session names no credential row.
+          auth.identity.origin === "web" ? null : auth.identity.credentialId,
         ).then(() => broadcastPersistedOutcome(live, auth.identity.userId, observation)).catch(() => {
           logGatewayRequest({
             requestId,
@@ -509,10 +518,9 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
   ) {
     const params = await context.params;
     const path = (params.path ?? []) as string[];
-    const auth = await authenticateMiner(
-      readPresentedToken(request.headers),
-      await resolveMinerStore(),
-    );
+    const auth = options.authenticate
+      ? await options.authenticate(request)
+      : await authenticateMiner(readPresentedToken(request.headers), await resolveMinerStore());
     if (!auth.ok) {
       return error(401, "authentication_error", "Invalid USAGE miner credential.");
     }

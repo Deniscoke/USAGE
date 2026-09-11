@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CONNECTION_STATE_LABEL, type ConnectionState } from "@/lib/product/connections";
+import { ChatDock } from "@/components/chat/chat-dock";
 
 /**
  * Product chrome.
@@ -60,6 +61,9 @@ export function AppNav({ email, right }: { email?: string; right?: ReactNode }) 
         {email && <span className="text-[11px] text-[var(--muted)]">{email}</span>}
         {right}
       </div>
+      {/* The chat's launcher rides with the signed-in chrome; it renders into
+          <body> so the page can settle behind it. */}
+      {email && <ChatDock />}
     </header>
   );
 }
