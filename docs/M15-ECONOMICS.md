@@ -1525,6 +1525,22 @@ AI tool is a larger security surface than the convenience justifies (the design
 constraints are recorded in ARCHITECTURE.md). No download analytics: no event,
 no table, no fingerprint.
 
+**Publishing 0.4.5 (same day).** The first attempt put an EMPTY release on the
+tag: a release was created by hand while the workflow's draft, carrying the
+binaries, sat beside it. GitHub allows a draft and a published release to share
+a tag name, so the two coexisted and the public one had nothing to download —
+which the site handled correctly by continuing to offer 0.3.0, since a release
+with no downloadable asset is not a download. The publish step is now
+idempotent: it creates the draft when no release exists for the tag, and
+uploads into an existing one when a dispatch explicitly asks
+(`attach_to_existing`), because writing bytes to something already public must
+never be something a tag push does by itself. Run 34578609618 rebuilt on the
+runner and attached the four assets; the release was then published as latest,
+not a prerelease, so `releases/latest/download/USAGE-Miner-Windows-x64-Setup.exe`
+resolves. Evidence that the reproducibility claim is real: the standalone
+executable from that CI build hashes to `b04a185f…`, identical to a local build
+of the same commit, while the installer wrapper differs as documented.
+
 **Signing.** Still unsigned. The page says BETA · UNSIGNED BUILD, explains that
 SmartScreen is right to warn, and offers the checksum — it never suggests
 turning SmartScreen off. The badge becomes SIGNED WINDOWS BUILD by itself when

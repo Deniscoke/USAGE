@@ -2,8 +2,9 @@
 
 ## Current milestone
 
-M16D — miner web distribution. **Deployed; one owner click away from 0.4.5
-being the public build.** The website is now the official way to get the
+M16D — miner web distribution. **Deployed. 0.4.5 is the public build**
+(released 2026-09-11, four assets, unsigned, checksums from the release
+itself). The website is now the official way to get the
 miner: `/download` (public, linked from the homepage, the dashboard and the
 providers page; `/miners/install` redirects to it). Nobody is asked to find a
 GitHub Actions artifact.
