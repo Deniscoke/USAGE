@@ -109,6 +109,10 @@ export function ChatDock() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [model, setModel] = useState<string>("");
   const [draft, setDraft] = useState("");
+  // Hundreds of discovered models, a handful with an approved price. The
+  // ones that cannot earn are hidden by default rather than labelled, because
+  // a list where every line says "earns nothing" reads as a broken product.
+  const [showUnpriced, setShowUnpriced] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -338,6 +342,9 @@ export function ChatDock() {
   const routeTone = !route ? "var(--faint)" : route.kind === "none" ? "var(--reported)" : route.rewardStatus === "eligible" ? "var(--verified)" : "var(--warn)";
   const routeWord = !route ? "…" : route.kind === "none" ? "No route" : route.rewardStatus === "eligible" ? "Earns" : "Measured · does not earn";
   const hasConversation = history.conversations.some((c) => c.messages.length > 0);
+  const allModels = state?.models ?? [];
+  const unpricedCount = allModels.filter((m) => !m.priced).length;
+  const visibleModels = allModels.filter((m) => m.priced || showUnpriced || m.id === model);
 
   return createPortal(
     <>
@@ -396,14 +403,20 @@ export function ChatDock() {
               <label className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-[var(--muted)]">
                 <span className="shrink-0">Model</span>
                 <select className="chat-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={streaming}>
-                  {(state?.models ?? []).map((m) => (
+                  {visibleModels.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.label}
-                      {m.priced ? "" : " · unpriced, earns nothing"}
+                      {m.priced ? "" : " · earns nothing"}
                     </option>
                   ))}
                 </select>
               </label>
+              {unpricedCount > 0 && (
+                <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-[var(--faint)]" title="Models without an approved protocol price are measured but earn nothing.">
+                  <input type="checkbox" checked={showUnpriced} onChange={(e) => setShowUnpriced(e.target.checked)} disabled={streaming} />
+                  all {unpricedCount + allModels.length - unpricedCount}
+                </label>
+              )}
               {history.conversations.length > 1 && (
                 <select className="chat-select chat-select--history" value={activeId ?? ""} onChange={(e) => setActiveId(e.target.value)} disabled={streaming} aria-label="Conversation">
                   {history.conversations.map((c) => (
