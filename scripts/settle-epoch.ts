@@ -1,8 +1,12 @@
 /**
  * Settle a mining epoch: turn daily mining scores into Usage Points.
  *
- *   npm run usage:settle-epoch                # today (UTC)
- *   npm run usage:settle-epoch -- 2026-06-01
+ *   npm run usage:settle-epoch                # yesterday (UTC), the safe default
+ *   npm run usage:settle-epoch -- 2026-06-01  # a named day, including today
+ *
+ * The decisions live in `settleDailyEpoch`, shared with the nightly job at
+ * /api/cron/settle-epoch, so the automated path and the operator path cannot
+ * drift apart. This file is the terminal in front of it.
  *
  * Two explicit phases, because crediting the ledger is permanent:
  *
@@ -13,22 +17,23 @@
  * Running it again on a settled epoch is refused rather than silently
  * re-credited: settled allocations are immutable.
  *
+ * Naming a day explicitly permits settling one that is still in progress. The
+ * nightly job never does that; a person doing it deliberately may.
+ *
  * Usage Points are an off-chain protocol accounting unit — not money, not a
  * security, not a claim on any future token.
  */
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseSettlementStore } from "../src/lib/db/supabase-settlement-store";
-import { finalizeEpoch, settleEpoch } from "../src/lib/db/settlement";
-import { dailyEpochFor, EpochLifecycleError } from "../src/lib/domain/epoch";
-import { approvedCalibrationClose } from "../src/lib/db/calibration-close";
-import { protocolForEpoch } from "../src/lib/protocol/schedule";
+import { settleDailyEpoch } from "../src/lib/db/settle-daily";
+import { lastCompleteDay } from "../src/lib/domain/epoch-day";
 import { formatNumber } from "../src/lib/domain/money";
 import type { Database } from "../src/lib/supabase/database.types";
 
 const line = (text = "") => process.stdout.write(`${text}\n`);
 
 async function main(): Promise<number> {
-  const day = process.argv[2] ?? new Date().toISOString().slice(0, 10);
+  const named = process.argv[2];
+  const day = named ?? lastCompleteDay();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !secret) {
@@ -40,71 +45,35 @@ async function main(): Promise<number> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // The rule comes from the epoch, not from today's protocol.
-  const governing = protocolForEpoch(`epoch-${day}`);
-  if (governing.emissionAlgorithm !== "fixed-pool-v1") {
-    line(`Refused: epoch-${day} is governed by ${governing.version} (${governing.emissionAlgorithm}).`);
-    line("Baseline-linear epochs settle only through the atomic settle_beta_v2_epoch RPC; this script is the fixed-pool development path.");
-    return 1;
-  }
-  const epoch = dailyEpochFor(new Date(`${day}T12:00:00.000Z`), governing.epochEmissionPoints);
-  // An owner-approved calibration epoch is closed by scripts/close-calibration-epoch.ts
-  // with ZERO emission. Settling it here would distribute the fixed
-  // mining-dev-v1 pool, which is exactly the error M15D exists to prevent.
-  if (approvedCalibrationClose(epoch.id)) {
-    line(`Refused: ${epoch.id} is an owner-approved development calibration epoch.`);
-    line("Use: npm run usage:close-calibration -- --epoch " + epoch.id + " --confirm");
-    return 1;
-  }
-  const store = createSupabaseSettlementStore(admin);
-  const options = {
-    algorithmVersion: governing.scoringVersion,
-    // Not a public network yet, and the record says so.
-    epochKind: "development",
-  };
-
-  let result;
-  try {
-    const finalized = await finalizeEpoch(store, epoch, options);
-    line(`Finalized      : ${finalized.epochId} (no longer accepting usage)`);
-    result = await settleEpoch(store, epoch, options);
-  } catch (error) {
-    if (error instanceof EpochLifecycleError) {
-      line(`Refused: ${error.message}`);
-      line("Settled allocations are immutable; nothing was changed.");
-      return 1;
-    }
-    throw error;
-  }
+  const result = await settleDailyEpoch(admin, { day, allowIncompleteDay: Boolean(named) });
 
   line("USAGE — EPOCH SETTLEMENT (development epoch)");
   line("===========================================");
   line();
   line(`Epoch          : ${result.epochId}`);
-  line(`Scoring        : ${governing.scoringVersion}`);
-  line(`Participants   : ${result.participants}`);
-  line(`Network score  : ${formatNumber(result.networkScore, 2)}`);
-  line(`Pool           : ${formatNumber(result.pool)} Usage Points`);
-  line(`Distributed    : ${formatNumber(result.distributed)} Usage Points`);
-  line(`Newly credited : ${result.credited} allocation(s)`);
-  line();
+  line(`Outcome        : ${result.outcome.toUpperCase()}`);
+  line(`Reason         : ${result.reason}`);
+  if (result.protocolVersion) line(`Protocol       : ${result.protocolVersion}`);
 
-  for (const allocation of result.allocations) {
-    line(
-      `  ${allocation.userId}  ${(allocation.networkShare * 100).toFixed(3)}%  ` +
-        `${formatNumber(allocation.points)} points`,
-    );
-  }
-
-  if (result.participants > 0 && result.distributed !== result.pool) {
+  if (result.outcome === "settled") {
+    line(`Participants   : ${result.participants}`);
+    line(`Pool           : ${formatNumber(result.pool ?? 0)} Usage Points`);
+    line(`Distributed    : ${formatNumber(result.distributed ?? 0)} Usage Points`);
+    line(`Newly credited : ${result.credited} allocation(s)`);
     line();
-    line("WARNING: distributed does not equal the pool. Settlement is unsound.");
-    return 1;
+    for (const allocation of result.allocations ?? []) {
+      line(
+        `  ${allocation.userId}  ${(allocation.networkShare * 100).toFixed(3)}%  ` +
+          `${formatNumber(allocation.points)} points`,
+      );
+    }
   }
 
   line();
   line("Usage Points — Beta. Off-chain, non-transferable, no monetary value.");
-  return 0;
+  // A refusal is a decision, not a crash, but the exit code should still say
+  // that nothing was written.
+  return result.outcome === "refused" ? 1 : 0;
 }
 
 main().then((code) => process.exit(code));
