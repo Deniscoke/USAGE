@@ -174,6 +174,20 @@ export default async function DownloadPage() {
             <SigningBadge distribution={distribution} />
           </div>
           <PlatformNote />
+
+          {npm.published && (
+            // The second way to install, in the first screen rather than in a
+            // panel below it. Someone who already has Node should not have to
+            // scroll past an 87 MB installer to find the one-line alternative.
+            <div className="mt-5 border-t border-[var(--border)] pt-4">
+              <p className="text-[11px] text-[var(--muted)]">
+                Already have Node? Install nothing:
+              </p>
+              <code className="mt-1.5 block overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-xs">
+                {NPX_COMMAND}
+              </code>
+            </div>
+          )}
         </div>
       ) : (
         <p className="mt-6 text-xs text-[var(--muted)]">No build is published yet.</p>
@@ -188,15 +202,18 @@ export default async function DownloadPage() {
       )}
 
       {npm.published && (
-        <Panel className="mt-8" title="Already have Node? Skip the installer">
+        <Panel className="mt-8" title="Why the command shows no warning">
           <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-            One command opens the same window, and Windows shows no warning — not because the
-            warning was suppressed, but because nothing unknown is executed. The code runs under the
-            node.exe you already have, and npm checks its integrity.
+            <code>{NPX_COMMAND}</code> opens the same window as the installer, and Windows says
+            nothing — not because a warning was suppressed, but because nothing unknown is executed.
+            The code runs under the node.exe you already have and already trust, and npm checks its
+            integrity on the way.
           </p>
-          <code className="mt-2 block overflow-x-auto rounded-sm border border-[var(--border-strong)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
-            {NPX_COMMAND}
-          </code>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            The installer is an unsigned executable, and Windows is right to ask about those. Prefer
+            a permanent command? <code>npm install -g {NPM_PACKAGE_NAME}</code>, then{" "}
+            <code>usage</code>.
+          </p>
           <p className="mt-2 text-[10px] leading-relaxed text-[var(--faint)]">
             Version {npm.version} on npm, published straight from the build workflow with a
             provenance attestation, so anyone can check which commit and which run produced it.
