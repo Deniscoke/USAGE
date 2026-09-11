@@ -2,6 +2,22 @@
 
 ## Current milestone
 
+**mining-beta-v2 is SCHEDULED for epoch-2026-09-14.** Migration 0022 applied to
+production 2026-09-11 and verified: `mining_protocol_versions` has beta-v2
+`scheduled` from `epoch-2026-09-14` (baseline-linear-v1, usage_score_v2,
+usage-pricing-v3, claimable false), dev-v1 bound from `epoch-2026-09-01`,
+`protocol_for_epoch()` resolves the same boundary as
+`src/lib/protocol/schedule.ts` (09-13 → dev-v1, 09-14 → beta-v2),
+`settle_beta_v2_epoch()` exists and refuses an epoch that has not ended,
+usage-pricing-v3 frozen with 5 priced models. Nothing settled, nothing
+credited: usage_events 9, ledger 1, both epochs unchanged and non-claimable.
+
+Why: fixed-pool distributes the whole 100,000 pool however small the day was,
+so one miner spending $0.27 minted the lot. baseline-linear keeps the cap and
+fixes the floor — `effective = 100,000 × min(1, N / $1,000)`, undistributed
+never minted, about 27 points on the same numbers. The nightly job now routes
+baseline-linear epochs to the database RPC instead of refusing them.
+
 M16E — the route is proven and points settle themselves. On 2026-09-11 one
 real Claude Code message through `/api/gateway/provider/<id>/anthropic`
 produced `routed` + `confirmed` + `reward_status: eligible`,
