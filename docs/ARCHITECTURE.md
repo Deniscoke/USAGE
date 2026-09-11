@@ -893,6 +893,65 @@ proof reference — and which rows are refused: unconfirmed, reported-only,
 held, unpriced, unsettled, duplicate or conflict, free or promotional. Local
 observations are never candidates: their table has no economic column.
 
+## Miner distribution (M16D)
+
+The website is the official download surface; GitHub Releases are the binary
+origin. Neither repository imports the other.
+
+- **Origin.** `Deniscoke/USAGE-Miner`, built and released only by its own
+  workflow from a GitHub-hosted runner. A locally built executable is never a
+  release artifact.
+- **Asset names are stable**, without a version:
+  `USAGE-Miner-Windows-x64-Setup.exe`, `USAGE-Miner-Windows-x64.exe`,
+  `SHA256SUMS.txt`, `release.json`. A versioned name would change every link
+  in the product on every release. The version lives in the tag, the PE
+  version resource and `release.json`.
+- **The site reads, it does not proxy.** `src/lib/miner/distribution.ts`
+  resolves the newest non-draft release from the GitHub API and reads that
+  release's own manifest and checksum file; the bytes are served by GitHub to
+  the browser. There is no endpoint that fetches a file by a URL a visitor
+  supplies.
+- **Every figure comes from the release it describes.** A checksum is taken
+  from the release's manifest, then its `SHA256SUMS.txt`, then the digest
+  GitHub recorded at upload — never from the manifest compiled into this
+  server, which describes a different build.
+- **Fail soft, never loud.** Rate limited, unreachable or unparsable ends at
+  the last build known to be downloadable, marked `source: "pinned"`.
+- **`signed` is never inferred.** It is true only when the release's own
+  manifest says so, and that manifest is written by the workflow step that has
+  just verified an Authenticode signature against the expected publisher.
+- **Version policy is not distribution.** The page's update wording comes from
+  the published version; whether an old build may still route requests is
+  decided server-side against `MINIMUM_MINER_VERSION` on every request.
+
+### `usage://` deep links — designed, deliberately not built
+
+A website button that opens the installed app is the obvious next step, and
+the obvious next step is a protocol handler registered for the whole user
+account. Not now, and the reasons are worth recording:
+
+- A registered scheme is callable by **any** page the user visits, not only by
+  USAGE. `usage://tool/claude-code` would mean a random site could ask the
+  miner to launch a local AI tool, so the handler would need its own
+  confirmation UI and origin check — a security surface bigger than the
+  convenience it buys.
+- It is an install-time registry write, which is exactly the kind of
+  machine-wide change the miner otherwise avoids.
+- There is nothing it enables. The app is already running or one Start Menu
+  click away, and pairing is a browser flow that completes on its own.
+
+If it is ever built: one verb only (`usage://open`), no parameters that select
+a tool, a connection or a credential, a visible confirmation in the app for
+anything beyond raising the window, and registration under HKCU only.
+
+### Download analytics
+
+None. No event is recorded when somebody clicks the download button, and the
+page does not fingerprint. A download count is not worth a request from a
+visitor who has not signed in, and it would need a table to hold it. Release
+asset download counts are already visible on GitHub if the question ever
+matters.
+
 ## Database
 
 `supabase/migrations/`:

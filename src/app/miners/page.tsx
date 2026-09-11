@@ -37,7 +37,7 @@ export default async function MinersPage() {
           </p>
         </div>
         <Link
-          href="/miners/install"
+          href="/download"
           className="rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)]"
         >
           Install USAGE Miner
@@ -51,7 +51,7 @@ export default async function MinersPage() {
             choose which AI apps it may meter, and use them normally. Usage appears here.
           </p>
           <Link
-            href="/miners/install"
+            href="/download"
             className="mt-4 inline-block rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)]"
           >
             Install USAGE Miner {MINER_VERSION}

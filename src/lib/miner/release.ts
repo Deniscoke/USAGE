@@ -57,6 +57,21 @@ export const MINIMUM_MINER_VERSION = "0.3.0";
 export const MINER_RELEASE_TAG = "v0.3.0-beta.1";
 
 /**
+ * The version that is BUILT but may not be PUBLISHED yet.
+ *
+ * A version string, deliberately -- never a size, a date or a checksum, which
+ * are facts about bytes and may only come from the release carrying them.
+ *
+ * It exists because the two can differ, and silence about that gap is the
+ * dishonest option: while 0.4.5 sat in a draft, the download page could offer
+ * 0.3.0 and say nothing, and a reader would have no way to tell the newest
+ * build from the newest published one. Everything keyed off this disappears
+ * the moment the release goes public, because the resolved distribution then
+ * reaches the same version.
+ */
+export const MINER_PREPARED_VERSION = "0.4.5";
+
+/**
  * Where the artifacts live.
  *
  * Not in this repository and not on this deployment: an 87 MB executable does

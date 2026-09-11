@@ -12,6 +12,11 @@ import {
   type CatalogEntry,
   type ConnectionCard,
 } from "@/components/provider-catalog";
+import { InstallMinerNextStep } from "@/components/miner-status";
+import { loadDeviceViews } from "@/lib/miner/device-view";
+import { loadDistribution } from "@/lib/miner/distribution-source";
+import { minerPresence, type MinerPresence } from "@/lib/miner/presence";
+import { MINIMUM_MINER_VERSION } from "@/lib/miner/release";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +63,7 @@ export default async function ProvidersPage() {
 
   let connections: ConnectionCard[] = [];
   let email: string | undefined;
+  let presence: MinerPresence | null = null;
 
   if (isSupabaseConfigured()) {
     const supabase = await createServerSupabase();
@@ -65,11 +71,21 @@ export default async function ProvidersPage() {
       data: { user },
     } = (await supabase?.auth.getUser()) ?? { data: { user: null } };
 
-    if (user) {
+    if (user && supabase) {
       email = user.email;
       const { createAdminSupabase } = await import("@/lib/supabase/admin");
       const store = createConnectionStore(createAdminSupabase());
-      const summaries = await store.list(user.id);
+      // Devices are read as the user, so RLS decides what comes back.
+      const [summaries, devices, distribution] = await Promise.all([
+        store.list(user.id),
+        loadDeviceViews(supabase, user.id),
+        loadDistribution(),
+      ]);
+      presence = minerPresence({
+        devices,
+        latestVersion: distribution.version,
+        minimumVersion: MINIMUM_MINER_VERSION,
+      });
 
       connections = summaries.map((summary) => ({
         id: summary.id,
@@ -143,6 +159,11 @@ export default async function ProvidersPage() {
               <ConnectionRow key={connection.id} connection={connection} />
             ))}
           </ul>
+          {presence && (
+            <div className="mt-3">
+              <InstallMinerNextStep presence={presence} />
+            </div>
+          )}
         </section>
       )}
 

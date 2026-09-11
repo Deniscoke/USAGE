@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  MINER_PREPARED_VERSION,
   MINER_RELEASE,
   MINER_RELEASE_TAG,
   MINER_VERSION,
@@ -9,6 +10,7 @@ import {
   formatBytes,
   primaryDownload,
 } from "./release";
+import { compareVersions } from "./distribution";
 
 /**
  * The release manifest is what the download page promises about bytes it does
@@ -77,6 +79,21 @@ describe("miner release manifest", () => {
   it("offers the installer as the primary download", () => {
     const primary = primaryDownload();
     expect(primary?.name).toMatch(/setup/i);
+  });
+});
+
+describe("the prepared version", () => {
+  it("is a version and nothing else", () => {
+    // Never a size, a date or a checksum. Those are facts about bytes and may
+    // only come from the release that carries them.
+    expect(MINER_PREPARED_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("is never behind the build this server can already offer", () => {
+    // It marks a build that exists but is not published yet, so it may lead
+    // the pinned fallback and must never trail it -- that would be a notice
+    // telling people a newer build is coming when it is already here.
+    expect(compareVersions(MINER_PREPARED_VERSION, MINER_VERSION)).toBeGreaterThanOrEqual(0);
   });
 });
 

@@ -2,6 +2,35 @@
 
 ## Current milestone
 
+M16D — miner web distribution. **Deployed; one owner click away from 0.4.5
+being the public build.** The website is now the official way to get the
+miner: `/download` (public, linked from the homepage, the dashboard and the
+providers page; `/miners/install` redirects to it). Nobody is asked to find a
+GitHub Actions artifact.
+
+The release metadata is no longer a constant compiled into this server. That
+constant came from the miner's packaging script back when the miner lived in
+this repository, which is why the site advertised 0.3.0 while the miner was at
+0.4.5. `src/lib/miner/distribution.ts` resolves the newest PUBLISHED release
+of `Deniscoke/USAGE-Miner` instead, reading version, size, checksum and
+publication date from that release's own `release.json` / `SHA256SUMS.txt`, so
+a hash on the page always describes the bytes behind the link beside it.
+Drafts are excluded (invisible to visitors); when nothing can be read the page
+falls back to the last build known to be downloadable and says so, rather than
+failing or inventing one. Served publicly at `/api/miner/distribution`.
+
+The dashboard and providers pages now show the miner as not installed /
+offline / online, with update-available and update-required states derived
+from the published version and `MINIMUM_MINER_VERSION` — and stop advertising
+a download to somebody already mining. A build newer than anything published
+is never nagged.
+
+Miner-side: a tag push published nothing because `inputs.publish != false` is
+FALSE when `inputs` is null, which is every tag. Fixed, and published assets
+lost their version numbers (`USAGE-Miner-Windows-x64-Setup.exe`) so a download
+link survives a release. No economics touched: no inference, no settlement, no
+activation, no migration. See docs/M15-ECONOMICS.md → M16D.
+
 M16C0 — Claude Code real mining route. **Server deployed 2026-09-11; Miner
 0.4.5 tagged, owner must install it.** Root cause proved from source: the
 OpenRouter OAuth connection is stored `protocol = openai_compatible`, and

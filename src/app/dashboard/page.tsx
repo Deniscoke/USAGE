@@ -15,6 +15,10 @@ import { buildDashboardView, dashboardSinceDay, type DashboardData } from "@/lib
 import type { ActivityItem } from "@/lib/product/activity";
 import { loadDeviceViews } from "@/lib/miner/device-view";
 import { TodayFigures } from "@/components/miner-device";
+import { MinerStatus } from "@/components/miner-status";
+import { loadDistribution } from "@/lib/miner/distribution-source";
+import { minerPresence } from "@/lib/miner/presence";
+import { MINIMUM_MINER_VERSION } from "@/lib/miner/release";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +53,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (!user) redirect("/login?next=/dashboard");
 
   const now = new Date();
-  const [snapshot, devices] = await Promise.all([
+  const [snapshot, devices, distribution] = await Promise.all([
     loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now)),
     loadDeviceViews(supabase, user.id),
+    // Cached upstream; a slow or rate-limited GitHub degrades to the pinned
+    // build rather than delaying the dashboard.
+    loadDistribution(),
   ]);
   const data = buildDashboardView({ ...snapshot, now });
+  const presence = minerPresence({
+    devices,
+    latestVersion: distribution.version,
+    minimumVersion: MINIMUM_MINER_VERSION,
+    now: now.getTime(),
+  });
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
@@ -193,15 +206,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
           <section className="mt-4">
             <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
-              {devices.length === 0 ? (
-                <p className="text-xs text-[var(--muted)]">
-                  No paired computer yet.{" "}
-                  <Link href="/miners/install" className="text-[var(--routed)] hover:underline">
-                    Install USAGE Miner →
-                  </Link>
-                </p>
-              ) : (
-                <ul className="divide-y divide-[var(--border)]">
+              <MinerStatus presence={presence} distribution={distribution} />
+
+              {devices.length > 0 && (
+                <ul className="mt-4 divide-y divide-[var(--border)] border-t border-[var(--border)] pt-3">
                   {devices.map((view) => (
                     <li key={view.device.id} className="py-3 first:pt-0 last:pb-0">
                       <div className="flex flex-wrap items-center justify-between gap-2">

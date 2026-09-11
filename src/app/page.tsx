@@ -25,6 +25,12 @@ export default function LandingPage() {
               Providers
             </Link>
             <Link
+              href="/download"
+              className="text-xs text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+            >
+              Download
+            </Link>
+            <Link
               href="/login"
               className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--verified)] hover:text-[var(--foreground)]"
             >
@@ -55,10 +61,16 @@ export default function LandingPage() {
               Start mining
             </Link>
             <Link
-              href="/providers"
+              href="/download"
               className="rounded-md border border-[var(--border-strong)] px-5 py-2.5 text-sm text-[var(--muted)] transition-colors hover:border-[var(--verified)] hover:text-[var(--foreground)]"
             >
-              Explore providers
+              Download for Windows
+            </Link>
+            <Link
+              href="/providers"
+              className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+            >
+              Learn how it works
             </Link>
           </div>
           <p className="mt-4 text-xs text-[var(--faint)]">
