@@ -4,6 +4,7 @@ import { resolveConnectionGateway } from "@/lib/gateway/connection-gateway";
 import { authenticateWebSession } from "@/lib/chat/auth";
 import { sanitizeChatBody } from "@/lib/chat/body";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
+import { systemPromptWith } from "@/lib/chat/preferences";
 import { configuredSharedGateway, pickChatRoute } from "@/lib/chat/route";
 import { fundedUsageToday } from "@/lib/chat/funded-usage";
 import { buildMinerRoutes } from "@/lib/miner/routes";
@@ -99,6 +100,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     return openAiError(400, "invalid_request_error", "The request body must be JSON.");
   }
 
+  // The user's own standing instructions, appended to the server's prompt in
+  // a labelled section. It can shape the assistant; it cannot replace a rule.
+  const systemPrompt = systemPromptWith(CHAT_SYSTEM_PROMPT, (raw as { preferences?: unknown } | null)?.preferences);
+
   const admin = createAdminSupabase();
   const store = createConnectionStore(admin);
 
@@ -127,7 +132,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       allowedModels,
       maxOutputTokens: 1024,
       includeCost: chosen.gatewayId === "openrouter",
-      systemPrompt: CHAT_SYSTEM_PROMPT,
+      systemPrompt,
     });
     if (!sanitized.ok) return openAiError(400, "invalid_request_error", sanitized.message);
 
@@ -143,7 +148,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     allowedModels: null,
     maxOutputTokens: 4096,
     includeCost: (own.providerFamily ?? own.provider) === "openrouter",
-    systemPrompt: CHAT_SYSTEM_PROMPT,
+    systemPrompt,
   });
   if (!sanitized.ok) return openAiError(400, "invalid_request_error", sanitized.message);
 

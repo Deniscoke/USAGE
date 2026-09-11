@@ -16,6 +16,9 @@ import {
   type MessageReceipt,
 } from "@/lib/chat/history";
 import type { ChatRoute } from "@/lib/chat/route";
+import { Markdown } from "@/components/chat/markdown";
+import { looksLikeDocument, parseMarkdown } from "@/lib/chat/markdown";
+import { PREFERENCES_KEY, MAX_PREFERENCES_CHARS } from "@/lib/chat/preferences";
 
 /**
  * USAGE Chat: the second front door.
@@ -120,6 +123,10 @@ export function ChatDock() {
   // ones that cannot earn are hidden by default rather than labelled, because
   // a list where every line says "earns nothing" reads as a broken product.
   const [showUnpriced, setShowUnpriced] = useState(false);
+  // A reply opened on a page of its own: copy it, or print it to PDF.
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preferences, setPreferences] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -129,7 +136,15 @@ export function ChatDock() {
   // The dock lives in a portal on <body>, outside <main>, so the page can be
   // transformed behind it without dragging a fixed element along.
   useEffect(() => {
-    const id = requestAnimationFrame(() => setMounted(true));
+    const id = requestAnimationFrame(() => {
+      setMounted(true);
+      try {
+        const stored = window.localStorage.getItem(PREFERENCES_KEY);
+        if (stored) setPreferences(stored);
+      } catch {
+        // Storage refused; the assistant simply gets no standing instructions.
+      }
+    });
     return () => cancelAnimationFrame(id);
   }, []);
 
@@ -176,6 +191,12 @@ export function ChatDock() {
     document.body.classList.toggle("chat-open", open);
     return () => document.body.classList.remove("chat-open");
   }, [open]);
+
+  // Printing the open document: everything else is hidden by the print CSS.
+  useEffect(() => {
+    document.body.classList.toggle("chat-printing", documentId !== null);
+    return () => document.body.classList.remove("chat-printing");
+  }, [documentId]);
 
   useEffect(() => {
     if (!open) return;
@@ -267,7 +288,11 @@ export function ChatDock() {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, messages: toWireMessages([...priorMessages, userMessage]) }),
+        body: JSON.stringify({
+          model,
+          messages: toWireMessages([...priorMessages, userMessage]),
+          preferences: preferences.trim() ? preferences.trim().slice(0, MAX_PREFERENCES_CHARS) : undefined,
+        }),
         signal: controller.signal,
       });
 
@@ -333,7 +358,7 @@ export function ChatDock() {
       abortRef.current = null;
       setStreaming(false);
     }
-  }, [draft, streaming, state, model, active, startConversation, updateConversation, patchMessage, fetchReceipt, loadState]);
+  }, [draft, streaming, state, model, preferences, active, startConversation, updateConversation, patchMessage, fetchReceipt, loadState]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -383,6 +408,27 @@ export function ChatDock() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="chat-btn"
+              onClick={() => {
+                // Personal instructions: this browser only, like the
+                // conversation. Read when the drawer opens rather than by an
+                // effect that watches nothing.
+                if (!settingsOpen) {
+                  try {
+                    setPreferences(window.localStorage.getItem(PREFERENCES_KEY) ?? "");
+                  } catch {
+                    // Storage refused; the field simply starts empty.
+                  }
+                }
+                setSettingsOpen((s) => !s);
+              }}
+              aria-label="Personal instructions"
+              aria-pressed={settingsOpen}
+            >
+              ⚙
+            </button>
             <button type="button" className="chat-btn" onClick={startConversation} disabled={streaming}>
               New
             </button>
@@ -393,6 +439,33 @@ export function ChatDock() {
         </header>
 
         {stateError && <p className="chat-note chat-note--warn">{stateError}</p>}
+
+        {settingsOpen && (
+          <div className="chat-settings">
+            <label className="block text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]" htmlFor="chat-preferences">
+              Personal instructions
+            </label>
+            <textarea
+              id="chat-preferences"
+              className="chat-input mt-1.5 w-full"
+              rows={4}
+              maxLength={MAX_PREFERENCES_CHARS}
+              placeholder="What you use AI for, how you like answers, anything the assistant should always know."
+              value={preferences}
+              onChange={(e) => {
+                setPreferences(e.target.value);
+                try {
+                  window.localStorage.setItem(PREFERENCES_KEY, e.target.value);
+                } catch {
+                  // Storage refused; the instructions still apply this session.
+                }
+              }}
+            />
+            <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--faint)]">
+              Sent with every message and kept in this browser only. {preferences.length}/{MAX_PREFERENCES_CHARS}
+            </p>
+          </div>
+        )}
 
         {route?.kind === "none" && (
           <div className="chat-empty">
@@ -462,12 +535,31 @@ export function ChatDock() {
                   The conversation itself stays in this browser; USAGE keeps the metadata only.
                 </p>
               )}
-              {active?.messages.map((m) => (
-                <div key={m.id} className={`chat-msg chat-msg--${m.role}`}>
-                  <div className="chat-msg__body">{m.content || (m.role === "assistant" && streaming ? <span className="chat-cursor" /> : "")}</div>
-                  {m.role === "assistant" && m.receipt && <ReceiptLine receipt={m.receipt} model={m.model} />}
-                </div>
-              ))}
+              {active?.messages.map((m) => {
+                const isDocument =
+                  m.role === "assistant" && m.content.length > 0 && looksLikeDocument(parseMarkdown(m.content), m.content);
+                return (
+                  <div key={m.id} className={`chat-msg chat-msg--${m.role}`}>
+                    <div className="chat-msg__body">
+                      {m.role === "assistant" ? (
+                        m.content ? (
+                          <Markdown text={m.content} />
+                        ) : streaming ? (
+                          <span className="chat-cursor" />
+                        ) : null
+                      ) : (
+                        m.content
+                      )}
+                    </div>
+                    {isDocument && !streaming && (
+                      <button type="button" className="chat-link chat-open-doc" onClick={() => setDocumentId(m.id)}>
+                        Open as document
+                      </button>
+                    )}
+                    {m.role === "assistant" && m.receipt && <ReceiptLine receipt={m.receipt} model={m.model} />}
+                  </div>
+                );
+              })}
             </div>
 
             {sendError && <p className="chat-note chat-note--warn">{sendError}</p>}
@@ -513,6 +605,32 @@ export function ChatDock() {
           </>
         )}
       </section>
+
+      {documentId && active && (
+        <div className="chat-doc" role="dialog" aria-label="Document">
+          <div className="chat-doc__bar">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">{active.title}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="chat-btn"
+                onClick={() => void navigator.clipboard?.writeText(active.messages.find((m) => m.id === documentId)?.content ?? "")}
+              >
+                Copy
+              </button>
+              <button type="button" className="chat-btn" onClick={() => window.print()}>
+                Print / PDF
+              </button>
+              <button type="button" className="chat-btn" onClick={() => setDocumentId(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+          </div>
+          <article className="chat-doc__page">
+            <Markdown text={active.messages.find((m) => m.id === documentId)?.content ?? ""} />
+          </article>
+        </div>
+      )}
     </>,
     document.body,
   );
