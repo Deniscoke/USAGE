@@ -6,6 +6,7 @@ import { readWallet } from "@/lib/wallet/store";
 import { walletDailyCapMicros } from "@/lib/wallet/balance";
 import { formatUsd } from "@/lib/domain/money";
 import { ChatDock } from "@/components/chat/chat-dock";
+import { WalletId } from "@/components/wallet-id";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,19 @@ export default async function WalletPage() {
         become USAGE Points, and no amount of it earns any.
       </p>
 
-      <section className="mt-8 rounded-lg border border-[var(--border)] p-5">
+      {wallet.walletId && (
+        <section className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[var(--border)] px-5 py-4">
+          <div>
+            <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">Wallet ID</span>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+              Quote this instead of your email. It identifies your wallet and grants nothing on its own.
+            </p>
+          </div>
+          <WalletId walletId={wallet.walletId} />
+        </section>
+      )}
+
+      <section className="mt-6 rounded-lg border border-[var(--border)] p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">Balance</span>
           <span

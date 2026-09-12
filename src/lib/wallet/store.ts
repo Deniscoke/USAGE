@@ -134,10 +134,28 @@ export interface WalletSnapshot extends WalletBalance {
   requestsToday: number;
   /** False until 0024 is applied: top-ups cannot be recorded yet. */
   persisted: boolean;
+  /** The account's public wallet identifier, or null before 0025 is applied. */
+  walletId: string | null;
+}
+
+/**
+ * The account's public wallet identifier.
+ *
+ * Null rather than thrown when 0025 has not run: the identifier is a
+ * convenience and a wallet without one still works exactly as before.
+ */
+export async function readWalletId(admin: SupabaseClient<Database>, userId: string): Promise<string | null> {
+  const { data, error } = await admin.from("profiles").select("wallet_id").eq("id", userId).maybeSingle();
+  if (error) return null;
+  return (data as { wallet_id?: string | null } | null)?.wallet_id ?? null;
 }
 
 export async function readWallet(admin: SupabaseClient<Database>, userId: string): Promise<WalletSnapshot> {
-  const [ledger, spend] = await Promise.all([readWalletLedger(admin, userId), fundedSpend(admin, userId)]);
+  const [ledger, spend, walletId] = await Promise.all([
+    readWalletLedger(admin, userId),
+    fundedSpend(admin, userId),
+    readWalletId(admin, userId),
+  ]);
   const balance = walletBalance({ entries: ledger.entries, fundedSpentMicros: spend.lifetimeMicros });
   return {
     ...balance,
@@ -145,7 +163,19 @@ export async function readWallet(admin: SupabaseClient<Database>, userId: string
     todayMicros: spend.todayMicros,
     requestsToday: spend.requestsToday,
     persisted: ledger.persisted,
+    walletId,
   };
+}
+
+/** Find an account by the identifier a person quoted. Operator paths only. */
+export async function userIdForWalletId(admin: SupabaseClient<Database>, walletId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("wallet_id", walletId.trim().toUpperCase())
+    .maybeSingle();
+  if (error) return null;
+  return (data as { id?: string } | null)?.id ?? null;
 }
 
 export interface CreditInput {

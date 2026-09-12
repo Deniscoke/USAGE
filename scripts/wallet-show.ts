@@ -50,7 +50,7 @@ async function main(): Promise<number> {
     totalBalance += wallet.balanceMicros;
     totalPaid += wallet.paidMicros;
 
-    line(`${user.email ?? user.id}`);
+    line(`${user.email ?? user.id}${wallet.walletId ? `  ${wallet.walletId}` : ""}`);
     line(`  balance   ${usd(wallet.balanceMicros)}   (credited ${usd(wallet.creditedMicros)}, spent ${usd(wallet.spentMicros)})`);
     line(`  of which  granted ${usd(wallet.grantedMicros)}, paid in ${usd(wallet.paidMicros)}`);
     line(`  today     ${usd(wallet.todayMicros)} across ${wallet.requestsToday} messages`);

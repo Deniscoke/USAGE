@@ -155,6 +155,12 @@ export type ProfileRow = {
   display_name: string | null;
   /** Nullable label only. USAGE holds no keys and takes no custody. */
   wallet_address: string | null;
+  /**
+   * Public identifier of this account's USAGE credit wallet, e.g. USG-4K7M-2QX9.
+   * Assigned by the database. An identifier, never a credential: knowing it
+   * grants nothing. Not to be confused with `wallet_address` above.
+   */
+  wallet_id: string;
   created_at: string;
   updated_at: string;
 }
