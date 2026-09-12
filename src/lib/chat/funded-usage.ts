@@ -1,67 +1,79 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import { OPENROUTER_GATEWAY_ID } from "@/lib/compute/openrouter-gateway";
-import { VERCEL_COMPUTE_GATEWAY_ID } from "@/lib/compute/vercel-gateway";
-import {
-  fundedDailyCapMicros,
-  fundedDailyRequestLimit,
-  fundedSpendDecision,
-  utcDayStart,
-  withinRequestBudget,
-} from "./spend";
-import { creditDecision, startingCreditMicros } from "./credit";
+import { readWallet, type WalletSnapshot } from "@/lib/wallet/store";
+import { walletDecision, walletRefusalMessage, type WalletRefusal } from "@/lib/wallet/balance";
+import { fundedDailyRequestLimit } from "./spend";
 
 /**
- * What this account has already spent of USAGE's money today.
+ * What this account may still spend of USAGE's money, and why not when it may not.
  *
- * Read from the persisted units -- the same rows everything else is measured
- * from -- never from a counter the chat keeps for itself. Both USAGE-funded
- * gateways count, whichever surface produced the traffic: the miner's fallback
- * and the chat's shared route draw on the same balance.
+ * The balance comes from the wallet: credit in the ledger, minus what this
+ * account's traffic on USAGE's funded gateways actually cost. Both funded
+ * gateways count, whichever surface produced the traffic, so the miner's
+ * fallback and the chat's shared route draw on one balance rather than two.
+ *
+ * Compute on a person's own connection is not counted here at all. They are
+ * spending their own credit with their own provider, and that provider already
+ * enforces its own limits.
  */
 export interface FundedUsageToday {
+  /** Spent today on USAGE's key. */
   spentMicros: number;
   capMicros: number;
   remainingMicros: number;
   requestsToday: number;
   requestLimit: number;
-  /** The starting grant: the same for every account, counted down for life. */
-  credit: { grantMicros: number; spentMicros: number; remainingMicros: number };
+  wallet: {
+    balanceMicros: number;
+    creditedMicros: number;
+    paidMicros: number;
+    grantedMicros: number;
+    spentMicros: number;
+    overdrawnMicros: number;
+    /** True once real money has been paid in, which lifts the daily rail. */
+    funded: boolean;
+    /** False until migration 0024 runs; top-ups cannot be recorded yet. */
+    persisted: boolean;
+  };
   allowed: boolean;
-  /** Why the shared route is closed, when it is. */
-  refusal: "credit" | "daily_cap" | "daily_requests" | null;
+  refusal: WalletRefusal | null;
+  /** What to show the person when the route is closed. */
+  message: string | null;
 }
 
 export async function fundedUsageToday(admin: SupabaseClient<Database>, userId: string): Promise<FundedUsageToday> {
-  // One read of everything this account ever cost USAGE; today is a filter
-  // over it. Both ceilings come from the same rows.
-  const { data } = await admin
-    .from("usage_events")
-    .select("actual_cost_micros, occurred_at")
-    .eq("user_id", userId)
-    .in("gateway_id", [OPENROUTER_GATEWAY_ID, VERCEL_COMPUTE_GATEWAY_ID]);
+  const snapshot = await readWallet(admin, userId);
+  return summariseWallet(snapshot);
+}
 
-  const rows = (data ?? []) as { actual_cost_micros: number | null; occurred_at: string }[];
-  const cost = (row: { actual_cost_micros: number | null }) => Math.max(0, row.actual_cost_micros ?? 0);
-  const dayStart = utcDayStart();
-  const today = rows.filter((row) => row.occurred_at >= dayStart);
-
-  const lifetime = creditDecision({ grantMicros: startingCreditMicros(), spentLifetimeMicros: rows.reduce((s, r) => s + cost(r), 0) });
-  const daily = fundedSpendDecision({ spentMicros: today.reduce((s, r) => s + cost(r), 0), capMicros: fundedDailyCapMicros() });
+export function summariseWallet(snapshot: WalletSnapshot): FundedUsageToday {
   const requestLimit = fundedDailyRequestLimit();
-  const requestsOk = withinRequestBudget(today.length, requestLimit);
-
-  const refusal: FundedUsageToday["refusal"] = !lifetime.allowed ? "credit" : !daily.allowed ? "daily_cap" : !requestsOk ? "daily_requests" : null;
+  const decision = walletDecision({
+    balance: snapshot,
+    spentTodayMicros: snapshot.todayMicros,
+    requestsToday: snapshot.requestsToday,
+    requestLimit,
+  });
 
   return {
-    spentMicros: daily.spentMicros,
-    capMicros: daily.capMicros,
-    remainingMicros: daily.remainingMicros,
-    requestsToday: today.length,
+    spentMicros: decision.spentTodayMicros,
+    capMicros: decision.capMicros,
+    remainingMicros: decision.remainingTodayMicros,
+    requestsToday: snapshot.requestsToday,
     requestLimit,
-    credit: { grantMicros: lifetime.grantMicros, spentMicros: lifetime.spentMicros, remainingMicros: lifetime.remainingMicros },
-    allowed: refusal === null,
-    refusal,
+    wallet: {
+      balanceMicros: snapshot.balanceMicros,
+      creditedMicros: snapshot.creditedMicros,
+      paidMicros: snapshot.paidMicros,
+      grantedMicros: snapshot.grantedMicros,
+      spentMicros: snapshot.spentMicros,
+      overdrawnMicros: snapshot.overdrawnMicros,
+      funded: snapshot.funded,
+      persisted: snapshot.persisted,
+    },
+    allowed: decision.allowed,
+    refusal: decision.refusal,
+    message: decision.refusal ? walletRefusalMessage(decision.refusal, snapshot.funded) : null,
   };
 }

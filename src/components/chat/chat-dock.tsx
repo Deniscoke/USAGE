@@ -50,8 +50,18 @@ interface RouteState {
     capMicros: number;
     requestsToday: number;
     requestLimit: number;
-    credit: { grantMicros: number; spentMicros: number; remainingMicros: number };
-    refusal: "credit" | "daily_cap" | "daily_requests" | null;
+    wallet: {
+      balanceMicros: number;
+      creditedMicros: number;
+      paidMicros: number;
+      grantedMicros: number;
+      spentMicros: number;
+      overdrawnMicros: number;
+      funded: boolean;
+      persisted: boolean;
+    };
+    refusal: "empty" | "daily_cap" | "daily_requests" | null;
+    message: string | null;
   } | null;
   networkLabel: string;
 }
@@ -592,20 +602,32 @@ export function ChatDock() {
             {state?.cap && route.kind === "shared" && (
               <div className="chat-credit">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">Starting credit</span>
-                  <span className="tnum text-sm" style={{ color: state.cap.credit.remainingMicros > 0 ? "var(--foreground)" : "var(--warn)" }}>
-                    {formatMicros(state.cap.credit.remainingMicros)}
-                    <span className="text-[10px] text-[var(--faint)]"> of {formatMicros(state.cap.credit.grantMicros)}</span>
+                  <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">
+                    {state.cap.wallet.funded ? "Wallet" : "Starting credit"}
+                  </span>
+                  <span className="tnum text-sm" style={{ color: state.cap.wallet.balanceMicros > 0 ? "var(--foreground)" : "var(--warn)" }}>
+                    {formatMicros(state.cap.wallet.balanceMicros)}
+                    <span className="text-[10px] text-[var(--faint)]"> of {formatMicros(state.cap.wallet.creditedMicros)}</span>
                   </span>
                 </div>
                 <div className="chat-credit__bar" aria-hidden="true">
-                  <span style={{ width: `${state.cap.credit.grantMicros > 0 ? Math.round((100 * state.cap.credit.remainingMicros) / state.cap.credit.grantMicros) : 0}%` }} />
+                  <span
+                    style={{
+                      width: `${
+                        state.cap.wallet.creditedMicros > 0
+                          ? Math.round((100 * state.cap.wallet.balanceMicros) / state.cap.wallet.creditedMicros)
+                          : 0
+                      }%`,
+                    }}
+                  />
                 </div>
                 <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--faint)]">
-                  {state.cap.refusal === "credit"
-                    ? "Used up. Connect a paid provider of your own to keep chatting, and to earn."
-                    : `Today ${state.cap.requestsToday}/${state.cap.requestLimit} messages, ${formatMicros(state.cap.spentMicros)} of ${formatMicros(state.cap.capMicros)}. USAGE pays for this credit, so it is measured but cannot earn.`}
+                  {state.cap.message ??
+                    `Today ${state.cap.requestsToday}/${state.cap.requestLimit} messages, ${formatMicros(state.cap.spentMicros)} of ${formatMicros(state.cap.capMicros)}. This is credit, not points: it buys replies and cannot be earned or converted.`}
                 </p>
+                <a className="chat-link mt-1 inline-block text-[10px]" href="/wallet">
+                  Wallet and history
+                </a>
               </div>
             )}
 

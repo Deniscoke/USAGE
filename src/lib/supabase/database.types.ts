@@ -576,6 +576,33 @@ export type UsagePointLedgerInsertRow = {
   reason: string;
 }
 
+/**
+ * Credits only: grants, top-ups, refunds, corrections. Spend is NOT here --
+ * it is derived from `usage_events`, so a balance cannot drift from the
+ * traffic that produced it. Never convertible to USAGE Points.
+ */
+export type UsageWalletEntryRow = {
+  id: string;
+  user_id: string;
+  kind: "grant" | "topup" | "refund" | "adjustment";
+  amount_micros: number;
+  currency: string;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: string;
+}
+
+export type UsageWalletEntryInsertRow = {
+  user_id: string;
+  kind: "grant" | "topup" | "refund" | "adjustment";
+  amount_micros: number;
+  currency?: string;
+  reference?: string | null;
+  note?: string | null;
+  created_by?: string;
+}
+
 export type ProtocolPricingVersionRow = {
   version: string;
   source: string;
@@ -747,6 +774,12 @@ export type Database = {
         Row: UsagePointLedgerRow;
         Insert: UsagePointLedgerInsertRow;
         Update: Partial<UsagePointLedgerRow>;
+        Relationships: [];
+      };
+      usage_wallet_entries: {
+        Row: UsageWalletEntryRow;
+        Insert: UsageWalletEntryInsertRow;
+        Update: Partial<UsageWalletEntryRow>;
         Relationships: [];
       };
       protocol_pricing_versions: {

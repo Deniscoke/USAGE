@@ -7,6 +7,7 @@ import { CHAT_SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
 import { systemPromptWith } from "@/lib/chat/preferences";
 import { configuredSharedGateway, pickChatRoute } from "@/lib/chat/route";
 import { fundedUsageToday } from "@/lib/chat/funded-usage";
+import { ensureStartingGrant } from "@/lib/wallet/store";
 import { buildMinerRoutes } from "@/lib/miner/routes";
 import { openRouterComputeGateway } from "@/lib/compute/openrouter-gateway";
 import { vercelComputeGateway } from "@/lib/compute/vercel-gateway";
@@ -117,13 +118,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       return openAiError(409, "invalid_request_error", "You have a route of your own that earns; the shared route is refused.");
     }
 
+    // The starting grant is written on first use rather than at sign-up, so an
+    // account that never chats never appears in the ledger at all.
+    await ensureStartingGrant(admin, userId);
+
     const usage = await fundedUsageToday(admin, userId);
     if (!usage.allowed) {
-      const message =
-        usage.refusal === "credit"
-          ? "Your starting credit is used up. Connect a paid provider of your own to keep going."
-          : "Today's allowance on the shared route is used up. It resets at midnight UTC, or connect a paid provider of your own.";
-      return openAiError(429, "rate_limit_error", message);
+      return openAiError(429, "rate_limit_error", usage.message ?? "The shared route is closed for now.");
     }
 
     const snapshot = getPricingSnapshot(pricingForEpoch(epochIdForDate(new Date())));

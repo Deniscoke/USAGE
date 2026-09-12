@@ -43,7 +43,9 @@
     "usage:preflight-0018": "node --env-file-if-exists=.env.local --import tsx scripts/preflight-0018.ts",
     "usage:verify-0018": "node --env-file-if-exists=.env.local --import tsx scripts/verify-0018.ts",
     "usage:revalidate": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/revalidate-connection.ts",
-    "test:chain": "node scripts/test-chain.mjs"
+    "test:chain": "node scripts/test-chain.mjs",
+    "wallet:grant": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/grant-credit.ts",
+    "wallet:show": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/wallet-show.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",

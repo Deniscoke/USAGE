@@ -63,8 +63,9 @@ export async function GET(request: NextRequest): Promise<Response> {
             capMicros: cap.capMicros,
             requestsToday: cap.requestsToday,
             requestLimit: cap.requestLimit,
-            credit: cap.credit,
+            wallet: cap.wallet,
             refusal: cap.refusal,
+            message: cap.message,
           }
         : null,
       networkLabel: networkLabel(CURRENT_MINING_PROTOCOL.network),
