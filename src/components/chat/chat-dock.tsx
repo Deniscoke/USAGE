@@ -19,6 +19,13 @@ import type { ChatRoute } from "@/lib/chat/route";
 import { Markdown } from "@/components/chat/markdown";
 import { looksLikeDocument, parseMarkdown } from "@/lib/chat/markdown";
 import { PREFERENCES_KEY, MAX_PREFERENCES_CHARS } from "@/lib/chat/preferences";
+import {
+  acceptFile,
+  acceptText,
+  composeMessage,
+  formatSize,
+  type Attachment,
+} from "@/lib/chat/attachments";
 
 /**
  * USAGE Chat: the second front door.
@@ -136,6 +143,8 @@ export function ChatDock() {
   // A reply opened on a page of its own: copy it, or print it to PDF.
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [attachments, setAttachments] = useState<(Attachment & { size: number })[]>([]);
+  const [dragging, setDragging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [preferences, setPreferences] = useState("");
@@ -143,6 +152,10 @@ export function ChatDock() {
   const [sendError, setSendError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const orbRef = useRef<HTMLButtonElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // dragenter and dragleave fire for every child the pointer crosses, so a
+  // boolean flickers. Counting entries and leaves does not.
+  const dragDepth = useRef(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -296,12 +309,88 @@ export function ChatDock() {
     patchMessage(conversationId, messageId, (m) => ({ ...m, receipt: receiptFromApi({ found: false }) }));
   }, [patchMessage]);
 
+  /**
+   * Read dropped files into the composer.
+   *
+   * Nothing is uploaded. The text is read in this tab and travels inside the
+   * message body like any other text. Each file is checked twice: once on
+   * what the browser claims about it, and once on what it turned out to
+   * contain, because a filename is a claim and the bytes are the fact.
+   */
+  const addFiles = useCallback(
+    async (incoming: readonly File[]) => {
+      if (incoming.length === 0) return;
+      setSendError(null);
+
+      const added: (Attachment & { size: number })[] = [];
+      const refused: string[] = [];
+
+      for (const file of incoming) {
+        const current = [...attachments, ...added];
+        const allowed = acceptFile({ name: file.name, size: file.size, type: file.type }, current.length);
+        if (!allowed.ok) {
+          refused.push(allowed.reason);
+          continue;
+        }
+
+        let text: string;
+        try {
+          text = await file.text();
+        } catch {
+          refused.push(`${file.name} could not be read.`);
+          continue;
+        }
+
+        // A binary that slipped past the allowlist announces itself with NULs.
+        if (text.includes("\u0000")) {
+          refused.push(`${file.name} is not text after all.`);
+          continue;
+        }
+
+        const fits = acceptText(file.name, text, current);
+        if (!fits.ok) {
+          refused.push(fits.reason);
+          continue;
+        }
+        added.push({ name: file.name, text, size: file.size });
+      }
+
+      if (added.length > 0) {
+        setAttachments((list) => [...list, ...added]);
+        requestAnimationFrame(() => composerRef.current?.focus());
+      }
+      if (refused.length > 0) setSendError(refused.join(" "));
+    },
+    [attachments],
+  );
+
+  const removeAttachment = useCallback((name: string) => {
+    setAttachments((list) => list.filter((attachment) => attachment.name !== name));
+  }, []);
+
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || streaming || !state || state.route.kind === "none" || !model) return;
+    // Files alone are a message: "have a look at this" needs no sentence.
+    if ((!text && attachments.length === 0) || streaming || !state || state.route.kind === "none" || !model) return;
 
+    const attached = attachments;
     const conversation = active ?? startConversation();
-    const userMessage: ChatMessage = { id: uid(), role: "user", content: text, at: new Date().toISOString() };
+    // What travels is the files and the question. What the bubble shows is
+    // the question and the filenames -- re-reading your own source code in a
+    // chat log helps nobody.
+    const content = composeMessage(text, attachments);
+    const userMessage: ChatMessage = {
+      id: uid(),
+      role: "user",
+      content,
+      at: new Date().toISOString(),
+      ...(attachments.length > 0
+        ? {
+            display: text,
+            attachments: attachments.map((attachment) => ({ name: attachment.name, chars: attachment.text.length })),
+          }
+        : {}),
+    };
     const assistantMessage: ChatMessage = {
       id: uid(),
       role: "assistant",
@@ -313,10 +402,11 @@ export function ChatDock() {
     const priorMessages = conversation.messages;
     updateConversation(conversation.id, (c) => ({
       ...c,
-      title: c.messages.length === 0 ? titleFor(text) : c.title,
+      title: c.messages.length === 0 ? titleFor(text || attachments[0]?.name || "") : c.title,
       messages: [...c.messages, userMessage, assistantMessage],
     }));
     setDraft("");
+    setAttachments([]);
     setSendError(null);
     setStreaming(true);
 
@@ -354,6 +444,7 @@ export function ChatDock() {
           messages: c.messages.filter((m) => m.id !== userMessage.id && m.id !== assistantMessage.id),
         }));
         setDraft(text);
+        setAttachments(attached);
         return;
       }
 
@@ -406,7 +497,7 @@ export function ChatDock() {
       abortRef.current = null;
       setStreaming(false);
     }
-  }, [draft, streaming, state, model, preferences, active, startConversation, updateConversation, patchMessage, fetchReceipt, loadState]);
+  }, [draft, attachments, streaming, state, model, preferences, active, startConversation, updateConversation, patchMessage, fetchReceipt, loadState]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -466,7 +557,39 @@ export function ChatDock() {
         className={`chat-panel${open ? " chat-panel--open" : ""}${expanded ? " chat-panel--expanded" : ""}`}
         aria-label="USAGE Chat"
         aria-hidden={!open}
+        onDragEnter={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          // Without this the browser navigates away to the dropped file.
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
+          if (streaming) return;
+          void addFiles(Array.from(e.dataTransfer.files));
+        }}
       >
+        {dragging && !streaming && (
+          <div className="chat-drop" aria-hidden="true">
+            <div className="chat-drop__card">
+              <strong>Drop to attach</strong>
+              <span>Text, data and code files. They are sent with your message and never stored by USAGE.</span>
+            </div>
+          </div>
+        )}
         <header className="chat-panel__head">
           <div className="min-w-0">
             <p className="tnum text-[11px] font-medium tracking-[0.3em]">USAGE CHAT</p>
@@ -658,7 +781,19 @@ export function ChatDock() {
                           <span className="chat-cursor" />
                         ) : null
                       ) : (
-                        m.content
+                        <>
+                          {m.attachments && m.attachments.length > 0 && (
+                            <div className="chat-chips chat-chips--sent">
+                              {m.attachments.map((attachment) => (
+                                <span key={attachment.name} className="chat-chip">
+                                  <span className="chat-chip__name">{attachment.name}</span>
+                                  <span className="chat-chip__meta">{attachment.chars.toLocaleString()} chars</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {m.display ?? m.content}
+                        </>
                       )}
                     </div>
                     {m.role === "assistant" && m.content.length > 0 && !streaming && (
@@ -689,6 +824,26 @@ export function ChatDock() {
 
             {sendError && <p className="chat-note chat-note--warn">{sendError}</p>}
 
+            {attachments.length > 0 && (
+              <div className="chat-chips">
+                {attachments.map((attachment) => (
+                  <span key={attachment.name} className="chat-chip">
+                    <span className="chat-chip__name">{attachment.name}</span>
+                    <span className="chat-chip__meta">{formatSize(attachment.size)}</span>
+                    <button
+                      type="button"
+                      className="chat-chip__remove"
+                      onClick={() => removeAttachment(attachment.name)}
+                      disabled={streaming}
+                      aria-label={`Remove ${attachment.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             <form
               className="chat-composer"
               onSubmit={(e) => {
@@ -696,6 +851,27 @@ export function ChatDock() {
                 void send();
               }}
             >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  void addFiles(Array.from(e.target.files ?? []));
+                  // So the same file can be picked again after removing it.
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="chat-attach"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={streaming}
+                title="Attach a text, data or code file"
+                aria-label="Attach a file"
+              >
+                +
+              </button>
               <textarea
                 ref={composerRef}
                 className="chat-input"
@@ -716,13 +892,25 @@ export function ChatDock() {
                     void send();
                   }
                 }}
+                onPaste={(e) => {
+                  // A file on the clipboard becomes an attachment; pasted text
+                  // stays text, which is what anybody pasting text expects.
+                  const files = Array.from(e.clipboardData.files);
+                  if (files.length === 0) return;
+                  e.preventDefault();
+                  void addFiles(files);
+                }}
               />
               {streaming ? (
                 <button type="button" className="chat-btn" onClick={stop}>
                   Stop
                 </button>
               ) : (
-                <button type="submit" className="chat-btn chat-btn--primary" disabled={!draft.trim() || !model}>
+                <button
+                  type="submit"
+                  className="chat-btn chat-btn--primary"
+                  disabled={(!draft.trim() && attachments.length === 0) || !model}
+                >
                   Send
                 </button>
               )}

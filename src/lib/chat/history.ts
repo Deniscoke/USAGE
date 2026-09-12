@@ -24,11 +24,21 @@ export interface MessageReceipt {
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
+  /** What was sent to the model, attachments folded in. */
   content: string;
   at: string;
   model?: string;
   generationId?: string | null;
   receipt?: MessageReceipt;
+  /**
+   * What the person actually typed, when that differs from what was sent.
+   * A message with files attached sends the files too; the bubble shows the
+   * question and names the files, because a wall of somebody's own source
+   * code is not a useful thing to re-read in a chat log.
+   */
+  display?: string;
+  /** Names only. The text lives in `content`, which is where it was sent from. */
+  attachments?: { name: string; chars: number }[];
 }
 
 export interface Conversation {

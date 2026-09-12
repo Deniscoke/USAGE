@@ -358,3 +358,83 @@ body.chat-open > main {
 .chat-field > span { flex: 0 0 42px; }
 .chat-field .chat-select { flex: 1 1 auto; min-width: 0; }
 .chat-toolbar__more { align-self: flex-start; text-align: left; }
+
+/* Attachments: a drop target over the whole panel, and chips for what is on
+   the message. Nothing here is uploaded -- the file's text travels inside the
+   message body and USAGE stores none of it. */
+.chat-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+  backdrop-filter: blur(2px);
+}
+.chat-drop__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 30ch;
+  padding: 18px 22px;
+  text-align: center;
+  border: 1px dashed var(--routed);
+  border-radius: 10px;
+  background: var(--background);
+}
+.chat-drop__card strong { font-size: 13px; font-weight: 500; }
+.chat-drop__card span { font-size: 11px; line-height: 1.5; color: var(--faint); }
+
+.chat-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 6px; }
+.chat-chips--sent { padding: 0 0 6px; }
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  font-size: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.chat-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+.chat-chip__meta { color: var(--faint); font-variant-numeric: tabular-nums; }
+.chat-chip__remove {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--faint);
+}
+.chat-chip__remove:hover:not(:disabled) { color: var(--foreground); background: var(--border); }
+.chat-chip__remove:disabled { opacity: 0.4; cursor: default; }
+.chat-chips--sent .chat-chip { border-style: dashed; }
+
+.chat-attach {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+}
+.chat-attach:hover:not(:disabled) { border-color: var(--border-strong); color: var(--foreground); }
+.chat-attach:disabled { opacity: 0.4; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-drop { backdrop-filter: none; }
+}
