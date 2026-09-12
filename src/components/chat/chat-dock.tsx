@@ -545,9 +545,12 @@ export function ChatDock() {
 
         {route && route.kind !== "none" && (
           <>
+            {/* One control per line. Three of them in a 440px row left the
+                model name, the conversation title and the checkbox all cut in
+                half, which is how a chat starts looking like a settings page. */}
             <div className="chat-toolbar">
-              <label className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-[var(--muted)]">
-                <span className="shrink-0">Model</span>
+              <label className="chat-field">
+                <span>Model</span>
                 <select className="chat-select" value={model} onChange={(e) => setModel(e.target.value)} disabled={streaming}>
                   {visibleModels.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -557,20 +560,32 @@ export function ChatDock() {
                   ))}
                 </select>
               </label>
-              {unpricedCount > 0 && (
-                <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-[var(--faint)]" title="Models without an approved protocol price are measured but earn nothing.">
-                  <input type="checkbox" checked={showUnpriced} onChange={(e) => setShowUnpriced(e.target.checked)} disabled={streaming} />
-                  all {unpricedCount + allModels.length - unpricedCount}
+
+              {history.conversations.length > 1 && (
+                <label className="chat-field">
+                  <span>Chat</span>
+                  <select className="chat-select" value={activeId ?? ""} onChange={(e) => setActiveId(e.target.value)} disabled={streaming}>
+                    {history.conversations.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               )}
-              {history.conversations.length > 1 && (
-                <select className="chat-select chat-select--history" value={activeId ?? ""} onChange={(e) => setActiveId(e.target.value)} disabled={streaming} aria-label="Conversation">
-                  {history.conversations.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
+
+              {unpricedCount > 0 && (
+                <button
+                  type="button"
+                  className="chat-link chat-toolbar__more"
+                  onClick={() => setShowUnpriced((v) => !v)}
+                  disabled={streaming}
+                  title="Models without an approved protocol price are measured but earn nothing."
+                >
+                  {showUnpriced
+                    ? `Showing all ${allModels.length} models · show only the ${allModels.length - unpricedCount} that earn`
+                    : `Show all ${allModels.length} models, including ${unpricedCount} that earn nothing`}
+                </button>
               )}
             </div>
 
