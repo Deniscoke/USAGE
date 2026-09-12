@@ -72,12 +72,31 @@ export default async function SettingsPage() {
           </dl>
         </Panel>
 
-        <Panel title="Wallet">
-          <p className="text-xs text-[var(--muted)]">Not available yet.</p>
+        <Panel title="Security">
+          <p className="text-xs text-[var(--muted)]">
+            Add a second factor so a stolen password is not enough on its own.
+          </p>
+          <Link
+            href="/settings/security"
+            className="mt-3 inline-block rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-[11px] hover:border-[var(--verified)]"
+          >
+            Two-factor authentication
+          </Link>
+        </Panel>
+
+        <Panel title="Wallet" className="sm:col-span-2">
+          <p className="text-xs text-[var(--muted)]">
+            Credit that pays for chat on USAGE&apos;s own key.{" "}
+            <Link href="/wallet" className="chat-link">
+              Balance and ledger
+            </Link>
+            .
+          </p>
           <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
-            USAGE Points are off-chain, non-transferable and carry no monetary value. There is no
-            token, no wallet custody and no trading. If a future token ever exists, your earned
-            points are recorded per epoch and cannot be rewritten.
+            That credit is money and buys replies. USAGE Points are something else entirely:
+            off-chain, non-transferable, no monetary value, no token, no custody and no trading.
+            Credit cannot be turned into points and points cannot be turned into credit. If a
+            future token ever exists, earned points are recorded per epoch and cannot be rewritten.
           </p>
         </Panel>
 

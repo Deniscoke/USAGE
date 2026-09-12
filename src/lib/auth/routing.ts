@@ -3,17 +3,20 @@
  * Supabase or a Next request. The middleware applies these; RLS enforces them.
  */
 
-export const PROTECTED_PREFIXES = ["/dashboard", "/onboarding", "/settings", "/proofs"] as const;
+export const PROTECTED_PREFIXES = ["/dashboard", "/onboarding", "/settings", "/proofs", "/wallet", "/miners"] as const;
 export const AUTH_ROUTES = ["/login", "/sign-up"] as const;
 
 export type RouteDecision =
   | { kind: "allow" }
   | { kind: "redirect"; to: string; withNext?: string };
 
+/** Does this path require a signed-in user? */
+export function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 export function routeDecision(pathname: string, isAuthenticated: boolean): RouteDecision {
-  const isProtected = PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  const isProtected = isProtectedPath(pathname);
 
   if (!isAuthenticated && isProtected) {
     return { kind: "redirect", to: "/login", withNext: pathname };
