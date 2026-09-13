@@ -224,7 +224,7 @@ function miningReason(source: EconomicSourceClass, funding: string, trusted: boo
       return "Free inference never earns.";
     case "promotional":
       return funding === "free_tier_account"
-        ? "The provider states this account has never purchased credit, so its requests run on free or promotional credit. Not reward eligible."
+        ? "The provider states this account has never purchased credit, so its requests run on free or promotional credit. Not reward eligible. Bought credit since? Press Test: USAGE asks the provider again, and this changes as soon as it says so."
         : "Promotional credit is not reward eligible.";
     case "byok":
       return trusted

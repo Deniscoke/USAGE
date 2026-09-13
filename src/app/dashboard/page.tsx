@@ -172,7 +172,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               )}
             </Panel>
 
-            <Panel title="Connected AI" hint="What can mine, and how">
+            <Panel title="Connected AI" hint="What USAGE can route, and how">
               <ul className="space-y-2.5">
                 {data.connectedAi
                   .filter((tool) => tool.state !== "coming_soon")
@@ -182,7 +182,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                         <p className="truncate text-xs">{tool.label}</p>
                         <p className="truncate text-[10px] text-[var(--faint)]">
                           {tool.gatewayName
-                            ? `Mining via ${tool.gatewayName}`
+                            ? `Routed via ${tool.gatewayName}`
                             : tool.method === "verified_import"
                               ? "Verified organization import"
                               : tool.providerName}

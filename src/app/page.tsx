@@ -49,8 +49,9 @@ export default function LandingPage() {
             Mine USAGE.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-relaxed text-[var(--muted)] sm:text-lg">
-            Your AI usage has value. Connect your AI tools, use them normally, and earn USAGE from
-            verified compute.
+            Your AI usage, on the record. Connect your AI tools, use them normally, and earn USAGE
+            Points from the compute USAGE verifies. Points are a record of what you contributed,
+            not money.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">

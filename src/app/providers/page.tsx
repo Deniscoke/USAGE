@@ -37,7 +37,10 @@ function catalogEntries(): CatalogEntry[] {
       routes.length > 0 || isUsable(provider.import.status) ? "official" : "coming_soon";
 
     const ways = [
-      ...routes.map((route) => `mine via ${route.gatewayName}`),
+      // "Route", not "mine": these catalog routes run on USAGE's own gateway
+      // credit, which is measured and never earns. Earning takes a paid
+      // account of your own, connected above.
+      ...routes.map((route) => `route via ${route.gatewayName}`),
       isUsable(provider.import.status) ? "verified organization import" : null,
     ].filter((way): way is string => way !== null);
 
