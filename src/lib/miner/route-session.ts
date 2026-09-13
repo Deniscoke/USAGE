@@ -35,6 +35,25 @@ export const ROUTE_SESSION_VERSION = 1;
 /** A Claude Code session is hours, not days. */
 export const ROUTE_SESSION_TTL_SECONDS = 8 * 60 * 60;
 
+/**
+ * Past its expiry, a session keeps working only while the miner that minted it
+ * is demonstrably running, and never beyond this.
+ *
+ * WHY. The token is handed to Claude Code in its environment at launch, and a
+ * running process cannot be given a new one. A terminal left open overnight
+ * therefore hit 401 on every request the next morning: the tool broke mid-work
+ * and the only route that earns stopped, with nothing on screen saying why.
+ *
+ * THE BOUND. "Running" means the device's own heartbeat or telemetry was seen
+ * in the last few minutes. Only a full device credential can send either; a
+ * route session has no heartbeat scope, so a session cannot keep itself alive
+ * by being used. Close the console and the session dies within minutes of its
+ * normal expiry; revoke the device and it dies at once, as before; and no
+ * session lives past three days whatever happens.
+ */
+export const ROUTE_SESSION_MAX_LIFETIME_SECONDS = 72 * 60 * 60;
+export const ROUTE_SESSION_LIVENESS_SECONDS = 10 * 60;
+
 export interface RouteSessionClaims {
   v: number;
   /** Parent (device) credential id. Re-authenticated on every use. */
@@ -113,7 +132,9 @@ export function mintRouteSessionToken(
 
 export type RouteSessionVerification =
   | { ok: true; claims: RouteSessionClaims }
-  | { ok: false; reason: "malformed" | "bad_signature" | "expired" | "unavailable" };
+  /** Signed and well-formed, but past `exp`: the claims are genuine and may be renewed by liveness. */
+  | { ok: false; reason: "expired"; claims: RouteSessionClaims }
+  | { ok: false; reason: "malformed" | "bad_signature" | "unavailable" };
 
 export function verifyRouteSessionToken(
   token: string,
@@ -151,8 +172,33 @@ export function verifyRouteSessionToken(
   ) {
     return { ok: false, reason: "malformed" };
   }
-  if (claims.exp * 1000 <= now) return { ok: false, reason: "expired" };
+  if (claims.exp * 1000 <= now) return { ok: false, reason: "expired", claims };
   return { ok: true, claims };
+}
+
+/**
+ * May an expired session still route? Only while its device is alive, and
+ * never past the absolute lifetime. Pure; the caller supplies what it read.
+ */
+export function renewableAfterExpiry(input: {
+  claims: RouteSessionClaims;
+  /** The parent credential's device, as the database has it now. */
+  parentDeviceId: string | null;
+  /** That device's last heartbeat or telemetry, if it is not revoked. */
+  deviceLastSeenAt: string | null;
+  now?: number;
+}): boolean {
+  const now = input.now ?? Date.now();
+  const { claims } = input;
+  // A session names the device it was minted for; liveness of any other
+  // device, or of none, proves nothing about this one.
+  if (!claims.d || !input.parentDeviceId || claims.d !== input.parentDeviceId) return false;
+  if ((claims.iat + ROUTE_SESSION_MAX_LIFETIME_SECONDS) * 1000 <= now) return false;
+  if (!input.deviceLastSeenAt) return false;
+  const seen = Date.parse(input.deviceLastSeenAt);
+  if (!Number.isFinite(seen)) return false;
+  // A clock ahead of ours is not "recent", it is wrong.
+  return seen <= now + 60_000 && now - seen <= ROUTE_SESSION_LIVENESS_SECONDS * 1000;
 }
 
 export function bindingFromClaims(claims: RouteSessionClaims): RouteSessionBinding {

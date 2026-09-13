@@ -92,7 +92,9 @@ describe("route-session tokens", () => {
   it("expires, and cannot be minted for longer than the ceiling", () => {
     const minted = mint({ ttlSeconds: 10 * 24 * 60 * 60 });
     expect(Date.parse(minted.expiresAt) - T0).toBe(ROUTE_SESSION_TTL_SECONDS * 1000);
-    expect(verifyRouteSessionToken(minted.token, SECRET, T0 + ROUTE_SESSION_TTL_SECONDS * 1000 + 1)).toEqual({ ok: false, reason: "expired" });
+    // Expired, and says so with its genuine claims attached, so the caller can
+    // decide renewal by liveness without trusting anything unsigned.
+    expect(verifyRouteSessionToken(minted.token, SECRET, T0 + ROUTE_SESSION_TTL_SECONDS * 1000 + 1)).toMatchObject({ ok: false, reason: "expired", claims: { c: PARENT.id } });
   });
 
   it("refuses a tampered token, a foreign signature and a missing secret", () => {
@@ -181,5 +183,80 @@ describe("route binding at the gateway", () => {
   it("does not constrain a full device credential", () => {
     expect(routeBindingViolation({}, undefined, {})).toBeNull();
     expect(routeBindingViolation({ routeSession: undefined }, "openai_compatible", { connectionId: "any" })).toBeNull();
+  });
+});
+
+describe("an expired route session while its miner is still running", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  function storeAlive(lastSeenAt: string | null, parent: MinerCredentialRow = PARENT): MinerCredentialStore {
+    return { ...storeWith(parent), deviceLastSeenAt: async (id) => (id === parent.device_id ? lastSeenAt : null) };
+  }
+
+  async function withSecret<T>(fn: () => Promise<T>): Promise<T> {
+    process.env.USAGE_ROUTE_SESSION_SECRET = SECRET.toString("utf8");
+    try {
+      return await fn();
+    } finally {
+      delete process.env.USAGE_ROUTE_SESSION_SECRET;
+    }
+  }
+
+  it("keeps routing the morning after, when the miner that launched it is still beating", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR });
+      const result = await authenticateMiner(overnight.token, storeAlive(new Date(Date.now() - 45_000).toISOString()));
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("unreachable");
+      expect(result.identity.scopes).toEqual(["miner:route"]);
+      expect(result.identity.routeSession?.connectionId).toBe("conn-openrouter");
+    });
+  });
+
+  it("stops once the miner has gone quiet: close the console and the session ends", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR });
+      const stale = new Date(Date.now() - 30 * 60_000).toISOString();
+      expect(await authenticateMiner(overnight.token, storeAlive(stale))).toEqual({ ok: false, reason: "expired" });
+      expect(await authenticateMiner(overnight.token, storeAlive(null))).toEqual({ ok: false, reason: "expired" });
+    });
+  });
+
+  it("never lives past three days, however alive the device is", async () => {
+    await withSecret(async () => {
+      const ancient = mint({ now: Date.now() - 73 * HOUR });
+      expect(await authenticateMiner(ancient.token, storeAlive(new Date().toISOString()))).toEqual({ ok: false, reason: "expired" });
+    });
+  });
+
+  it("does not borrow liveness from a different device", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR, deviceId: "device-other" });
+      expect(await authenticateMiner(overnight.token, storeAlive(new Date().toISOString()))).toEqual({ ok: false, reason: "expired" });
+    });
+  });
+
+  it("still dies at once with a revoked device credential", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR });
+      const revoked = { ...PARENT, revoked_at: new Date().toISOString() };
+      expect(await authenticateMiner(overnight.token, storeAlive(new Date().toISOString(), revoked))).toEqual({ ok: false, reason: "revoked" });
+    });
+  });
+
+  it("is not fooled by a heartbeat timestamp from the future", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR });
+      const future = new Date(Date.now() + HOUR).toISOString();
+      expect(await authenticateMiner(overnight.token, storeAlive(future))).toEqual({ ok: false, reason: "expired" });
+    });
+  });
+
+  it("still refuses a tampered token outright, expired or not", async () => {
+    await withSecret(async () => {
+      const overnight = mint({ now: Date.now() - 16 * HOUR });
+      const tampered = overnight.token.slice(0, -2) + (overnight.token.endsWith("A") ? "BB" : "AA");
+      expect(await authenticateMiner(tampered, storeAlive(new Date().toISOString()))).toEqual({ ok: false, reason: "malformed" });
+    });
   });
 });

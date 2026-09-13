@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, MinerCredentialRow, MinerScope } from "@/lib/supabase/database.types";
 import { hashesMatch, hashMinerToken, looksLikeMinerToken, mintMinerToken } from "./token";
-import { bindingFromClaims, isRouteSessionToken, verifyRouteSessionToken, type RouteSessionBinding } from "./route-session";
+import { bindingFromClaims, isRouteSessionToken, renewableAfterExpiry, verifyRouteSessionToken, type RouteSessionBinding } from "./route-session";
 
 /**
  * Resolving a miner credential to a user.
@@ -70,6 +70,8 @@ export interface MinerCredentialStore {
   findByTokenHash(tokenHash: string): Promise<(MinerCredentialRow & { id: string }) | null>;
   /** The parent of a route session. Optional only for stores that predate M16C0. */
   findById?(credentialId: string): Promise<(MinerCredentialRow & { id: string }) | null>;
+  /** When a non-revoked device last sent a heartbeat or telemetry. Null when unknown or revoked. */
+  deviceLastSeenAt?(deviceId: string): Promise<string | null>;
   touch(credentialId: string): Promise<void>;
   create(userId: string, name: string): Promise<{ credentialId: string; token: string }>;
   revoke(credentialId: string): Promise<void>;
@@ -103,6 +105,17 @@ export function createSupabaseMinerStore(
         .maybeSingle();
       if (error) throw new Error(`findById: ${error.message}`);
       return data ?? null;
+    },
+
+    async deviceLastSeenAt(deviceId) {
+      const { data, error } = await admin
+        .from("miner_devices")
+        .select("last_seen_at")
+        .eq("id", deviceId)
+        .is("revoked_at", null)
+        .maybeSingle();
+      if (error) return null;
+      return (data as { last_seen_at?: string | null } | null)?.last_seen_at ?? null;
     },
 
     async touch(credentialId) {
@@ -217,13 +230,23 @@ export async function authenticateMiner(
   // revoked device takes every session it minted down with it.
   if (isRouteSessionToken(presented)) {
     const verified = verifyRouteSessionToken(presented);
-    if (!verified.ok) {
-      return { ok: false, reason: verified.reason === "expired" ? "expired" : verified.reason === "unavailable" ? "unknown" : "malformed" };
+    if (!verified.ok && verified.reason !== "expired") {
+      return { ok: false, reason: verified.reason === "unavailable" ? "unknown" : "malformed" };
     }
-    if (!store?.findById) return { ok: false, reason: "unknown" };
-    const parent = await store.findById(verified.claims.c);
-    if (!parent || parent.user_id !== verified.claims.u) return { ok: false, reason: "unknown" };
+    if (!store?.findById) return { ok: false, reason: verified.ok ? "unknown" : "expired" };
+    const claims = verified.claims;
+    const parent = await store.findById(claims.c);
+    if (!parent || parent.user_id !== claims.u) return { ok: false, reason: "unknown" };
     if (parent.revoked_at) return { ok: false, reason: "revoked" };
+
+    // Past expiry, the session still routes while the miner that minted it is
+    // running -- see ROUTE_SESSION_MAX_LIFETIME_SECONDS for why and how far.
+    if (!verified.ok) {
+      const lastSeen = claims.d && store.deviceLastSeenAt ? await store.deviceLastSeenAt(claims.d) : null;
+      if (!renewableAfterExpiry({ claims, parentDeviceId: parent.device_id ?? null, deviceLastSeenAt: lastSeen })) {
+        return { ok: false, reason: "expired" };
+      }
+    }
     return {
       ok: true,
       identity: {
@@ -231,7 +254,7 @@ export async function authenticateMiner(
         userId: parent.user_id,
         name: `route-session:${verified.claims.t}`,
         scopes: ["miner:route"],
-        routeSession: bindingFromClaims(verified.claims),
+        routeSession: bindingFromClaims(claims),
       },
     };
   }
