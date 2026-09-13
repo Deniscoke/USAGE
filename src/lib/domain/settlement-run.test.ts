@@ -7,6 +7,13 @@ describe("recentCompleteDays", () => {
     expect(recentCompleteDays(3, now)).toEqual(["2026-09-12", "2026-09-13", "2026-09-14"]);
   });
 
+  it("looks back a week by default", () => {
+    const days = recentCompleteDays(undefined, new Date("2026-09-15T00:20:00.000Z"));
+    expect(days).toHaveLength(7);
+    expect(days[0]).toBe("2026-09-08");
+    expect(days.at(-1)).toBe("2026-09-14");
+  });
+
   it("never includes the day that is still running", () => {
     const now = new Date("2026-09-14T23:59:59.000Z");
     expect(recentCompleteDays(3, now)).not.toContain("2026-09-14");

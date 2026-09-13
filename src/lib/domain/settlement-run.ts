@@ -13,7 +13,10 @@
  * declining to pay people; that has to show up as a failed run.
  */
 
-export const SETTLEMENT_LOOKBACK_DAYS = 3;
+// A week. A settled day is skipped for the price of one read, and a day that
+// keeps being refused stays visible as a failed run for seven nights instead
+// of three before it would need a person to settle it by hand.
+export const SETTLEMENT_LOOKBACK_DAYS = 7;
 
 /** The last `count` complete UTC days, oldest first. */
 export function recentCompleteDays(count: number = SETTLEMENT_LOOKBACK_DAYS, now: Date = new Date()): string[] {

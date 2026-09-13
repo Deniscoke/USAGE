@@ -183,6 +183,9 @@ export function effectiveEmissionPoints(entry: ProtocolScheduleEntry, networkCom
 
   const networkPico = BigInt(Math.max(0, Math.round(Number.isFinite(networkComputeMicros) ? networkComputeMicros : 0))) * 1_000_000n;
   const counted = networkPico < baseline ? networkPico : baseline;
-  const scaled = Number((BigInt(cap) * counted) / baseline);
-  return Math.min(cap, Math.max(Math.floor(entry.floorPoints), scaled));
+  // Exactly settle_beta_v2_epoch: floor(cap × min(N, B) / B) + floor_points.
+  // The SQL refuses a result outside [0, cap]; an estimate clamps instead,
+  // because an estimate that throws helps nobody.
+  const scaled = Number((BigInt(cap) * counted) / baseline) + Math.floor(entry.floorPoints);
+  return Math.min(cap, Math.max(0, scaled));
 }

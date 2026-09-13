@@ -222,9 +222,9 @@ describe("an expired route session while its miner is still running", () => {
     });
   });
 
-  it("never lives past three days, however alive the device is", async () => {
+  it("never lives past a day, however alive the device is", async () => {
     await withSecret(async () => {
-      const ancient = mint({ now: Date.now() - 73 * HOUR });
+      const ancient = mint({ now: Date.now() - 25 * HOUR });
       expect(await authenticateMiner(ancient.token, storeAlive(new Date().toISOString()))).toEqual({ ok: false, reason: "expired" });
     });
   });

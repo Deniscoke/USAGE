@@ -110,13 +110,27 @@ export async function fundedSpend(
   admin: SupabaseClient<Database>,
   userId: string,
 ): Promise<{ lifetimeMicros: number; todayMicros: number; requestsToday: number }> {
-  const { data } = await admin
-    .from("usage_events")
-    .select("actual_cost_micros, occurred_at")
-    .eq("user_id", userId)
-    .in("gateway_id", [OPENROUTER_GATEWAY_ID, VERCEL_COMPUTE_GATEWAY_ID]);
-
-  const rows = (data ?? []) as { actual_cost_micros: number | null; occurred_at: string }[];
+  // Every row, a page at a time. PostgREST returns at most 1,000 rows per
+  // request, and this query used to take whatever the first response held: past
+  // a thousand funded requests the balance stopped going down and the daily
+  // cap stopped closing, so the shared route kept spending USAGE's key. Ordered
+  // by id so pages neither overlap nor skip rows.
+  const rows: { actual_cost_micros: number | null; occurred_at: string }[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from("usage_events")
+      .select("id, actual_cost_micros, occurred_at")
+      .eq("user_id", userId)
+      .in("gateway_id", [OPENROUTER_GATEWAY_ID, VERCEL_COMPUTE_GATEWAY_ID])
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    // A failed read must not look like zero spend: that would reopen the route.
+    if (error) throw new Error(`fundedSpend: ${error.message}`);
+    const page = (data ?? []) as { actual_cost_micros: number | null; occurred_at: string }[];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
   const cost = (row: { actual_cost_micros: number | null }) => Math.max(0, row.actual_cost_micros ?? 0);
   const dayStart = utcDayStart();
   const today = rows.filter((row) => row.occurred_at >= dayStart);

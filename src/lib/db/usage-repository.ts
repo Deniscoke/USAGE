@@ -256,7 +256,12 @@ export async function loadDashboardSnapshot(
     }
   }
 
-  const userScoreToday = scoreRows.find((row) => String(row.day).slice(0, 10) === today);
+  // Today's score under today's scoring version only: a stray row of another
+  // version would subtract a square root from a micro-USD network total.
+  const todayScoring = scoringForEpoch(epochIdForDate(new Date(`${today}T12:00:00.000Z`)));
+  const userScoreToday = scoreRows.find(
+    (row) => String(row.day).slice(0, 10) === today && row.algorithm_version === todayScoring,
+  );
   const networkScore = Number(networkRows?.network_score ?? 0);
 
   return {

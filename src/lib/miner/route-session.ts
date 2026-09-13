@@ -36,22 +36,30 @@ export const ROUTE_SESSION_VERSION = 1;
 export const ROUTE_SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 /**
- * Past its expiry, a session keeps working only while the miner that minted it
- * is demonstrably running, and never beyond this.
+ * Past its expiry, a session keeps working only while its device is running
+ * the miner, and never beyond this.
  *
  * WHY. The token is handed to Claude Code in its environment at launch, and a
  * running process cannot be given a new one. A terminal left open overnight
  * therefore hit 401 on every request the next morning: the tool broke mid-work
  * and the only route that earns stopped, with nothing on screen saying why.
  *
- * THE BOUND. "Running" means the device's own heartbeat or telemetry was seen
- * in the last few minutes. Only a full device credential can send either; a
- * route session has no heartbeat scope, so a session cannot keep itself alive
- * by being used. Close the console and the session dies within minutes of its
- * normal expiry; revoke the device and it dies at once, as before; and no
- * session lives past three days whatever happens.
+ * WHAT "RUNNING" PROVES, AND WHAT IT DOES NOT. It is the DEVICE's heartbeat or
+ * telemetry, seen in the last few minutes. Only a full device credential can
+ * send either, so a route session cannot keep itself alive by being used. But
+ * the desktop window beats too, so while the window is open every session that
+ * device minted stays renewable, including one whose console was closed. The
+ * signal is per device, not per session; a per-session keepalive would need
+ * somewhere to record it, and that is a schema change nobody has approved.
+ *
+ * THE BOUND, THEREFORE. One day from issue: enough for a session left running
+ * overnight, a third of the three days first chosen, and three times the old
+ * eight hours. Revoking the device still kills every session at once. The
+ * threat it bounds is a token copied out of a child process's environment,
+ * which a program running as this user could do -- and such a program could
+ * equally read the device credential itself, which has no expiry at all.
  */
-export const ROUTE_SESSION_MAX_LIFETIME_SECONDS = 72 * 60 * 60;
+export const ROUTE_SESSION_MAX_LIFETIME_SECONDS = 24 * 60 * 60;
 export const ROUTE_SESSION_LIVENESS_SECONDS = 10 * 60;
 
 export interface RouteSessionClaims {
