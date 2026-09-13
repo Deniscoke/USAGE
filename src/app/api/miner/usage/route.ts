@@ -7,6 +7,8 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { LocalUsageObservationRow, UsageEventRow } from "@/lib/supabase/database.types";
+import { minerPointsView } from "@/lib/miner/points";
+import { protocolForEpoch } from "@/lib/protocol/schedule";
 
 /**
  * Today's figures for the desktop window, computed by the server.
@@ -37,7 +39,10 @@ export async function GET(request: NextRequest) {
 
   const day = new Date().toISOString().slice(0, 10);
   const since = `${day}T00:00:00Z`;
-  const [{ data: observations }, { data: events }] = await Promise.all([
+  const epochId = `epoch-${day}`;
+  const todayProtocol = protocolForEpoch(epochId);
+
+  const [{ data: observations }, { data: events }, { data: ledgerRows }, { data: scoreRow }, { data: networkRow }, { data: epochRow }] = await Promise.all([
     // THIS device's observations: the window describes the computer it runs
     // on, exactly as the website's card for that device does.
     admin
@@ -47,7 +52,37 @@ export async function GET(request: NextRequest) {
       .eq("device_id", device.device.id)
       .gte("occurred_at", since),
     admin.from("usage_events").select("*").eq("user_id", auth.identity.userId).gte("occurred_at", since),
+    // Points: the settled ledger for the whole account, and today's score and
+    // network total under the scoring version that governs today's epoch.
+    admin.from("usage_point_ledger").select("epoch_id, amount, created_at").eq("user_id", auth.identity.userId),
+    admin
+      .from("score_records")
+      .select("points")
+      .eq("user_id", auth.identity.userId)
+      .eq("day", day)
+      .eq("algorithm_version", todayProtocol.scoringVersion)
+      .maybeSingle(),
+    admin
+      .from("epoch_network_totals")
+      .select("network_score")
+      .eq("day", day)
+      .eq("algorithm_version", todayProtocol.scoringVersion)
+      .maybeSingle(),
+    admin.from("reward_epochs").select("state").eq("id", epochId).maybeSingle(),
   ]);
+
+  const points = minerPointsView({
+    ledger: ((ledgerRows ?? []) as { epoch_id: string; amount: number; created_at: string }[]).map((row) => ({
+      epochId: row.epoch_id,
+      amount: Number(row.amount),
+      createdAt: row.created_at,
+    })),
+    userScoreToday: Number((scoreRow as { points?: number | string } | null)?.points ?? 0),
+    networkScoreToday: Number((networkRow as { network_score?: number | string } | null)?.network_score ?? 0),
+    todayProtocol,
+    // An epoch nobody has closed is open.
+    todayEpochOpen: ((epochRow as { state?: string } | null)?.state ?? "open") === "open",
+  });
 
   const summary = summarizeUsage({
     day,
@@ -65,9 +100,14 @@ export async function GET(request: NextRequest) {
       tracked: summary.tracked,
       verified: summary.verified,
       eligibleComputeMicros: summary.eligibleComputeMicros,
-      // Not computed here: the epoch estimate needs the whole network's score
-      // and belongs to the dashboard pipeline. Null is honest.
-      estimatedPoints: null,
+      // Today's open epoch, estimated with the dashboard's arithmetic, including
+      // beta-v2's scaled pool. It was hard-coded null, which left the window's
+      // USAGE tile empty on every day, mining or not.
+      estimatedPoints: points.estimatedPoints,
+      // Settled and final. Older windows ignore these fields; newer ones show them.
+      balancePoints: points.balance,
+      lastCredit: points.lastCredit,
+      protocolVersion: todayProtocol.version,
       recent: summary.recent.slice(0, 10).map((r) => ({ tool: r.tool, model: r.model, tokens: r.tokens, breakdown: r.breakdown, status: r.status, at: r.at })),
     },
     { headers: { "cache-control": "no-store" } },
