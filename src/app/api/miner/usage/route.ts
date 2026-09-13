@@ -51,7 +51,24 @@ export async function GET(request: NextRequest) {
       .eq("user_id", auth.identity.userId)
       .eq("device_id", device.device.id)
       .gte("occurred_at", since),
-    admin.from("usage_events").select("*").eq("user_id", auth.identity.userId).gte("occurred_at", since),
+    // THIS device's routed requests only. Every credential this device has
+    // held (rotation issues new ones), matched on the id the gateway signs into
+    // each receipt. It used to be the whole account, so a request made from
+    // another computer, or from chat on the website, showed up as "this PC".
+    admin
+      .from("usage_miner_credentials")
+      .select("id")
+      .eq("device_id", device.device.id)
+      .then(async ({ data: credentials }) => {
+        const ids = ((credentials ?? []) as { id: string }[]).map((row) => row.id);
+        if (ids.length === 0) return { data: [] as UsageEventRow[] };
+        return admin
+          .from("usage_events")
+          .select("*")
+          .eq("user_id", auth.identity.userId)
+          .gte("occurred_at", since)
+          .in("raw_metadata->>miner_credential_id", ids);
+      }),
     // Points: the settled ledger for the whole account, and today's score and
     // network total under the scoring version that governs today's epoch.
     admin.from("usage_point_ledger").select("epoch_id, amount, created_at").eq("user_id", auth.identity.userId),
