@@ -218,3 +218,34 @@ export async function creditWallet(admin: SupabaseClient<Database>, input: Credi
   if (tableMissing(error)) return { ok: false, reason: "The wallet ledger does not exist on this deployment yet (migration 0024)." };
   return { ok: false, reason: error.message };
 }
+
+export interface PointsHistory {
+  totalPoints: number;
+  epochs: { epochId: string; points: number; creditedAt: string }[];
+}
+
+/**
+ * What this account has earned in USAGE Points, per settled epoch.
+ *
+ * Read-only, and deliberately beside the wallet rather than inside it. The
+ * wallet holds credit, which is money for inference. Points are a
+ * non-transferable reputation record with no monetary value. They are shown on
+ * the same page because a person reasonably looks for "what I have" in one
+ * place, and they are kept visually and structurally apart because they are
+ * not the same kind of thing and never convert into each other.
+ */
+export async function readPointsHistory(client: SupabaseClient<Database>, userId: string): Promise<PointsHistory> {
+  const { data, error } = await client
+    .from("usage_point_ledger")
+    .select("epoch_id, amount, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) return { totalPoints: 0, epochs: [] };
+
+  const epochs = ((data ?? []) as { epoch_id: string; amount: number; created_at: string }[]).map((row) => ({
+    epochId: row.epoch_id,
+    points: Number(row.amount),
+    creditedAt: row.created_at,
+  }));
+  return { totalPoints: epochs.reduce((sum, row) => sum + row.points, 0), epochs };
+}

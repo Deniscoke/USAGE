@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { readWallet } from "@/lib/wallet/store";
+import { readPointsHistory, readWallet } from "@/lib/wallet/store";
+import { formatNumber } from "@/lib/domain/money";
 import { walletDailyCapMicros } from "@/lib/wallet/balance";
 import { formatUsd } from "@/lib/domain/money";
 import { ChatDock } from "@/components/chat/chat-dock";
@@ -40,7 +41,7 @@ export default async function WalletPage() {
   const user = auth.user;
   if (!user) redirect("/login?next=/wallet");
 
-  const wallet = await readWallet(supabase, user.id);
+  const [wallet, points] = await Promise.all([readWallet(supabase, user.id), readPointsHistory(supabase, user.id)]);
   const dailyCap = walletDailyCapMicros(wallet);
   const spentShare = wallet.creditedMicros > 0 ? Math.round((100 * wallet.balanceMicros) / wallet.creditedMicros) : 0;
 
@@ -181,6 +182,51 @@ export default async function WalletPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="mt-10 rounded-lg border border-dashed border-[var(--border-strong)] p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium">USAGE Points</h2>
+            <p className="mt-1 text-[11px] text-[var(--faint)]">Earned by mining. Not credit, not money.</p>
+          </div>
+          <span className="tnum text-2xl" style={{ color: "var(--verified)" }}>
+            {formatNumber(points.totalPoints)}
+          </span>
+        </div>
+
+        <p className="mt-3 max-w-2xl text-[12px] leading-relaxed text-[var(--muted)]">
+          A record of verified compute you contributed, credited once per settled day. Points stay
+          on this account: they cannot be sent to another account, sold, or exchanged for credit,
+          and credit cannot buy them.
+        </p>
+
+        {points.epochs.length === 0 ? (
+          <p className="mt-4 text-[11px] text-[var(--faint)]">
+            Nothing settled yet. Points appear here the morning after a day you mined.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[24rem] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">
+                <tr>
+                  <th className="pb-2 font-normal">Mined on</th>
+                  <th className="pb-2 font-normal">Credited</th>
+                  <th className="pb-2 text-right font-normal">Points</th>
+                </tr>
+              </thead>
+              <tbody className="text-[var(--muted)]">
+                {points.epochs.map((row) => (
+                  <tr key={row.epochId} className="border-t border-[var(--border)]">
+                    <td className="py-2 tnum">{row.epochId.slice("epoch-".length)}</td>
+                    <td className="py-2 tnum">{row.creditedAt.slice(0, 16).replace("T", " ")} UTC</td>
+                    <td className="py-2 text-right tnum">{formatNumber(row.points)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <p className="mt-10 text-[11px] leading-relaxed text-[var(--faint)]">
