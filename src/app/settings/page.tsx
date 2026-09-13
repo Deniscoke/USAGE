@@ -8,6 +8,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
 import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard";
+import { readWallet } from "@/lib/wallet/store";
+import { formatUsd } from "@/lib/domain/money";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +33,10 @@ export default async function SettingsPage() {
   if (!user) redirect("/login?next=/settings");
 
   const now = new Date();
-  const snapshot = await loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now));
+  const [snapshot, wallet] = await Promise.all([
+    loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now)),
+    readWallet(supabase, user.id),
+  ]);
   const data = buildDashboardView({ ...snapshot, now });
 
   return (
@@ -60,7 +65,7 @@ export default async function SettingsPage() {
               <dd className="truncate">{user.email}</dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted)]">USAGE balance</dt>
+              <dt className="text-[var(--muted)]">USAGE Points</dt>
               <dd className="tnum">{data.settledPoints.toLocaleString("en-US")} settled</dd>
             </div>
             <div className="flex justify-between gap-3">
@@ -85,13 +90,22 @@ export default async function SettingsPage() {
         </Panel>
 
         <Panel title="Wallet" className="sm:col-span-2">
-          <p className="text-xs text-[var(--muted)]">
-            Credit that pays for chat on USAGE&apos;s own key.{" "}
-            <Link href="/wallet" className="chat-link">
-              Balance and ledger
-            </Link>
-            .
-          </p>
+          <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+            <div>
+              <dt className="text-[var(--muted)]">Credit</dt>
+              <dd className="tnum mt-0.5 text-sm">{formatUsd(wallet.balanceMicros, { maximumFractionDigits: 4 })}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Wallet ID</dt>
+              <dd className="tnum mt-0.5 text-sm">{wallet.walletId ?? "—"}</dd>
+            </div>
+            <div className="sm:text-right">
+              <Link href="/wallet" className="chat-link">
+                Balance and ledger
+              </Link>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs text-[var(--muted)]">Credit pays for chat on USAGE&apos;s own key.</p>
           <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
             That credit is money and buys replies. USAGE Points are something else entirely:
             off-chain, non-transferable, no monetary value, no token, no custody and no trading.

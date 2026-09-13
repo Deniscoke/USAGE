@@ -87,9 +87,13 @@ export function BalanceHeadline({
   const isOpen = epochState === "open";
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
-      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--faint)]">
-        USAGE Balance
-      </p>
+      {/* Named for what it is. "Balance" read as money, beside a wallet that
+          holds actual dollars of credit, and people reasonably asked which
+          one they had. These are points; the credit is on the wallet page. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--faint)]">USAGE Points</p>
+        <p className="text-[10px] text-[var(--faint)]">earned by mining · not money</p>
+      </div>
       <p className="tnum mt-2 text-4xl leading-none tracking-tight sm:text-5xl">{settled}</p>
       <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-[var(--border)] pt-4">
         <span className="text-[11px] uppercase tracking-[0.14em] text-[var(--faint)]">
@@ -103,8 +107,10 @@ export function BalanceHeadline({
         <span className="text-[11px] text-[var(--faint)]">{epochLabel ?? `epoch ${epochState.toUpperCase()}`}</span>
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-        Estimated USAGE moves while the epoch is open and is not part of your balance. Only a
-        settled epoch adds to it, and a settled amount never changes.
+        Points are a record of verified AI compute you contributed, credited once per settled
+        day. The estimate moves while today is open and is not counted yet; a settled day never
+        changes. Points cannot be sent, sold or spent. Credit for chat is separate, on your{" "}
+        <a href="/wallet" className="underline">wallet</a>.
       </p>
     </div>
   );
