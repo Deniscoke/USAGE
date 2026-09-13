@@ -1,5 +1,6 @@
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { lastCompleteDay, settleDailyEpoch } from "@/lib/db/settle-daily";
+import { settleDailyEpoch, type SettleDailyResult } from "@/lib/db/settle-daily";
+import { recentCompleteDays, settlementRunStatus } from "@/lib/domain/settlement-run";
 
 /**
  * Settle yesterday's epoch, once a day.
@@ -42,16 +43,28 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const day = new URL(request.url).searchParams.get("day") ?? lastCompleteDay();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+  // A named day settles that day alone. Otherwise the job looks back over the
+  // last few finished days, so a refused or missed night is picked up later
+  // instead of never; a day that is already settled is skipped.
+  const named = new URL(request.url).searchParams.get("day");
+  if (named !== null && !/^\d{4}-\d{2}-\d{2}$/.test(named)) {
     return Response.json({ error: "bad_day" }, { status: 400 });
   }
+  const days = named ? [named] : recentCompleteDays();
 
-  const result = await settleDailyEpoch(createAdminSupabase(), { day });
+  const admin = createAdminSupabase();
+  const results: SettleDailyResult[] = [];
+  // In order, oldest first, one at a time: settlement takes locks and writes a
+  // ledger, and nothing is gained by racing two days against each other.
+  for (const day of days) {
+    results.push(await settleDailyEpoch(admin, { day }));
+  }
 
-  // A refusal is a 200 with a reason: the job ran correctly and decided not to
-  // write. Only an exception is a failure, and that is left to throw.
-  return Response.json(result, {
-    headers: { "cache-control": "no-store" },
-  });
+  // A refusal is the system declining to pay people. It used to be a 200 with
+  // the reason in the body, which the scheduler recorded as a healthy run
+  // every night it happened. Now it fails the run, where it can be seen.
+  return Response.json(
+    { results },
+    { status: settlementRunStatus(results.map((result) => result.outcome)), headers: { "cache-control": "no-store" } },
+  );
 }

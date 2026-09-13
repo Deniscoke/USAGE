@@ -3,7 +3,8 @@ import { authenticateMiner, createSupabaseMinerStore } from "@/lib/miner/credent
 import { readPresentedToken } from "@/lib/miner/token";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { defaultComputeGateway } from "@/lib/compute/registry";
-import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
+import { protocolForEpoch } from "@/lib/protocol/schedule";
+import { epochIdForDate } from "@/lib/domain/epoch";
 import { listMiningProviders } from "@/lib/providers/catalog";
 
 /**
@@ -57,11 +58,9 @@ export async function GET(request: NextRequest) {
         protocol: "anthropic-messages",
         gateway: gateway.id,
       },
-      protocol: {
-        version: CURRENT_MINING_PROTOCOL.version,
-        network: CURRENT_MINING_PROTOCOL.network,
-        scoringVersion: CURRENT_MINING_PROTOCOL.scoringVersion,
-      },
+      // The protocol governing TODAY'S epoch. A deploy-time constant stayed
+      // dev-v1 after the beta-v2 cutover and told every miner the wrong rule.
+      protocol: todayProtocolForMiner(),
       providers: listMiningProviders().map((provider) => provider.slug),
       privacy: {
         recorded: ["model", "token_counts", "timestamps"],
@@ -70,4 +69,9 @@ export async function GET(request: NextRequest) {
     },
     { headers: { "cache-control": "no-store" } },
   );
+}
+
+function todayProtocolForMiner(): { version: string; network: string; scoringVersion: string } {
+  const today = protocolForEpoch(epochIdForDate(new Date()));
+  return { version: today.version, network: today.network, scoringVersion: today.scoringVersion };
 }

@@ -5,7 +5,7 @@ const STEPS = [
   { step: "Connect", detail: "Pick the AI tools you already use." },
   { step: "Use AI", detail: "Work exactly as you do now. Nothing changes." },
   { step: "Verify", detail: "USAGE observes the compute first-hand and signs a proof." },
-  { step: "Earn", detail: "Verified compute mines USAGE from a fixed epoch pool." },
+  { step: "Earn", detail: "Verified compute earns USAGE Points from a daily pool capped at 100,000." },
 ];
 
 export default function LandingPage() {
@@ -106,9 +106,11 @@ export default function LandingPage() {
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
             <h3 className="text-sm font-medium">You cannot farm it</h3>
             <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-              Each epoch emits a fixed pool of USAGE, shared by contribution. Burning tokens does
-              not mint more — it only dilutes everyone, including you. There is no fixed rate of
-              tokens to rewards, by design.
+              Only paid compute that USAGE verifies counts, valued at a published protocol price
+              rather than your bill, so farming costs what it earns. Each day is capped at 100,000
+              points. From 14 September 2026 the day&apos;s pool also scales with the network&apos;s
+              verified compute up to that cap, and points nobody earned are never minted. Past the
+              cap, extra compute only dilutes everyone, including you.
             </p>
           </div>
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">

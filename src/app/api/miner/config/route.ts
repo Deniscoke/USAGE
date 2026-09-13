@@ -5,7 +5,8 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createConnectionStore } from "@/lib/providers/connections";
 import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { CURRENT_MINING_PROTOCOL } from "@/lib/protocol/emission";
+import { protocolForEpoch } from "@/lib/protocol/schedule";
+import { epochIdForDate } from "@/lib/domain/epoch";
 // One source of truth for what build the server expects: a device that is told
 // it is current here and out of date on the download page would be a bug.
 import { MINER_PROTOCOL_VERSION, MINIMUM_MINER_VERSION } from "@/lib/miner/release";
@@ -105,11 +106,11 @@ export async function GET(request: NextRequest) {
         lastEventAt: m.last_event_at,
         updatedAt: m.updated_at,
       })),
-      mining: {
-        network: CURRENT_MINING_PROTOCOL.network,
-        networkLabel: networkLabel(CURRENT_MINING_PROTOCOL.network),
-        scoringVersion: CURRENT_MINING_PROTOCOL.scoringVersion,
-      },
+      // Today's epoch's protocol, not a deploy-time constant.
+      mining: (() => {
+        const today = protocolForEpoch(epochIdForDate(new Date()));
+        return { network: today.network, networkLabel: networkLabel(today.network), scoringVersion: today.scoringVersion };
+      })(),
       routes,
       /**
        * Short-lived route sessions (M16C0): the miner exchanges its device

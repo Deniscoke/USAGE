@@ -6,7 +6,7 @@ import {
   type RewardEpoch,
 } from "@/lib/domain/epoch";
 import { EMPTY_TOTALS, utcDay } from "@/lib/domain/normalize";
-import { protocolForEpoch, protocolStatusView, scheduleFromRows, type ProtocolStatusView } from "@/lib/protocol/schedule";
+import { effectiveEmissionPoints, protocolForEpoch, protocolStatusView, scheduleFromRows, scoringForEpoch, type ProtocolStatusView } from "@/lib/protocol/schedule";
 import type { ProtocolVersionRowLite } from "@/lib/db/usage-repository";
 import type {
   DailyAggregate,
@@ -83,7 +83,11 @@ export interface DashboardData {
   byModel: DistributionSlice[];
 
   series: SeriesPoint[];
-  scoring: { version: string; totalPoints: number; scoredDays: number };
+  /**
+   * The score under TODAY'S scoring version only, summed since that version
+   * began (`since`, a UTC day, or null when it has governed from the start).
+   */
+  scoring: { version: string; totalPoints: number; scoredDays: number; since: string | null };
   /** Protocol compute value backing the score, and the snapshot that priced it. */
   protocolComputeMicros: number;
   pricingVersion: string | null;
@@ -230,7 +234,16 @@ export function buildDashboardView({
     reported: byVerificationMap.get("reported") ?? EMPTY_TOTALS,
   };
 
-  const scoreByDay = new Map(scores.map((score) => [score.day, score]));
+  // The protocol comes from the persisted schedule when the repository
+  // supplied it; never from a deploy-time constant.
+  const schedule = protocolRows.length ? scheduleFromRows(protocolRows) : undefined;
+
+  // Each day is scored under the protocol of its own epoch: usage_score_v1 up
+  // to 2026-09-13, usage_score_v2 from 2026-09-14. The repository returns
+  // every version, and a day keeps only the one its epoch was governed by --
+  // filtering to a single constant version made every beta-v2 day read zero.
+  const epochScores = scores.filter((score) => score.algorithmVersion === scoringForEpoch(`epoch-${score.day}`, schedule));
+  const scoreByDay = new Map(epochScores.map((score) => [score.day, score]));
   const days = [...new Set(aggregates.map((a) => a.day))].sort();
   const series: SeriesPoint[] = days.map((day) => {
     const forDay = aggregates.filter((a) => a.day === day);
@@ -247,9 +260,7 @@ export function buildDashboardView({
 
   // An epoch nobody has closed is open: it only leaves OPEN by an explicit act.
   const epochState: EpochState = epochStates[epochIdForDate(now)] ?? "open";
-  // The protocol for TODAY'S epoch, from the persisted schedule when the
-  // repository supplied it; never from a deploy-time constant.
-  const schedule = protocolRows.length ? scheduleFromRows(protocolRows) : undefined;
+  // The protocol for TODAY'S epoch.
   const todayProtocol = protocolForEpoch(epochIdForDate(now), schedule);
   const todayPool = todayProtocol.epochEmissionPoints;
 
@@ -259,10 +270,15 @@ export function buildDashboardView({
   // actually scored today. A single-participant development network honestly
   // shows a 100% share; inventing other participants would invent a share.
   const networkScore = otherParticipantsScore + userScore;
+  // What today's epoch will actually mint. Under beta-v2 the pool scales with
+  // network compute, and a v2 score IS verified compute in micro-USD, so the
+  // network score is the compute the formula needs. Estimating against the
+  // 100,000 cap would promise a lone $5 miner a hundred times what they are paid.
+  const effectivePool = effectiveEmissionPoints(todayProtocol, networkScore);
   const reward = estimateReward({
     userScore,
     networkScore,
-    rewardPoolPoints: todayPool,
+    rewardPoolPoints: effectivePool,
   });
   // A settled epoch never shows a mutable estimate. Its reward is the
   // persisted allocation (0 for a zero-reward calibration disposition), and
@@ -316,8 +332,14 @@ export function buildDashboardView({
       recentEvents.find((event) => event.protocolPricingVersion)?.protocolPricingVersion ?? null,
     scoring: {
       version: todayProtocol.scoringVersion,
-      totalPoints: Math.round(scores.reduce((acc, score) => acc + score.points, 0) * 10_000) / 10_000,
-      scoredDays: scores.filter((score) => score.points > 0).length,
+      // One version only. A v1 score is a square root and a v2 score is
+      // micro-USD; adding them together produces a number that means nothing.
+      totalPoints:
+        Math.round(
+          epochScores.filter((score) => score.algorithmVersion === todayProtocol.scoringVersion).reduce((acc, score) => acc + score.points, 0) * 10_000,
+        ) / 10_000,
+      scoredDays: epochScores.filter((score) => score.algorithmVersion === todayProtocol.scoringVersion && score.points > 0).length,
+      since: todayProtocol.effectiveFromEpoch ? todayProtocol.effectiveFromEpoch.slice("epoch-".length) : null,
     },
 
     epoch: {

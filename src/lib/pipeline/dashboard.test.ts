@@ -269,3 +269,63 @@ describe("settled epochs never show an estimate (M16B)", () => {
     expect(view.epoch.label).toBe("OPEN");
   });
 });
+
+describe("buildDashboardView across the beta-v2 cutover", () => {
+  // The first beta-v2 epoch. A v2 score is verified compute in micro-USD.
+  const CUTOVER = new Date("2026-09-14T15:00:00.000Z");
+
+  it("shows today's beta-v2 score instead of the zero a v1-only filter produced", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      now: CUTOVER,
+      scores: [
+        score({ day: "2026-09-13", algorithmVersion: "usage_score_v1", points: 12 }),
+        score({ day: "2026-09-14", algorithmVersion: "usage_score_v2", points: 5_000_000 }),
+      ],
+    });
+    expect(view.epoch.userScore).toBe(5_000_000);
+  });
+
+  it("estimates against what beta-v2 will mint, not the 100,000 cap", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      now: CUTOVER,
+      scores: [score({ day: "2026-09-14", algorithmVersion: "usage_score_v2", points: 5_000_000 })],
+    });
+    // A lone miner with $5 of verified compute: 100,000 × 5 / 1,000 = 500.
+    expect(view.epoch.networkShare).toBe(1);
+    expect(view.epoch.estimatedPoints).toBe(500);
+  });
+
+  it("ignores a score row written under a version that does not govern its day", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      now: CUTOVER,
+      scores: [score({ day: "2026-09-14", algorithmVersion: "usage_score_v1", points: 99 })],
+    });
+    expect(view.epoch.userScore).toBe(0);
+  });
+
+  it("never adds v1 square roots to v2 micro-USD in the running total", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      now: CUTOVER,
+      scores: [
+        score({ day: "2026-09-12", algorithmVersion: "usage_score_v1", points: 122 }),
+        score({ day: "2026-09-14", algorithmVersion: "usage_score_v2", points: 15_076 }),
+      ],
+    });
+    expect(view.scoring.version).toBe("usage_score_v2");
+    expect(view.scoring.totalPoints).toBe(15_076);
+    expect(view.scoring.since).toBe("2026-09-14");
+  });
+
+  it("still estimates the whole fixed pool on the last dev-v1 day", () => {
+    const view = buildDashboardView({
+      ...EMPTY,
+      now: new Date("2026-09-13T15:00:00.000Z"),
+      scores: [score({ day: "2026-09-13", algorithmVersion: "usage_score_v1", points: 12 })],
+    });
+    expect(view.epoch.estimatedPoints).toBe(100_000);
+  });
+});

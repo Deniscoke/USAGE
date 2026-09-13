@@ -19,7 +19,7 @@ export interface MiningSummary {
   };
   lastProofAt: string | null;
   today: { computeMicros: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; requests: number };
-  scoring: { version: string; totalPoints: number };
+  scoring: { version: string; totalPoints: number; since: string | null };
   epoch: {
     id: string;
     state: string;
@@ -56,7 +56,7 @@ export function buildMiningSummary(view: DashboardData, devices: readonly Device
       outputTokens: view.today.outputTokens,
       requests: view.today.requests,
     },
-    scoring: { version: view.scoring.version, totalPoints: view.scoring.totalPoints },
+    scoring: { version: view.scoring.version, totalPoints: view.scoring.totalPoints, since: view.scoring.since },
     epoch: {
       id: view.epoch.definition.id,
       state: view.epoch.state,

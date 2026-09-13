@@ -76,6 +76,36 @@ describe("wallet_id", () => {
   });
 });
 
+describe("on Supabase's schema layout", () => {
+  it("still issues identifiers when pgcrypto lives in the extensions schema", async () => {
+    // Supabase installs pgcrypto into `extensions`, not `public`. The first
+    // production apply of 0025 failed on exactly this, because the test
+    // database had it in `public` and hid the difference. Move it and prove
+    // the function still resolves gen_random_bytes.
+    await db.exec(`create schema if not exists extensions; alter extension pgcrypto set schema extensions;`);
+    const rows = await db.sql<{ id: string }>(`select public.new_wallet_id() as id`);
+    expect(rows[0]!.id).toMatch(FORMAT);
+    // Put it back so nothing after this depends on the order tests ran in.
+    await db.exec(`alter extension pgcrypto set schema public;`);
+  });
+});
+
+describe("who may mint an identifier", () => {
+  it("refuses a visitor who tries to call the generator directly", async () => {
+    await expect(db.asAnon(`select public.new_wallet_id()`)).rejects.toThrow(/permission denied/i);
+  });
+
+  it("refuses a signed-in user too: identifiers come from the database, not from a request", async () => {
+    await expect(db.asUser(alice, `select public.new_wallet_id()`)).rejects.toThrow(/permission denied/i);
+  });
+
+  it("still issues one to an account created after the lock", async () => {
+    const carol = await db.createUser("carol@example.com");
+    const [row] = await db.sql<{ wallet_id: string }>(`select wallet_id from profiles where id = $1`, [carol]);
+    expect(row!.wallet_id).toMatch(FORMAT);
+  });
+});
+
 describe("the identifier is not a credential", () => {
   it("shows one person nothing of another's wallet, identifier or not", async () => {
     const seen = await db.asUser<{ id: string }>(bob, `select id from profiles`);

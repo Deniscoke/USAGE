@@ -161,3 +161,28 @@ export function protocolStatusView(todayEpochId: string, schedule: readonly Prot
     emissionLabel: isBeta ? `UP TO ${current.epochEmissionPoints.toLocaleString("en-US")} USAGE POINTS PER UTC EPOCH` : `${current.epochEmissionPoints.toLocaleString("en-US")} DEVELOPMENT POINTS PER EPOCH`,
   };
 }
+
+/**
+ * What an epoch will actually mint, given the network's verified compute.
+ *
+ * fixed-pool-v1 mints its whole pool whatever happens. baseline-linear-v1
+ * mints `cap × min(N, B) / B` and never mints the rest, which is the rule
+ * `settle_beta_v2_epoch` applies in SQL. This is the same arithmetic for the
+ * live estimate, so a person is never shown a pool that settlement will not
+ * pay. Exact in integers: compute is converted to pico before dividing.
+ *
+ * `networkComputeMicros` is only an estimate while the epoch is open, and the
+ * result is labelled as one wherever it is shown.
+ */
+export function effectiveEmissionPoints(entry: ProtocolScheduleEntry, networkComputeMicros: number): number {
+  const cap = Math.max(0, Math.floor(entry.epochEmissionPoints));
+  if (entry.emissionAlgorithm !== "baseline-linear-v1") return cap;
+
+  const baseline = entry.baselineComputePico;
+  if (baseline === null || baseline <= 0n) return 0;
+
+  const networkPico = BigInt(Math.max(0, Math.round(Number.isFinite(networkComputeMicros) ? networkComputeMicros : 0))) * 1_000_000n;
+  const counted = networkPico < baseline ? networkPico : baseline;
+  const scaled = Number((BigInt(cap) * counted) / baseline);
+  return Math.min(cap, Math.max(Math.floor(entry.floorPoints), scaled));
+}

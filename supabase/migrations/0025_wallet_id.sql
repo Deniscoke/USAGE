@@ -29,7 +29,11 @@ returns text
 language plpgsql
 volatile
 security definer
-set search_path = public, pg_catalog
+-- `extensions` is where Supabase installs pgcrypto; a local Postgres puts it in
+-- `public`. Both are on the path so gen_random_bytes resolves in either. The
+-- first attempt to apply this migration to production failed exactly here,
+-- with the path set to public alone, and rolled back cleanly.
+set search_path = public, extensions, pg_catalog
 as $$
 declare
   alphabet constant text := '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

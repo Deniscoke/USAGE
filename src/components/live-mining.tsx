@@ -242,7 +242,8 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
           <p className="tnum">{formatUsd(summary.today.computeMicros, { maximumFractionDigits: 6 })}</p>
         </div>
         <div>
-          <p className="text-[var(--faint)]">Mining score</p>
+          {/* Not today's score, which is on the Mining panel: this is the running total. */}
+          <p className="text-[var(--faint)]">{summary.scoring.since ? `Mining score since ${summary.scoring.since}` : "Mining score, lifetime"}</p>
           <p className="tnum">{formatNumber(summary.scoring.totalPoints)}</p>
         </div>
         <div>

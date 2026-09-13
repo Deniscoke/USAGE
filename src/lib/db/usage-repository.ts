@@ -8,7 +8,8 @@ import type {
   UsageEventRow,
 } from "@/lib/supabase/database.types";
 import type { DailyAggregate, NormalizedUsageRecord, ProofStatus } from "@/lib/domain/types";
-import { CURRENT_SCORING_VERSION } from "@/lib/domain/scoring";
+import { scoringForEpoch } from "@/lib/protocol/schedule";
+import { epochIdForDate } from "@/lib/domain/epoch";
 import { fundingEvidenceForConnection } from "@/lib/protocol/funding";
 import {
   rowToDailyAggregate,
@@ -143,7 +144,9 @@ export async function loadDashboardSnapshot(
           .from("score_records")
           .select("*")
           .eq("user_id", userId)
-          .eq("algorithm_version", CURRENT_SCORING_VERSION)
+          // Every version. Each day is matched to its own epoch's scoring
+          // version in the pipeline; a single constant here hid every
+          // beta-v2 day.
           .order("day", { ascending: true })
           .range(from, to),
       "loadScores",
@@ -221,7 +224,8 @@ export async function loadDashboardSnapshot(
       .from("epoch_network_totals")
       .select("network_score, participants")
       .eq("day", today)
-      .eq("algorithm_version", CURRENT_SCORING_VERSION)
+      // The network's scores under the version governing TODAY'S epoch.
+      .eq("algorithm_version", scoringForEpoch(epochIdForDate(new Date(`${today}T12:00:00.000Z`))))
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) throw new Error(`loadNetworkTotals: ${error.message}`);

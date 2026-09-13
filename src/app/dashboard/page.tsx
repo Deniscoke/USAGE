@@ -11,7 +11,7 @@ import type { VerificationType } from "@/lib/domain/types";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
-import { buildDashboardView, dashboardSinceDay, type DashboardData } from "@/lib/pipeline/dashboard";
+import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard";
 import type { ActivityItem } from "@/lib/product/activity";
 import { loadDeviceViews } from "@/lib/miner/device-view";
 import { TodayFigures } from "@/components/miner-device";
@@ -119,15 +119,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Metric
               label="AI compute"
-              value={formatUsd(todayCompute(data), { maximumFractionDigits: 6 })}
-              sub="protocol equivalent"
+              value={formatUsd(data.today.costMicros, { maximumFractionDigits: 6 })}
+              sub="cost today"
             />
             <Metric label="AI usage" value={formatTokens(totalTokens(data.today))} sub="tokens today" />
             <Metric label="Mining score" value={formatNumber(data.epoch.userScore, 2)} sub="today" />
             <Metric
               label="Network share"
               value={`${(data.epoch.networkShare * 100).toFixed(2)}%`}
-              sub={`${formatNumber(Math.max(data.epoch.networkParticipants, 1))} miner(s)`}
+              sub={data.epoch.networkParticipants > 0 ? `${formatNumber(data.epoch.networkParticipants)} miner(s) today` : "no miners yet today"}
             />
           </dl>
 
@@ -283,7 +283,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <Stat
                 label="Mining score"
                 value={formatNumber(data.scoring.totalPoints)}
-                sub={`${data.scoring.version}, lifetime`}
+                sub={data.scoring.since ? `${data.scoring.version}, since ${data.scoring.since}` : `${data.scoring.version}, lifetime`}
                 accent="var(--verified)"
               />
               <Stat
@@ -341,8 +341,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   />
                 </dl>
                 <p className="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
-                  The score is concave in the daily total (√) and the epoch pool is fixed, so
-                  splitting or wasting requests cannot farm USAGE.
+                  {data.protocol.status.current.emissionAlgorithm === "baseline-linear-v1"
+                    ? "The score is your verified compute at the protocol price. The day's pool grows with the whole network's verified compute up to 100,000 points at $1,000, and points nobody earned are never minted. Only paid compute USAGE verifies counts, so farming costs what it earns."
+                    : "The score is concave in the daily total (√) and the epoch pool is fixed, so splitting or wasting requests cannot farm USAGE."}
                 </p>
               </Panel>
             </div>
@@ -359,14 +360,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
     </main>
   );
-}
-
-/** Protocol compute observed today, from the events the feed already loaded. */
-function todayCompute(data: DashboardData): number {
-  const today = data.epoch.definition.startsAt.slice(0, 10);
-  return data.activity
-    .filter((item) => item.occurredAt.slice(0, 10) === today)
-    .reduce((acc, item) => acc + (item.protocolComputeMicros ?? 0), 0);
 }
 
 function Metric({ label, value, sub }: { label: string; value: string; sub: string }) {

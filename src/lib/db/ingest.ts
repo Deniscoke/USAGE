@@ -1,7 +1,8 @@
 import { assignEpoch, epochDay, type EpochState } from "@/lib/domain/epoch";
 import { aggregateDaily, utcDay } from "@/lib/domain/normalize";
 import { SCORING_VERSION_V2_DRAFT, picoToDisplayMicros, scoreRecords, scoreRecordsPico } from "@/lib/domain/scoring";
-import { scoringForEpoch } from "@/lib/protocol/schedule";
+import { pricingForEpoch, scoringForEpoch } from "@/lib/protocol/schedule";
+import { holdIfCarriedAcrossPricing } from "@/lib/domain/carry-forward";
 import type { DailyAggregate, NormalizedUsageRecord } from "@/lib/domain/types";
 import type { UsageWindow } from "@/lib/providers/adapter";
 import { listPullIntegrations } from "@/lib/providers/registry";
@@ -187,11 +188,12 @@ export async function ingestRecords(
       ingestedAt,
       stateOf: (epochId) => closedEpochs.get(epochId) ?? "open",
     });
-    return {
-      ...record,
-      epochId: assignment.epochId,
-      carriedForward: assignment.carriedForward,
-    };
+    // A late unit carried into an epoch priced under another version is held,
+    // or the one unit would stop the whole epoch settling for everybody.
+    return holdIfCarriedAcrossPricing(
+      { ...record, epochId: assignment.epochId, carriedForward: assignment.carriedForward },
+      pricingForEpoch(assignment.epochId),
+    );
   });
 
   // ONE AUTHORITATIVE COMPUTE = AT MOST ONE CREDIT. A record whose economic

@@ -132,6 +132,16 @@ export async function settleDailyEpoch(
     return { outcome: "refused", epochId, reason: `${day} is not over yet (UTC); nothing was settled.` };
   }
 
+  // A settled epoch is finished, whichever protocol settled it. Checked here,
+  // once, before either path: the fixed-pool path already skips a settled
+  // epoch, but the beta-v2 function raises on one, and a job that looks back
+  // over several days must be able to pass a finished day without that
+  // being reported as a refusal.
+  const { data: existing } = await admin.from("reward_epochs").select("state").eq("id", epochId).maybeSingle();
+  if ((existing as { state?: string } | null)?.state === "settled") {
+    return { outcome: "skipped", epochId, reason: `${epochId} is already settled.` };
+  }
+
   // The rule comes from the epoch, not from today's protocol.
   const governing = protocolForEpoch(epochId);
 
