@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CopyCommand } from "@/components/copy-command";
+import { NPX_COMMAND } from "@/lib/miner/npm-package";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { EMPTY_LIVE, MINING_EVENT_NAMES, applyLiveEvent, deriveMiningState, formatAge, formatElapsed, liveEstimate, miningTopic, type LiveModel, type MiningEvent, type MiningState } from "@/lib/live/events";
 import { LiveController, type RealtimeStatus } from "@/lib/live/controller";
@@ -183,6 +185,25 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
         <dt className="text-[var(--faint)]">Live updates</dt>
         <dd>{realtime === "connected" ? "REALTIME" : realtime === "disconnected" ? "RECONNECTING · 5 s FALLBACK" : "CONNECTING"}</dd>
       </dl>
+
+      {/* A miner this account has run before, that is not running now. The fix
+          is almost always just to start it again, so say exactly how, with the
+          command ready to paste. The device key stays on the PC, so starting it
+          resumes the same pairing; no new sign-in unless the device was removed. */}
+      {!summary.miner.online && summary.miner.lastSeenAt && (
+        <div className="mt-3 rounded-md border border-[var(--warn)] px-3 py-2.5">
+          <p className="text-[11px] font-medium text-[var(--warn)]">Your miner is not running, so nothing on this PC is being mined.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+            If you installed it, open USAGE Miner from the Start menu. Otherwise paste this into PowerShell. Either way it picks up where it left off.
+          </p>
+          <div className="mt-2">
+            <CopyCommand command={NPX_COMMAND} label="Start USAGE Miner" />
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-[var(--faint)]">
+            Needs Node.js. If the window asks you to sign in, this computer was removed from your account; signing in pairs it again.
+          </p>
+        </div>
+      )}
 
       {current && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
