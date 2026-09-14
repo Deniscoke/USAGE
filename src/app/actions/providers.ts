@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { SECOND_FACTOR_REQUIRED_MESSAGE, sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 import type { ProviderStatusView } from "@/lib/providers/status-view";
 import { createConnectionStore, ConnectionError } from "@/lib/providers/connections";
 import { getProtocol } from "@/lib/protocols/registry";
@@ -47,6 +48,9 @@ async function requireUser() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to connect a provider." as const };
+  // Pairing a device, changing mining or a provider connection all need the
+  // second factor on an account that has one, not just the password.
+  if (!(await sessionSatisfiesSecondFactor(supabase))) return { error: SECOND_FACTOR_REQUIRED_MESSAGE };
 
   return { supabase, user };
 }

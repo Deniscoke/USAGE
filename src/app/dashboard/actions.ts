@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { SECOND_FACTOR_REQUIRED_MESSAGE, sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 import { createSupabaseIngestStore } from "@/lib/db/supabase-store";
 import { ingestDemoUsage } from "@/lib/db/ingest";
 import { HISTORY_DAYS } from "@/lib/pipeline/dashboard";
@@ -40,6 +41,7 @@ export async function loadDemoUsage(): Promise<DemoIngestState> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  if (!(await sessionSatisfiesSecondFactor(supabase))) return { error: SECOND_FACTOR_REQUIRED_MESSAGE };
 
   try {
     const store = createSupabaseIngestStore(createAdminSupabase());

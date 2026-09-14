@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
 import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard";
@@ -22,6 +23,7 @@ export async function GET(): Promise<Response> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  if (!(await sessionSatisfiesSecondFactor(supabase))) return NextResponse.json({ error: "mfa_required" }, { status: 401 });
 
   const now = new Date();
   const [snapshot, devices] = await Promise.all([

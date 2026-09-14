@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 import {
   buildAuthorizeUrl,
   createOAuthState,
@@ -35,6 +36,8 @@ export async function GET(
   // Only a signed-in user can start a flow, so a pending attempt always has an
   // owner and the callback never has to trust the browser about who it is.
   if (!user) redirect(`/login?next=/api/providers/oauth/${slug}/start`);
+  // Connecting a provider on an account with a second factor needs that factor.
+  if (supabase && !(await sessionSatisfiesSecondFactor(supabase))) redirect(`/login/verify?next=/providers/add`);
 
   const pkce = createPkcePair();
   const state = createOAuthState();

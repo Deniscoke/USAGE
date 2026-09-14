@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { SECOND_FACTOR_REQUIRED_MESSAGE, sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 import { createSupabaseMinerStore } from "@/lib/miner/credentials";
 import { findProvider, isUsable } from "@/lib/providers/catalog";
 import { getComputeGateway } from "@/lib/compute/registry";
@@ -44,6 +45,9 @@ async function requireUser() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in to manage mining." as const };
+  // Pairing a device, changing mining or a provider connection all need the
+  // second factor on an account that has one, not just the password.
+  if (!(await sessionSatisfiesSecondFactor(supabase))) return { error: SECOND_FACTOR_REQUIRED_MESSAGE };
 
   return { supabase, user };
 }

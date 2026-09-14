@@ -1,6 +1,7 @@
 import "server-only";
 import type { MinerAuthResult } from "@/lib/miner/credentials";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { sessionSatisfiesSecondFactor } from "@/lib/auth/assurance";
 
 /**
  * The signed-in browser, as an identity the gateway understands.
@@ -22,6 +23,9 @@ export async function authenticateWebSession(): Promise<MinerAuthResult> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, reason: "missing" };
+  // A password is not enough on an account with a second factor: this session
+  // spends USAGE's key and the wallet, so it must have passed the factor too.
+  if (!(await sessionSatisfiesSecondFactor(supabase))) return { ok: false, reason: "mfa_required" };
 
   return {
     ok: true,

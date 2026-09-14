@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createGatewayRoute } from "@/lib/gateway/handler";
 import { resolveConnectionGateway } from "@/lib/gateway/connection-gateway";
 import { authenticateWebSession } from "@/lib/chat/auth";
+import { SECOND_FACTOR_REQUIRED_MESSAGE } from "@/lib/auth/assurance";
 import { sanitizeChatBody } from "@/lib/chat/body";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/chat/system-prompt";
 import { systemPromptWith } from "@/lib/chat/preferences";
@@ -86,7 +87,9 @@ const sharedChat = createGatewayRoute({
 
 export async function POST(request: NextRequest): Promise<Response> {
   const auth = await authenticateWebSession();
-  if (!auth.ok) return openAiError(401, "authentication_error", "Sign in to chat.");
+  if (!auth.ok) {
+    return openAiError(401, "authentication_error", auth.reason === "mfa_required" ? SECOND_FACTOR_REQUIRED_MESSAGE : "Sign in to chat.");
+  }
   if (!isSupabaseConfigured()) return openAiError(503, "api_error", "USAGE is not configured.");
   const userId = auth.identity.userId;
 

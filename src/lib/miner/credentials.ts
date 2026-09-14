@@ -64,7 +64,7 @@ export function hasScope(identity: MinerIdentity, scope: MinerScope): boolean {
 
 export type MinerAuthResult =
   | { ok: true; identity: MinerIdentity }
-  | { ok: false; reason: "missing" | "malformed" | "unknown" | "revoked" | "expired" };
+  | { ok: false; reason: "missing" | "malformed" | "unknown" | "revoked" | "expired" | "mfa_required" };
 
 export interface MinerCredentialStore {
   findByTokenHash(tokenHash: string): Promise<(MinerCredentialRow & { id: string }) | null>;
