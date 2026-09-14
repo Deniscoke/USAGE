@@ -217,3 +217,35 @@ export function ActivityFeed({ view }: { view: DeviceView }) {
     </ul>
   );
 }
+
+/**
+ * Revoked devices and superseded pairings, folded into one line.
+ *
+ * Kept visible on purpose -- they are the record of every credential this
+ * account ever issued -- but one row each, and closed until asked for.
+ */
+export function EarlierPairings({ views, className = "" }: { views: DeviceView[]; className?: string }) {
+  if (views.length === 0) return null;
+  return (
+    <details className={`group ${className}`}>
+      <summary className="cursor-pointer list-none text-[11px] text-[var(--muted)] hover:text-[var(--foreground)]">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> Earlier pairings (
+        {views.length})
+        <span className="ml-2 text-[10px] text-[var(--faint)]">revoked or replaced · kept for your records</span>
+      </summary>
+      <ul className="mt-2 max-h-64 divide-y divide-[var(--border)] overflow-y-auto rounded-md border border-[var(--border)]">
+        {views.map((view) => (
+          <li key={view.device.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <Link href={`/miners/${view.device.id}`} className="min-w-0 truncate text-xs hover:underline">
+              {view.device.name}
+              <span className="tnum ml-2 text-[10px] text-[var(--faint)]">
+                v{view.device.app_version} · paired {view.device.created_at.slice(0, 10)}
+              </span>
+            </Link>
+            <DeviceStatus view={view} />
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}

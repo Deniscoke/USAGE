@@ -92,7 +92,7 @@ export function MinerStatus({
           >
             Open troubleshooting
           </Link>
-          <DownloadButton label="Download latest version" />
+          <DownloadButton label="Get USAGE Miner" />
         </div>
         <UpdateNotice presence={presence} />
       </div>

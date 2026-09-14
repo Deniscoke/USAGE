@@ -14,7 +14,8 @@ import { loadDashboardSnapshot } from "@/lib/db/usage-repository";
 import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard";
 import type { ActivityItem } from "@/lib/product/activity";
 import { loadDeviceViews } from "@/lib/miner/device-view";
-import { TodayFigures } from "@/components/miner-device";
+import { groupDeviceViews } from "@/lib/miner/device-groups";
+import { EarlierPairings, TodayFigures } from "@/components/miner-device";
 import { MinerStatus } from "@/components/miner-status";
 import { loadDistribution } from "@/lib/miner/distribution-source";
 import { minerPresence } from "@/lib/miner/presence";
@@ -61,6 +62,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     loadDistribution(),
   ]);
   const data = buildDashboardView({ ...snapshot, now });
+  const deviceGroups = groupDeviceViews(devices);
   const presence = minerPresence({
     devices,
     latestVersion: distribution.version,
@@ -208,9 +210,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
               <MinerStatus presence={presence} distribution={distribution} />
 
-              {devices.length > 0 && (
+              {deviceGroups.current.length > 0 && (
                 <ul className="mt-4 divide-y divide-[var(--border)] border-t border-[var(--border)] pt-3">
-                  {devices.map((view) => (
+                  {deviceGroups.current.map((view) => (
                     <li key={view.device.id} className="py-3 first:pt-0 last:pb-0">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <Link href={`/miners/${view.device.id}`} className="text-xs hover:underline">
@@ -257,6 +259,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   ))}
                 </ul>
               )}
+              <EarlierPairings views={deviceGroups.earlier} className="mt-4 border-t border-[var(--border)] pt-3" />
               <p className="mt-3 text-[10px] leading-relaxed text-[var(--faint)]">
                 Tracked ≠ verified ≠ reward-eligible. Only compute USAGE can confirm with a record of its
                 own enters mining, and free compute stays at zero.

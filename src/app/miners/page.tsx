@@ -2,10 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppNav, PrivacyNote } from "@/components/product";
 import { Panel } from "@/components/ui";
-import { DeviceCard } from "@/components/miner-device";
+import { DeviceCard, EarlierPairings } from "@/components/miner-device";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { loadDeviceViews } from "@/lib/miner/device-view";
+import { groupDeviceViews } from "@/lib/miner/device-groups";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function MinersPage() {
 
   // Reads run as the user, so RLS decides what comes back.
   const devices = await loadDeviceViews(supabase, user.id);
+  const deviceGroups = groupDeviceViews(devices);
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
@@ -57,11 +59,17 @@ export default async function MinersPage() {
           </Link>
         </Panel>
       ) : (
-        <ul className="space-y-3">
-          {devices.map((view) => (
-            <DeviceCard key={view.device.id} view={view} />
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-3">
+            {deviceGroups.current.map((view) => (
+              <DeviceCard key={view.device.id} view={view} />
+            ))}
+          </ul>
+          <EarlierPairings
+            views={deviceGroups.earlier}
+            className={deviceGroups.current.length > 0 ? "mt-4" : ""}
+          />
+        </>
       )}
 
       <div className="mt-6">
