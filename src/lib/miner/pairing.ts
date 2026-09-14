@@ -7,6 +7,7 @@ import {
   generateUserCode,
   hashPollToken,
   normalizeUserCode,
+  parseInstallationId,
 } from "./pairing-codes";
 import { createSupabaseMinerStore } from "./credentials";
 
@@ -57,6 +58,7 @@ export interface PairingRequestView {
   deviceName: string;
   platform: string;
   appVersion: string;
+  installationId: string | null;
   createdAt: string;
   expiresAt: string;
 }
@@ -64,12 +66,70 @@ export interface PairingRequestView {
 export function createPairingStore(admin: SupabaseClient<Database>) {
   const credentials = createSupabaseMinerStore(admin);
 
+  /**
+   * Reuse this user's live row for the installation, or insert a new one, and
+   * point it at the new credential. Returns the credential it replaced, which
+   * the caller revokes only once the pairing is complete.
+   */
+  async function claimDeviceRow(
+    request: PairingRequestView,
+    userId: string,
+    credentialId: string,
+  ): Promise<{ id: string; replacedCredentialId: string | null }> {
+    if (request.installationId) {
+      const { data: previous, error: findError } = await admin
+        .from("miner_devices")
+        .select("id, credential_id")
+        .eq("user_id", userId)
+        .eq("installation_id", request.installationId)
+        .is("revoked_at", null)
+        .maybeSingle();
+      if (findError) throw new Error(`approvePairing: ${findError.message}`);
+
+      if (previous) {
+        const { error } = await admin
+          .from("miner_devices")
+          .update({
+            name: request.deviceName,
+            platform: request.platform,
+            app_version: request.appVersion,
+            credential_id: credentialId,
+            // The reinstalled miner registers the key it holds now.
+            public_key: null,
+            public_key_algorithm: null,
+            public_key_registered_at: null,
+          })
+          .eq("id", previous.id)
+          .eq("user_id", userId);
+        if (error) throw new Error(`approvePairing: ${error.message}`);
+        return { id: previous.id, replacedCredentialId: previous.credential_id };
+      }
+    }
+
+    const { data, error } = await admin
+      .from("miner_devices")
+      .insert({
+        user_id: userId,
+        name: request.deviceName,
+        platform: request.platform,
+        app_version: request.appVersion,
+        installation_id: request.installationId,
+        credential_id: credentialId,
+      })
+      .select("id")
+      .single();
+    if (error || !data) throw new Error(`approvePairing: ${error?.message}`);
+    return { id: data.id, replacedCredentialId: null };
+  }
+
   return {
     /** A device asks to be paired. Unauthenticated: nobody owns it yet. */
     async start(input: {
       deviceName: string;
       platform: string;
       appVersion: string;
+      /** Untrusted, from the device. Kept only when it is a well-formed id. */
+      installationId?: unknown;
     }): Promise<PairingStart> {
       const userCode = generateUserCode();
       const pollToken = generatePollToken();
@@ -82,6 +142,7 @@ export function createPairingStore(admin: SupabaseClient<Database>) {
           device_name: input.deviceName.slice(0, 60),
           platform: input.platform.slice(0, 40),
           app_version: input.appVersion.slice(0, 20),
+          installation_id: parseInstallationId(input.installationId),
         })
         .select("expires_at")
         .single();
@@ -94,7 +155,7 @@ export function createPairingStore(admin: SupabaseClient<Database>) {
     async lookup(userCode: string): Promise<PairingRequestView | null> {
       const { data } = await admin
         .from("miner_pairing_requests")
-        .select("id, user_code, device_name, platform, app_version, created_at, expires_at")
+        .select("id, user_code, device_name, platform, app_version, installation_id, created_at, expires_at")
         .eq("user_code", normalizeUserCode(userCode))
         .is("collected_at", null)
         .is("denied_at", null)
@@ -108,6 +169,7 @@ export function createPairingStore(admin: SupabaseClient<Database>) {
         deviceName: data.device_name,
         platform: data.platform,
         appVersion: data.app_version,
+        installationId: data.installation_id,
         createdAt: data.created_at,
         expiresAt: data.expires_at,
       };
@@ -118,49 +180,67 @@ export function createPairingStore(admin: SupabaseClient<Database>) {
      *
      * This is where ownership is established, and it is the only place: the
      * device never says who it belongs to. The credential is minted here and
-     * bound to both the approving user and the new device row.
+     * bound to both the approving user and the device row.
+     *
+     * The same installation pairing again reuses the approving user's live row
+     * for it (migration 0028), so mappings and local-event dedupe survive a
+     * sign-out. Its previous credential is revoked, and its signing key is
+     * cleared so the miner can register the key it holds now.
      */
     async approve(userCode: string, userId: string): Promise<{ deviceId: string } | null> {
       const request = await this.lookup(userCode);
       if (!request) return null;
 
-      const { data: device, error: deviceError } = await admin
-        .from("miner_devices")
-        .insert({
-          user_id: userId,
-          name: request.deviceName,
-          platform: request.platform,
-          app_version: request.appVersion,
-        })
-        .select("id")
-        .single();
-      if (deviceError || !device) throw new Error(`approvePairing: ${deviceError?.message}`);
-
+      // Mint first, revoke last: whatever fails in between, a device that was
+      // working keeps a working credential (the rule rotate() follows too).
       const minted = await credentials.create(userId, request.deviceName);
-      await admin
-        .from("usage_miner_credentials")
-        .update({ device_id: device.id })
-        .eq("id", minted.credentialId);
-      await admin
-        .from("miner_devices")
-        .update({ credential_id: minted.credentialId })
-        .eq("id", device.id);
 
-      // The plaintext token is parked on the pairing row for one collection.
-      // It is unreachable without the poll token, and cleared the moment the
-      // device picks it up.
-      const { error } = await admin
+      // Claim the request before touching any device. A second approval of the
+      // same code finds it taken and changes nothing.
+      const { data: claimed, error: claimError } = await admin
         .from("miner_pairing_requests")
         .update({
           approved_by: userId,
           approved_at: new Date().toISOString(),
           credential_id: minted.credentialId,
-          device_id: device.id,
-          pending_token: minted.token,
         })
         .eq("id", request.id)
-        .is("approved_at", null);
-      if (error) throw new Error(`approvePairing: ${error.message}`);
+        .is("approved_at", null)
+        .select("id");
+      if (claimError || (claimed ?? []).length === 0) {
+        await credentials.revoke(minted.credentialId).catch(() => undefined);
+        if (claimError) throw new Error(`approvePairing: ${claimError.message}`);
+        return null;
+      }
+
+      let device: { id: string; replacedCredentialId: string | null };
+      try {
+        device = await claimDeviceRow(request, userId, minted.credentialId);
+
+        const { error: bindError } = await admin
+          .from("usage_miner_credentials")
+          .update({ device_id: device.id })
+          .eq("id", minted.credentialId);
+        if (bindError) throw new Error(`approvePairing: ${bindError.message}`);
+
+        // The plaintext token is parked on the pairing row for one collection,
+        // and only now: until this write the device keeps polling "pending".
+        // It is unreachable without the poll token, and cleared the moment the
+        // device picks it up.
+        const { error } = await admin
+          .from("miner_pairing_requests")
+          .update({ device_id: device.id, pending_token: minted.token })
+          .eq("id", request.id);
+        if (error) throw new Error(`approvePairing: ${error.message}`);
+      } catch (failure) {
+        // Never delivered, so never usable -- but do not leave it live.
+        await credentials.revoke(minted.credentialId).catch(() => undefined);
+        throw failure;
+      }
+
+      if (device.replacedCredentialId && device.replacedCredentialId !== minted.credentialId) {
+        await credentials.revoke(device.replacedCredentialId);
+      }
 
       return { deviceId: device.id };
     },

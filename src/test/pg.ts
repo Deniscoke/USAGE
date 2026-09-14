@@ -74,6 +74,23 @@ as $$
     ''
   )::uuid;
 $$;
+
+-- Supabase's auth.jwt(): the whole claims object of the request.
+create or replace function auth.jwt()
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+$$;
+
+-- Mirrors the columns migration 0027 reads. Hosted Supabase types status as an
+-- enum; the policy compares it as text so both behave the same.
+create table auth.mfa_factors (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  status text not null default 'unverified'
+);
 `;
 
 export interface TestDb {
@@ -81,6 +98,13 @@ export interface TestDb {
   sql<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** Runs as a signed-in end user: role `authenticated` + their uid claim. */
   asUser<T = Record<string, unknown>>(userId: string, query: string, params?: unknown[]): Promise<T[]>;
+  /** As `asUser`, with extra JWT claims, e.g. `{ aal: "aal2" }`. */
+  asUserWithClaims<T = Record<string, unknown>>(
+    userId: string,
+    claims: Record<string, unknown>,
+    query: string,
+    params?: unknown[],
+  ): Promise<T[]>;
   /** Runs as the unauthenticated PostgREST role. */
   asAnon<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** Runs as trusted server-side ingestion. */
@@ -112,12 +136,13 @@ export async function createTestDb(): Promise<TestDb> {
     userId: string | null,
     query: string,
     params: unknown[] = [],
+    claims: Record<string, unknown> = {},
   ): Promise<T[]> {
     return db.transaction(async (tx) => {
       await tx.exec(`set local role ${role};`);
       if (userId) {
         await tx.query(`select set_config('request.jwt.claims', $1, true)`, [
-          JSON.stringify({ sub: userId, role }),
+          JSON.stringify({ sub: userId, role, ...claims }),
         ]);
       }
       const result = await tx.query<T>(query, params);
@@ -130,6 +155,8 @@ export async function createTestDb(): Promise<TestDb> {
       return (await db.query<T>(query, params)).rows;
     },
     asUser: (userId, query, params) => asRole("authenticated", userId, query, params ?? []),
+    asUserWithClaims: (userId, claims, query, params) =>
+      asRole("authenticated", userId, query, params ?? [], claims),
     asAnon: (query, params) => asRole("anon", null, query, params ?? []),
     asServiceRole: (query, params) => asRole("service_role", null, query, params ?? []),
     exec: async (script) => {

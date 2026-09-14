@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     return json({ error: "rate_limited" }, 429);
   }
 
-  let body: { deviceName?: unknown; platform?: unknown; appVersion?: unknown };
+  let body: { deviceName?: unknown; platform?: unknown; appVersion?: unknown; installationId?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
     deviceName: typeof body.deviceName === "string" ? body.deviceName : "Unnamed device",
     platform: typeof body.platform === "string" ? body.platform : "unknown",
     appVersion: typeof body.appVersion === "string" ? body.appVersion : "0.0.0",
+    installationId: body.installationId,
   });
 
   const origin = request.nextUrl.origin;

@@ -25,6 +25,7 @@ function view(overrides: {
     name: overrides.name ?? "DESKTOP-DENIS",
     platform: "win32",
     app_version: overrides.version ?? "0.4.5",
+    installation_id: null,
     credential_id: null,
     enabled_tools: [],
     public_key: null,

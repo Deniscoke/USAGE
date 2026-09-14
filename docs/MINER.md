@@ -473,14 +473,20 @@ explicit choice). It is a milestone of its own: a tray lifecycle, a fixed
 port with the same nonce/Origin protections, the helper command, an
 uninstall path that restores `settings.json`, and tests for all of it.
 
-## 8. Installation identity (designed, not applied)
+## 8. Installation identity (migration 0028)
 
 A pairing credential binds one device row to one account; an installation is
 the copy of USAGE Miner on a computer and outlives credentials. 0.4.2 mints a
-random `installation.json` id and sends it when pairing. The server-side
-half — `miner_devices.installation_id text null`, and `approve()` reusing the
-caller's unrevoked device row with the same installation id instead of
-inserting — is a schema change and waits for approval like every other one.
-Until then a re-pair creates a new device row; the website marks older live
-pairings "previous pairing" and never deletes them. A deliberate sign-out and
-sign-in to a different account is a new association by design.
+random `installation.json` id and sends it when pairing. Migration 0028 stores
+it (`miner_pairing_requests.installation_id`, `miner_devices.installation_id`,
+UUID-checked, one live row per account and installation), and `approve()`
+reuses the approving user's unrevoked row with that id instead of inserting.
+Tool mappings and local-event dedupe therefore survive a sign-out.
+
+Order inside `approve()`: mint the new credential, claim the pairing request
+(a second approval of the same code changes nothing), point the device row at
+the new credential and clear its signing key, bind the credential, park the
+token, and only then revoke the credential it replaced. A failure at any step
+leaves a working device working. A revoked device is never revived, and a
+different account is always a new association. Miners older than 0.4.2 send
+no id and pair exactly as before.

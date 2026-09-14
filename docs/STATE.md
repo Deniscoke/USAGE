@@ -72,6 +72,15 @@ milestone follow below.
   or provider key stored.
 - A fast, deep domain test suite (1,127 website tests, 160 miner tests).
 
+### Written 2026-09-14, awaiting the production go-ahead
+
+- **0027 second factor in RLS.** A restrictive policy on all 16 per-user tables:
+  an account with a verified factor reads its data only from an aal2 session.
+  Accounts without a factor are unaffected; public reference tables untouched.
+- **0028 installation identity.** Re-pairing the same PC reuses its device row
+  (docs/MINER.md §8). The pairing code writes the new column, so **0028 must be
+  applied before this code is deployed**, or pairing fails.
+
 ### Waiting on the owner
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).

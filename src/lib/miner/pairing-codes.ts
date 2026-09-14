@@ -42,3 +42,17 @@ export function normalizeUserCode(input: string): string {
   return cleaned.length === CODE_LENGTH ? `${cleaned.slice(0, 4)}-${cleaned.slice(4)}` : cleaned;
 }
 
+
+const INSTALLATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The miner's installation id, as sent on an unauthenticated pairing request.
+ *
+ * Anything that is not a UUID becomes null -- an unusable id just means a new
+ * device row, never a rejected pairing. The database repeats this check.
+ */
+export function parseInstallationId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim().toLowerCase();
+  return INSTALLATION_ID.test(id) ? id : null;
+}

@@ -393,6 +393,7 @@ export type MinerDeviceRow = {
   name: string;
   platform: string;
   app_version: string;
+  installation_id: string | null;
   credential_id: string | null;
   enabled_tools: string[];
   public_key: string | null;
@@ -415,6 +416,7 @@ export type MinerPairingRequestRow = {
   device_name: string;
   platform: string;
   app_version: string;
+  installation_id: string | null;
   approved_by: string | null;
   approved_at: string | null;
   credential_id: string | null;
