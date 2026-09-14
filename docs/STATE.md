@@ -1,5 +1,84 @@
 # STATE
 
+## Where things stand (2026-09-14)
+
+An honest summary, written after a whole-platform due-diligence review and a
+line review of everything committed on 2026-09-13/14. Details of each earlier
+milestone follow below.
+
+### Shipped since M17
+
+- **Wallet (M18).** `usage_wallet_entries` holds credits only; spend is derived
+  from `usage_events`, paginated past PostgREST's 1,000-row limit. Starting grant
+  $0.50. Public wallet ID `USG-XXXX-XXXX` (migrations 0024, 0025, 0026 applied).
+  Credit cannot buy points: the shared route is HELD and settlement counts only
+  `eligible`. Top-ups not built (needs a company, VAT, a processor).
+- **Two-factor authentication.** TOTP via Supabase Auth, no schema change.
+  Enforced on protected pages by the middleware AND on every session-authenticated
+  API and server action (`src/lib/auth/assurance.ts`, fails closed). Not yet
+  enforced in RLS (a restrictive aal2 policy is a migration awaiting approval).
+- **beta-v2 cutover hardening.** Late units carried across a pricing boundary are
+  held, not allowed to block a whole v2 epoch; the nightly cron looks back 7 days,
+  skips settled epochs and returns 500 on any refusal; the dashboard reads each
+  day's own scoring version and estimates with the effective pool
+  `floor(cap × min(N,B)/B) + floor`; copy that became false at cutover was fixed.
+- **Route sessions renew while the device runs**, up to 24 h from issue, so a
+  Claude Code session left open overnight keeps routing. Liveness is per device,
+  not per session (see `ROUTE_SESSION_MAX_LIFETIME_SECONDS`).
+- **Miner reliability (miner repo, unreleased 0.4.6).** Batched uploads (the old
+  path deadlocked after an outage over 200 events); buffer dedupe and atomic,
+  serialised writes; heartbeat on a Node timer, not the page poll; Codex
+  launch-only (persistent config broke a plain `codex`) with a route session
+  instead of the device credential; Codex cached tokens no longer counted twice;
+  an opt-in "measure Claude Code everywhere" switch that writes telemetry-only
+  settings to `~/.claude/settings.json` and restores prior values when turned off.
+- **Truthfulness.** "Your AI usage has value" removed; catalog routes on USAGE's
+  own credit say "route via", not "mine via"; points are called points, not a
+  balance; free-tier OpenRouter accounts are told to press Test after buying credit.
+- **Headers.** X-Frame-Options DENY, frame-ancestors 'none', nosniff, referrer
+  and permissions policies. No full CSP yet.
+
+### Weakest points, ranked by risk
+
+1. **Almost nobody's normal AI use can earn.** Only a paid OpenRouter account,
+   connected by sign-in, on one of 5 priced models. Subscriptions, direct
+   Anthropic/OpenAI keys and USAGE's own gateway never earn. Onboarding does not
+   say this up front; the three latest sign-ups have zero usage.
+2. **Points are acquirable at a fixed rate below the baseline** (100 per
+   protocol dollar under beta-v2) while PRODUCT.md still mentions a possible
+   future token. That combination is the main legal exposure. Needs a legal read
+   before any token language, and docs/PRODUCT.md, ARCHITECTURE.md (square-root
+   scoring) and `CURRENT_MINING_PROTOCOL` still describe dev-v1.
+3. **No Terms of Service or privacy notice** for an EU operator holding emails and
+   usage metadata.
+4. **Operations are one person.** No CI in this repo, manual deploys, no alert
+   when settlement fails (the cron fails loudly, but nobody is paged).
+5. **The operator is the root of trust.** The receipt signing key is a Vercel
+   environment variable; OIDC trust is not configured.
+6. **Metering is still partial.** The miner sees only sessions it launched unless
+   the opt-in switch is on; OTel and routed records of the same request are not
+   correlated (provider `anthropic` vs `openrouter`); Codex routing via
+   `wire_api="chat"` is unproven on current Codex.
+7. **Duplicate device rows on re-pair** (mapping resets to off); the fix needs a
+   migration.
+
+### Strengths worth protecting
+
+- Proof status and reward decision are separate, and unknown is never zero.
+- One unit per compute, enforced by the database (global economic key, frozen
+  settled history).
+- Protocol, scoring and pricing are bound per epoch; history reproduces.
+- Privacy discipline: allowlisted chat body, schema-stripped telemetry, no prompt
+  or provider key stored.
+- A fast, deep domain test suite (1,127 website tests, 160 miner tests).
+
+### Waiting on the owner
+
+- Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
+- Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;
+  per-session route liveness; autostart/tray mode; migration 0023.
+- Decide onboarding copy for weakness 1 and the token wording for weakness 2.
+
 ## Current milestone
 
 **M17 — USAGE Chat (2026-09-12).** A second front door: sign in and talk to a
@@ -63,8 +142,10 @@ day, a non-fixed-pool epoch, a calibration epoch, an already-settled epoch, and
 a settlement that does not distribute its pool. Naming a day explicitly is the
 only way to settle one still in progress.
 
-**Migration 0022 is written and NOT applied.** It adds a nullable
-`usage_events.cache_write_tokens`. Nothing is lost without it: the value is
+**Migration 0023 is written and NOT applied** (this paragraph once called it
+0022, which is the beta-v2 cutover and IS applied). It lives in
+`supabase/pending/` since 2026-09-14, so a plain `supabase db push` no longer
+tries to apply it. It adds a nullable `usage_events.cache_write_tokens`. Nothing is lost without it: the value is
 already in `raw_metadata` (71099 on the proving request, which is what makes 27
 cents out of 71 visible tokens). Apply it before deploying any code that writes
 the column.
