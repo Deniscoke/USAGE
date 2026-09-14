@@ -65,7 +65,7 @@ export default function LandingPage() {
               href="/download"
               className="rounded-md border border-[var(--border-strong)] px-5 py-2.5 text-sm text-[var(--muted)] transition-colors hover:border-[var(--verified)] hover:text-[var(--foreground)]"
             >
-              Download for Windows
+              Get USAGE Miner
             </Link>
             <Link
               href="/providers"

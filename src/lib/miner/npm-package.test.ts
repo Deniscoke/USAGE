@@ -40,7 +40,7 @@ describe("readPackument", () => {
   });
 
   it("prints the command a reader can paste", () => {
-    expect(NPX_COMMAND).toBe(`npx ${NPM_PACKAGE_NAME}`);
+    expect(NPX_COMMAND).toBe(`npx ${NPM_PACKAGE_NAME}@latest`);
     expect(NPM_PACKAGE_NAME).toBe("usage-miner");
   });
 });

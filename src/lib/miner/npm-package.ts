@@ -14,7 +14,12 @@
  */
 
 export const NPM_PACKAGE_NAME = "usage-miner";
-export const NPX_COMMAND = `npx ${NPM_PACKAGE_NAME}`;
+/**
+ * `@latest`, not the bare name: npx reuses whatever copy it cached the first
+ * time, so a bare `npx usage-miner` keeps starting an old miner forever. Asking
+ * for `latest` makes every start pick up a published release.
+ */
+export const NPX_COMMAND = `npx ${NPM_PACKAGE_NAME}@latest`;
 
 export interface NpmPackage {
   published: boolean;

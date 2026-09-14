@@ -42,7 +42,7 @@ function UpdateNotice({ presence }: { presence: MinerPresence }) {
         href="/download"
         className="mt-2 inline-block text-[11px] text-[var(--routed)] hover:underline"
       >
-        Download the current build →
+        Get the current release →
       </Link>
     </div>
   );
@@ -66,7 +66,7 @@ export function MinerStatus({
           starts them through USAGE, and your compute is verified as you work.
         </p>
         <div className="mt-3">
-          <DownloadButton label="Download for Windows" />
+          <DownloadButton label="Get USAGE Miner" />
         </div>
       </div>
     );

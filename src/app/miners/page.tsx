@@ -5,7 +5,6 @@ import { Panel } from "@/components/ui";
 import { DeviceCard } from "@/components/miner-device";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { loadDistribution } from "@/lib/miner/distribution-source";
 import { loadDeviceViews } from "@/lib/miner/device-view";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +21,7 @@ export default async function MinersPage() {
   if (!user) redirect("/login?next=/miners");
 
   // Reads run as the user, so RLS decides what comes back.
-  const [devices, distribution] = await Promise.all([
-    loadDeviceViews(supabase, user.id),
-    // The version people are offered comes from the published release, never
-    // from a constant compiled into this server -- that constant is how the
-    // site came to advertise 0.3.0 while the miner was at 0.4.5.
-    loadDistribution(),
-  ]);
+  const devices = await loadDeviceViews(supabase, user.id);
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
@@ -60,7 +53,7 @@ export default async function MinersPage() {
             href="/download"
             className="mt-4 inline-block rounded-md bg-[var(--foreground)] px-4 py-2 text-xs font-medium text-[var(--background)]"
           >
-            Install USAGE Miner {distribution.version}
+            Get USAGE Miner
           </Link>
         </Panel>
       ) : (
