@@ -95,7 +95,9 @@ export function breakdownOfObservation(row: LocalUsageObservationRow): UsageBrea
  * cache writes and reasoning live in the adapter's metadata. Reasoning is a
  * breakdown of output (already counted there), so it is reported, not added.
  */
-export function breakdownOfEvent(row: UsageEventRow): UsageBreakdown {
+export function breakdownOfEvent(
+  row: Pick<UsageEventRow, "input_tokens" | "output_tokens" | "cached_input_tokens" | "raw_metadata" | "requests">,
+): UsageBreakdown {
   return {
     inputTokens: int(row.input_tokens),
     outputTokens: int(row.output_tokens),
@@ -138,6 +140,35 @@ function toolForEvent(event: UsageEventRow): string {
   const client = String(event.raw_metadata?.client_type ?? "");
   if (client === "claude-code" || client === "codex" || client === "gemini-cli") return client;
   return "usage-gateway";
+}
+
+/**
+ * Today's TRACKED breakdown, per tool id, with exactly `summarizeUsage`'s
+ * rules: unmatched observations under their own tool, trusted events under
+ * the tool their client type names (else "usage-gateway"), and a matched
+ * observation counted once, through its event. The values add up to
+ * `summarizeUsage(...).tracked`, by construction and by test.
+ *
+ * Categories and a request count only -- nothing economic. A tool with no
+ * usage has no key.
+ */
+export function trackedByTool(input: {
+  day: string;
+  observations: readonly LocalUsageObservationRow[];
+  events: readonly UsageEventRow[];
+}): Record<string, UsageBreakdown> {
+  const sameDay = (iso: string) => iso.slice(0, 10) === input.day;
+  const out: Record<string, UsageBreakdown> = {};
+  const add = (tool: string, b: UsageBreakdown) => {
+    out[tool] = addBreakdown(out[tool] ?? EMPTY_BREAKDOWN, b);
+  };
+  for (const o of input.observations) {
+    if (sameDay(o.occurred_at) && o.correlation_status !== "matched") add(o.tool_id, breakdownOfObservation(o));
+  }
+  for (const e of input.events) {
+    if (sameDay(e.occurred_at)) add(toolForEvent(e), breakdownOfEvent(e));
+  }
+  return out;
 }
 
 export function summarizeUsage(input: {

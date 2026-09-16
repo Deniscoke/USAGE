@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { requireLiveDevice } from "@/lib/miner/devices";
@@ -7,6 +7,8 @@ import { TELEMETRY_LIMITS } from "@/lib/miner/telemetry";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { broadcastLocalTracking } from "@/lib/live/broadcast";
+import { buildLocalTrackingEvents, type StoredLocalObservation } from "@/lib/live/local-tracking";
 
 /**
  * Normalized local observations arrive here.
@@ -63,11 +65,25 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "batch_too_large", max: TELEMETRY_LIMITS.maxObservationsPerBatch }, { status: 413 });
   }
 
+  const stored: StoredLocalObservation[] = [];
   const result = await ingestLocalObservations(admin, {
     userId: auth.identity.userId,
     device: device.device,
     items: body.observations,
+    onStored: (observation) => stored.push(observation),
   });
+
+  // Live "tracked" hint for the owner's open dashboard (M17B): after the
+  // response, best-effort, at most four small broadcasts per upload, no
+  // database write. Nothing economic is in it, and the verdicts above never
+  // depend on whether it is delivered.
+  const userId = auth.identity.userId;
+  const events = buildLocalTrackingEvents(stored);
+  if (events.length > 0) {
+    after(async () => {
+      await broadcastLocalTracking(admin, userId, events);
+    });
+  }
 
   return Response.json(result, { headers: { "cache-control": "no-store" } });
 }

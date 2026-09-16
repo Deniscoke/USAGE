@@ -21,6 +21,11 @@ describe("routeDecision", () => {
     }
   });
 
+  it("protects the analytics page like the dashboard", () => {
+    expect(routeDecision("/analytics", false)).toEqual({ kind: "redirect", to: "/login", withNext: "/analytics" });
+    expect(routeDecision("/analytics", true)).toEqual({ kind: "allow" });
+  });
+
   it("lets an authenticated user into the dashboard", () => {
     expect(routeDecision("/dashboard", true)).toEqual({ kind: "allow" });
   });

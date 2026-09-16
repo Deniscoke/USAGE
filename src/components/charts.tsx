@@ -1,4 +1,4 @@
-import { formatUsd, microsToUsd } from "@/lib/domain/money";
+import { formatTokens, formatUsd, microsToUsd } from "@/lib/domain/money";
 import type { SeriesPoint } from "@/lib/pipeline/dashboard";
 
 /**
@@ -113,4 +113,89 @@ export function ScoreSparkline({ series }: { series: readonly SeriesPoint[] }) {
 
 export function usdAxisLabel(micros: number): string {
   return `$${microsToUsd(micros).toFixed(2)}`;
+}
+
+/** One day of tracked tokens, category by category, for the local lane. */
+export interface LocalDayTokens {
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+/**
+ * Local subscription usage by day (M17B). Colour encodes verification level
+ * only, so every layer is the reported grey; categories differ by opacity and
+ * are named in the legend and in each bar's tooltip.
+ */
+export const LOCAL_DAY_LAYERS = [
+  { key: "inputTokens", label: "Input", opacity: 1 },
+  { key: "outputTokens", label: "Output", opacity: 0.75 },
+  { key: "cacheReadTokens", label: "Cache read", opacity: 0.45 },
+  { key: "cacheWriteTokens", label: "Cache write", opacity: 0.22 },
+] as const;
+
+export function LocalTokensByDayChart({ days }: { days: readonly LocalDayTokens[] }) {
+  if (days.length === 0) return null;
+  const totalOf = (d: LocalDayTokens) => d.inputTokens + d.outputTokens + d.cacheReadTokens + d.cacheWriteTokens;
+  const max = Math.max(...days.map(totalOf), 1);
+  const slot = CHART.width / days.length;
+  const barWidth = Math.max(slot - Math.max(CHART.gap, slot * 0.2), 1);
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+        preserveAspectRatio="none"
+        className="h-44 w-full"
+        role="img"
+        aria-label="Tokens tracked locally per day, by category"
+      >
+        {[0.25, 0.5, 0.75, 1].map((tick) => (
+          <line
+            key={tick}
+            x1={0}
+            x2={CHART.width}
+            y1={CHART.height * (1 - tick)}
+            y2={CHART.height * (1 - tick)}
+            stroke="var(--border)"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        {days.map((d, index) => {
+          let offset = 0;
+          return (
+            <g key={d.day}>
+              <title>{`${d.day} — ${LOCAL_DAY_LAYERS.map((l) => `${l.label} ${formatTokens(d[l.key])}`).join(" · ")}`}</title>
+              <rect x={index * slot} y={0} width={slot} height={CHART.height} fill="transparent" />
+              {LOCAL_DAY_LAYERS.map((layer) => {
+                const height = (d[layer.key] / max) * (CHART.height - 6);
+                const y = CHART.height - offset - height;
+                offset += height;
+                if (height <= 0) return null;
+                return (
+                  <rect
+                    key={layer.key}
+                    x={index * slot + (slot - barWidth) / 2}
+                    y={y}
+                    width={barWidth}
+                    height={height}
+                    fill="var(--reported)"
+                    opacity={layer.opacity}
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="mt-2 flex items-center justify-between text-[10px] text-[var(--faint)]">
+        <span className="tnum">{days[0]?.day}</span>
+        <span className="tnum">peak {formatTokens(max)} tokens / day</span>
+        <span className="tnum">{days[days.length - 1]?.day}</span>
+      </div>
+    </div>
+  );
 }

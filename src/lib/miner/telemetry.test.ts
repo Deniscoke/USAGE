@@ -62,6 +62,49 @@ describe("validateIncoming", () => {
     }
   });
 
+  it("M17B: an upload that tries to make local usage confirmed, eligible, priced, compute or points is refused by name", () => {
+    const attempts: Array<[string, unknown]> = [
+      ["proof_status", "confirmed"],
+      ["proofStatus", "confirmed"],
+      ["verification_status", "confirmed"],
+      ["verificationStatus", "confirmed"],
+      ["economic_status", "eligible"],
+      ["economicStatus", "eligible"],
+      ["funding_class", "metered_paid"],
+      ["fundingClass", "metered_paid"],
+      ["actualCost", "0.0123"],
+      ["actual_cost_micros", 12_300],
+      ["cost_basis", "provider_reported"],
+      ["costBasis", "provider_reported"],
+      ["actual_cost_basis", "provider_reported"],
+      ["eligible_compute", 5_000],
+      ["eligibleCompute", 5_000],
+      ["eligible_compute_micros", 5_000],
+      ["eligibleComputeMicros", 5_000],
+      ["protocol_compute", 5_000],
+      ["protocolCompute", 5_000],
+      ["protocol_compute_micros", 5_000],
+      ["protocolComputeMicros", 5_000],
+      ["economicCompute", "provider"],
+      ["points", 100],
+      ["rewardPoints", 100],
+      ["usage_points", 100],
+      ["claimable", true],
+    ];
+    for (const [key, value] of attempts) {
+      const r = validateIncoming({ observation: { ...good, [key]: value }, signature: null });
+      expect(r.ok, key).toBe(false);
+      if (!r.ok) expect(r.reason, key).toBe(`forbidden_field:${key}`);
+    }
+    // And all of them at once, on an otherwise perfect observation.
+    const everything = Object.fromEntries(attempts);
+    expect(validateIncoming({ observation: { ...good, ...everything }, signature: null }).ok).toBe(false);
+    // Beside the observation they are simply not read: nothing of them reaches what is stored.
+    const outside = validateIncoming({ observation: good, signature: null, ...everything });
+    expect(outside.ok).toBe(true);
+    if (outside.ok) for (const key of Object.keys(everything)) expect(outside.observation, key).not.toHaveProperty(key);
+  });
+
   it("rejects unknown fields rather than ignoring them", () => {
     const r = validateIncoming({ observation: { ...good, prompt_hash: "x" }, signature: null });
     expect(r.ok).toBe(false);

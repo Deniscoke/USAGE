@@ -7,6 +7,7 @@ import {
   verifyDeviceSignature,
   type CorrelationCandidate,
 } from "./telemetry";
+import type { StoredLocalObservation } from "@/lib/live/local-tracking";
 
 /**
  * Store what a device observed, and nothing it is not entitled to say.
@@ -32,7 +33,16 @@ export interface IngestVerdicts {
 
 export async function ingestLocalObservations(
   admin: SupabaseClient<Database>,
-  input: { userId: string; device: MinerDeviceRow; items: unknown[] },
+  input: {
+    userId: string;
+    device: MinerDeviceRow;
+    items: unknown[];
+    /**
+     * Told about each observation once it is stored. Display-only (the live
+     * tracking hint); a throw here is swallowed and changes no verdict.
+     */
+    onStored?: (observation: StoredLocalObservation) => void;
+  },
 ): Promise<IngestVerdicts> {
   const out: IngestVerdicts = { accepted: 0, duplicate: 0, rejected: 0, matched: 0, conflict: 0, verdicts: {}, reasons: {} };
 
@@ -168,6 +178,22 @@ export async function ingestLocalObservations(
       continue;
     }
     if (!inserted) continue;
+
+    try {
+      input.onStored?.({
+        tool: observation.tool,
+        model: observation.model,
+        inputTokens: observation.inputTokens,
+        outputTokens: observation.outputTokens,
+        cacheReadTokens: observation.cacheReadTokens,
+        cacheWriteTokens: observation.cacheWriteTokens,
+        reasoningTokens: observation.reasoningTokens,
+        occurredAt: observation.occurredAt,
+        correlationStatus: decision.observation.correlationStatus,
+      });
+    } catch {
+      // Live display only; never part of what an upload decides.
+    }
 
     if (decision.event?.kind === "match") {
       // The whole of what a match may change on a trusted event. Note what

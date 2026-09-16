@@ -49,6 +49,9 @@ export function AppNav({ email, right }: { email?: string; right?: ReactNode }) 
           <Link href="/dashboard" className="hover:text-[var(--foreground)]">
             Mining
           </Link>
+          <Link href="/analytics" className="hover:text-[var(--foreground)]">
+            Analytics
+          </Link>
           <Link href="/providers" className="hover:text-[var(--foreground)]">
             Providers
           </Link>

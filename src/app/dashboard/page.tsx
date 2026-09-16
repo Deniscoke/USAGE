@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ScoreSparkline, StackedUsageChart } from "@/components/charts";
 import { DemoIngestButton } from "@/components/demo-ingest-button";
@@ -15,7 +16,10 @@ import { buildDashboardView, dashboardSinceDay } from "@/lib/pipeline/dashboard"
 import type { ActivityItem } from "@/lib/product/activity";
 import { loadDeviceViews } from "@/lib/miner/device-view";
 import { groupDeviceViews } from "@/lib/miner/device-groups";
-import { EarlierPairings, TodayFigures } from "@/components/miner-device";
+import { EarlierPairings } from "@/components/miner-device";
+import { LocalOnlyChip, LocalTodayByTool, LocalUsageNote } from "@/components/local-ai-usage";
+import { LiveLocalTracking, LiveTrackingBoundary } from "@/components/live-local-tracking";
+import { LOCAL_AI_USAGE_COPY, loadLocalAiUsage, summarizeLocalAiUsage, utcDay } from "@/lib/miner/local-ai-usage";
 import { MinerStatus } from "@/components/miner-status";
 import { loadDistribution } from "@/lib/miner/distribution-source";
 import { minerPresence } from "@/lib/miner/presence";
@@ -54,14 +58,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (!user) redirect("/login?next=/dashboard");
 
   const now = new Date();
-  const [snapshot, devices, distribution] = await Promise.all([
+  const [snapshot, devices, distribution, localToday] = await Promise.all([
     loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now)),
     loadDeviceViews(supabase, user.id),
     // Cached upstream; a slow or rate-limited GitHub degrades to the pinned
     // build rather than delaying the dashboard.
     loadDistribution(),
+    // The local subscription lane, today. Analytics only: it is read here and
+    // rendered in its own area, and nothing economic below receives it. A
+    // failed read hides that area's figures rather than the dashboard.
+    loadLocalAiUsage(supabase, user.id, utcDay(now), now).catch(() => null),
   ]);
   const data = buildDashboardView({ ...snapshot, now });
+  const localReport = localToday
+    ? summarizeLocalAiUsage({ observations: localToday.observations, range: "today", now, truncated: localToday.truncated })
+    : null;
   const deviceGroups = groupDeviceViews(devices);
   const presence = minerPresence({
     devices,
@@ -86,7 +97,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }
       />
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <LaneHeading
+        id="verified-compute"
+        title="Verified compute"
+        sub="Economic records USAGE wrote on its own servers, labelled by evidence level. Only this area counts toward mining and Usage Points."
+        tone="var(--verified)"
+      />
+      <section aria-labelledby="verified-compute" className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <BalanceHeadline
           settled={formatNumber(data.settledPoints)}
           estimated={formatNumber(data.epoch.estimatedPoints)}
@@ -206,67 +223,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </Panel>
           </section>
 
-          <section className="mt-4">
-            <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
-              <MinerStatus presence={presence} distribution={distribution} />
-
-              {deviceGroups.current.length > 0 && (
-                <ul className="mt-4 divide-y divide-[var(--border)] border-t border-[var(--border)] pt-3">
-                  {deviceGroups.current.map((view) => (
-                    <li key={view.device.id} className="py-3 first:pt-0 last:pb-0">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Link href={`/miners/${view.device.id}`} className="text-xs hover:underline">
-                          {view.device.name}
-                        </Link>
-                        <span
-                          className="text-[10px] uppercase tracking-[0.1em]"
-                          style={{ color: view.revoked ? "var(--reported)" : view.online ? "var(--verified)" : "var(--faint)" }}
-                        >
-                          {view.revoked ? "Revoked" : view.online ? "● Online" : "Offline"}
-                        </span>
-                      </div>
-                      <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-                        {view.tools
-                          .filter((t) => t.detected || t.mapped)
-                          .map((t) => (
-                            <li key={t.tool.id} className="text-[10px]">
-                              <span
-                                style={{
-                                  color: t.mapped
-                                    ? t.verificationCapability === "provider_correlated"
-                                      ? "var(--verified)"
-                                      : "var(--routed)"
-                                    : "var(--faint)",
-                                }}
-                              >
-                                ●
-                              </span>{" "}
-                              {t.tool.displayName}{" "}
-                              <span className="text-[var(--muted)]">
-                                {t.mapped
-                                  ? t.verificationCapability === "provider_correlated"
-                                    ? "mapping active"
-                                    : "observed only"
-                                  : "not mapped"}
-                              </span>
-                            </li>
-                          ))}
-                      </ul>
-                      <div className="mt-3">
-                        <TodayFigures view={view} compact />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <EarlierPairings views={deviceGroups.earlier} className="mt-4 border-t border-[var(--border)] pt-3" />
-              <p className="mt-3 text-[10px] leading-relaxed text-[var(--faint)]">
-                Tracked ≠ verified ≠ reward-eligible. Only compute USAGE can confirm with a record of its
-                own enters mining, and free compute stays at zero.
-              </p>
-            </Panel>
-          </section>
-
           <details className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
             <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
               Protocol detail
@@ -358,10 +314,121 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </>
       )}
 
+      <LaneHeading
+        id="local-ai-usage"
+        title={LOCAL_AI_USAGE_COPY.title}
+        sub="Subscription usage your apps reported through USAGE Miner, today (UTC)."
+        tone="var(--reported)"
+        chip={<LocalOnlyChip withReward />}
+      />
+      <section aria-labelledby="local-ai-usage" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        {mountLive && (
+          <div className="mb-4">
+            <LiveTrackingBoundary>
+              <LiveLocalTracking userId={user.id} />
+            </LiveTrackingBoundary>
+          </div>
+        )}
+        {localReport ? (
+          <LocalTodayByTool report={localReport} />
+        ) : (
+          <p className="text-xs text-[var(--muted)]">Local AI usage could not be loaded just now. Reload to try again.</p>
+        )}
+        <div className="mt-4 flex flex-wrap items-baseline justify-between gap-3 border-t border-[var(--border)] pt-3">
+          <LocalUsageNote />
+          <Link href="/analytics" className="text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] hover:underline">
+            Usage analytics →
+          </Link>
+        </div>
+      </section>
+
+      <section className="mt-4">
+        <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
+          <MinerStatus presence={presence} distribution={distribution} />
+
+          {deviceGroups.current.length > 0 && (
+            <ul className="mt-4 divide-y divide-[var(--border)] border-t border-[var(--border)] pt-3">
+              {deviceGroups.current.map((view) => (
+                <li key={view.device.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link href={`/miners/${view.device.id}`} className="text-xs hover:underline">
+                      {view.device.name}
+                    </Link>
+                    <span
+                      className="text-[10px] uppercase tracking-[0.1em]"
+                      style={{ color: view.revoked ? "var(--reported)" : view.online ? "var(--verified)" : "var(--faint)" }}
+                    >
+                      {view.revoked ? "Revoked" : view.online ? "● Online" : "Offline"}
+                    </span>
+                  </div>
+                  <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                    {view.tools
+                      .filter((t) => t.detected || t.mapped)
+                      .map((t) => (
+                        <li key={t.tool.id} className="text-[10px]">
+                          <span
+                            style={{
+                              color: t.mapped
+                                ? t.verificationCapability === "provider_correlated"
+                                  ? "var(--verified)"
+                                  : "var(--routed)"
+                                : "var(--faint)",
+                            }}
+                          >
+                            ●
+                          </span>{" "}
+                          {t.tool.displayName}{" "}
+                          <span className="text-[var(--muted)]">
+                            {t.mapped
+                              ? t.verificationCapability === "provider_correlated"
+                                ? "mapping active"
+                                : "observed only"
+                              : "not mapped"}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                  {/* Per-device figures live on the device page; today's local
+                      totals are in "Local AI usage" above, so they are not
+                      repeated here in a second, differently-deduped form. */}
+                  <Link href={`/miners/${view.device.id}`} className="mt-2 inline-block text-[10px] text-[var(--muted)] hover:underline">
+                    Per-device breakdown →
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <EarlierPairings views={deviceGroups.earlier} className="mt-4 border-t border-[var(--border)] pt-3" />
+          <p className="mt-3 text-[10px] leading-relaxed text-[var(--faint)]">
+            Tracked ≠ verified ≠ reward-eligible. Only compute USAGE can confirm with a record of its
+            own enters mining, and free compute stays at zero.
+          </p>
+        </Panel>
+      </section>
+
       <div className="mt-6">
         <PrivacyNote />
       </div>
     </main>
+  );
+}
+
+/**
+ * The dashboard has two areas that must never read as one: verified compute
+ * (economic) and local AI usage (analytics). Each opens with this heading, in
+ * its lane's colour.
+ */
+function LaneHeading({ id, title, sub, tone, chip }: { id: string; title: string; sub: string; tone: string; chip?: ReactNode }) {
+  return (
+    <div className="mb-3 mt-8 flex flex-wrap items-end justify-between gap-2 border-b pb-2" style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)` }}>
+      <div>
+        <h2 id={id} className="text-[11px] font-medium uppercase tracking-[0.16em]" style={{ color: tone }}>
+          {title}
+        </h2>
+        <p className="mt-0.5 text-[11px] text-[var(--faint)]">{sub}</p>
+      </div>
+      {chip}
+    </div>
   );
 }
 

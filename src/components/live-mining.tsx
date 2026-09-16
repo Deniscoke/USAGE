@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CopyCommand } from "@/components/copy-command";
 import { NPX_COMMAND } from "@/lib/miner/npm-package";
 import { createBrowserSupabase } from "@/lib/supabase/client";
-import { EMPTY_LIVE, MINING_EVENT_NAMES, applyLiveEvent, deriveMiningState, formatAge, formatElapsed, liveEstimate, miningTopic, type LiveModel, type MiningEvent, type MiningState } from "@/lib/live/events";
+import { EMPTY_LIVE, MINING_EVENT_NAMES, applyLiveEvent, deriveMiningState, formatAge, formatElapsed, liveEstimate, type LiveModel, type MiningEvent, type MiningState } from "@/lib/live/events";
+import { acquireUserChannel, type RealtimeClientLike } from "@/lib/live/user-channel";
 import { LiveController, type RealtimeStatus } from "@/lib/live/controller";
 import type { MiningSummary } from "@/lib/live/summary";
 import { formatNumber, formatUsd } from "@/lib/domain/money";
@@ -80,46 +81,25 @@ export function LiveMining({ userId, initial, outputMicrosPerMillion }: { userId
   // component state -- "disconnected" with the 5 s fallback -- never a thrown
   // React error. That is the M16B.1 rule: transport trouble cannot unmount
   // the dashboard.
+  // The channel is shared with the local tracking strip (same private topic),
+  // so it is joined through the reference-counted hub rather than directly.
   useEffect(() => {
-    const supabase = createBrowserSupabase();
-    if (!supabase) {
-      controller.setRealtime("disconnected");
-      const id = window.setTimeout(() => setRealtime("disconnected"), 0);
-      return () => window.clearTimeout(id);
-    }
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    try {
-      channel = supabase.channel(miningTopic(userId), { config: { private: true } });
-      for (const name of MINING_EVENT_NAMES) {
-        channel.on("broadcast", { event: name }, (message: { payload?: unknown }) => {
-          try {
-            const event = message.payload as MiningEvent | undefined;
-            if (!event || typeof event !== "object" || typeof event.requestId !== "string" || typeof event.seq !== "number") return;
-            setModel((m) => applyLiveEvent(m, event));
-            setNow(Date.now());
-            if (controller.shouldRefetchAfter(event.name)) void refetch();
-          } catch {
-            // a malformed event is ignored; the next summary refetch reconciles
-          }
-        });
-      }
-      channel.subscribe((status) => {
-        const next: RealtimeStatus = status === "SUBSCRIBED" ? "connected" : status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" ? "disconnected" : "unknown";
+    const onEvent = (payload: unknown) => {
+      const event = payload as MiningEvent | undefined;
+      if (!event || typeof event !== "object" || typeof event.requestId !== "string" || typeof event.seq !== "number") return;
+      setModel((m) => applyLiveEvent(m, event));
+      setNow(Date.now());
+      if (controller.shouldRefetchAfter(event.name)) void refetch();
+    };
+    const events = Object.fromEntries(MINING_EVENT_NAMES.map((name) => [name, onEvent]));
+    return acquireUserChannel(createBrowserSupabase() as RealtimeClientLike | null, userId, {
+      events,
+      onStatus: (next: RealtimeStatus) => {
         controller.setRealtime(next);
         setRealtime(next);
         if (next === "connected") void refetch(); // reconcile anything missed while away
-      });
-    } catch {
-      controller.setRealtime("disconnected");
-      window.setTimeout(() => setRealtime("disconnected"), 0);
-    }
-    return () => {
-      try {
-        if (channel) void supabase.removeChannel(channel);
-      } catch {
-        // nothing to clean
-      }
-    };
+      },
+    });
   }, [userId, controller, refetch]);
 
   // Tab visibility: no cosmetic work in the background; one refetch on return.

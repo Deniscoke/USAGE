@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { authenticateMiner, createSupabaseMinerStore, hasScope } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
 import { requireLiveDevice } from "@/lib/miner/devices";
-import { summarizeUsage } from "@/lib/miner/usage-summary";
+import { summarizeUsage, trackedByTool } from "@/lib/miner/usage-summary";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { checkRateLimit } from "@/lib/gateway/observability";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -101,11 +101,14 @@ export async function GET(request: NextRequest) {
     todayEpochOpen: ((epochRow as { state?: string } | null)?.state ?? "open") === "open",
   });
 
-  const summary = summarizeUsage({
+  const usageInput = {
     day,
     observations: (observations ?? []) as LocalUsageObservationRow[],
     events: (events ?? []) as UsageEventRow[],
-  });
+  };
+  const summary = summarizeUsage(usageInput);
+  // Per tool, same rules, same rows: the values add up to `tracked`.
+  const byTool = trackedByTool(usageInput);
 
   return Response.json(
     {
@@ -126,6 +129,10 @@ export async function GET(request: NextRequest) {
       lastCredit: points.lastCredit,
       protocolVersion: todayProtocol.version,
       recent: summary.recent.slice(0, 10).map((r) => ({ tool: r.tool, model: r.model, tokens: r.tokens, breakdown: r.breakdown, status: r.status, at: r.at })),
+      // Today's tracked breakdown for THIS device, per tool id (M17B, miner
+      // 0.4.8+). Token categories and a request count only; a tool with no
+      // usage today has no key. Older windows ignore it.
+      byTool,
     },
     { headers: { "cache-control": "no-store" } },
   );

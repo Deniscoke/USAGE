@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { miningTopic, type MiningEvent } from "./events";
+import type { LocalTrackingEvent } from "./local-tracking";
 
 /**
  * Server → browser live events over Supabase Realtime Broadcast (M16B).
@@ -24,6 +25,47 @@ export async function broadcastMiningEvent(admin: SupabaseClient<Database>, user
   } catch {
     // Ephemeral by contract. Nothing economic depends on delivery.
   }
+}
+
+/**
+ * Local tracking hints (M17B), on the same private per-user topic -- the only
+ * one the 0021 policy authorises -- under their own event name.
+ *
+ * Best-effort in every direction: no events means no channel is opened; a
+ * failure to create the channel, to send, or to clean up is swallowed. The
+ * caller runs this after the upload response is built, so it can neither fail
+ * nor delay an upload. It performs no database write.
+ */
+export async function broadcastLocalTracking(
+  admin: Pick<SupabaseClient<Database>, "channel" | "removeChannel">,
+  userId: string,
+  events: readonly LocalTrackingEvent[],
+): Promise<{ sent: number; failed: number; skipped: boolean }> {
+  if (events.length === 0) return { sent: 0, failed: 0, skipped: true };
+  let sent = 0;
+  let failed = 0;
+  let channel: ReturnType<SupabaseClient<Database>["channel"]> | null = null;
+  try {
+    channel = admin.channel(miningTopic(userId), { config: { private: true } });
+    for (const event of events) {
+      try {
+        const result = await channel.httpSend(event.name, event as unknown as Record<string, unknown>);
+        if (result && typeof result === "object" && "success" in result && result.success === false) failed += 1;
+        else sent += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  } catch {
+    failed = events.length - sent;
+  } finally {
+    try {
+      if (channel) await admin.removeChannel(channel);
+    } catch {
+      // nothing to clean
+    }
+  }
+  return { sent, failed, skipped: false };
 }
 
 /** Per-request event sequencing, kept on the server for the request's lifetime. */

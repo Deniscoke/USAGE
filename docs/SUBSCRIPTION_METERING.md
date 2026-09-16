@@ -169,6 +169,80 @@ The official Anthropic sources below were re-read on 2026-09-17. Quotes are verb
   2. The owner has approved the economics.
 - **§5.7 / Phase 0a: done.** Log-sink audit: Vercel production logs for the last 30 days searched for `sk-ant-oat`, `sk-ant-api`, `authorization` and `Bearer`: 0 matches. DB text columns: 0 matches.
 
+## 1.3 Local subscription analytics (M17B, 2026-09-17)
+
+Three rules this section never bends:
+
+- **Tracked ≠ Verified.** Local AI usage is what an app on the user's PC reported about itself. USAGE cannot check it against a bill.
+- **Verified ≠ reward eligible.** Even verified compute earns only when the reward policy says so (paid, priced, funded by the user's own account).
+- **Subscription telemetry earns 0 today.** Nothing here promises that subscription usage will ever earn Usage Points or anything else.
+
+### 1.3.1 Pipeline
+
+```
+Claude Code / Codex / Gemini CLI  (started with "Track only", or Claude Code with "Measure everywhere")
+  │  official OpenTelemetry logs, OTLP/HTTP JSON, content switches forced off
+  ▼
+USAGE Miner loopback receiver (127.0.0.1, per-session secret)       ── one receiver for every tool
+  │  otlp.ts reads scalar log-record attributes only
+  │  mappings.ts names the only attributes read per tool           ── allowlist, not denylist
+  ▼
+local-usage-observation-v1  (closed field list, signed by the device key)
+  │  bounded, DPAPI-encrypted offline queue; the raw OTLP payload is discarded after normalization
+  ▼
+POST /api/miner/telemetry → validateIncoming (unknown or forbidden field rejects the item)
+  ▼
+local_usage_observations  (no economic columns; owner-readable via RLS)
+  ├─ correlation: an upstream request id that matches a trusted usage_event marks the row matched
+  ├─ realtime: tracking.local.observed on the owner's channel (tool, model, token deltas only)
+  └─ dashboard "Local AI usage", /analytics, miner window "Today" (byTool)
+```
+
+Canonical object: `src/lib/miner/local-ai-usage.ts`, with the lane constants from `src/lib/miner/local-usage-lane.ts`:
+source `local_telemetry`, verification `local_only`, economic compute `none`, reward points 0, claimable false. Every token category is `number | null`: unknown is never shown as 0.
+
+### 1.3.2 What is uploaded, and what never is
+
+Uploaded (per request): tool, adapter version, tool version, provider, model, provider request id (Claude Code only), input / output / cache read / cache write / reasoning / tool tokens, the tool's own cost estimate (Claude Code only, display-only), timestamp, a random per-launch session id and a retry-safe event id.
+
+Never uploaded: prompt or response text, tool arguments or output, source code, file contents, file or workspace paths, email, account or organization ids, skill / plugin / agent / MCP names, terminal identity, repository identity, command lines. The miner's `src/telemetry/privacy-upload.test.ts` feeds one realistic export per tool containing all of these through the real receiver → uploader and asserts on the exact HTTP body and on every file the miner writes.
+
+### 1.3.3 Lanes and dedupe
+
+- The dashboard has two areas: **Verified compute** (trusted economic records only) and **Local AI usage** (grey, "LOCAL ONLY · REWARD 0").
+- A local observation matched to a verified request is counted once, in the verified lane. Local totals exclude matched rows; the verified side shows how many of its requests were also tracked locally.
+- Local numbers feed none of: mining score, network share, network compute, reward estimate, live mining figures, settlement.
+- Server invariant: `validateIncoming` rejects any device field naming proof/verification/economic status, funding, cost authority, eligible or protocol compute, points, rewards or claimability; the PGlite test proves inserting observations changes no usage_events, ledger or economic rows.
+
+### 1.3.4 Coverage (from the implementation and its tests)
+
+Full table with source citations: USAGE-Miner `docs/COVERAGE.md`.
+
+| App / mode | Local telemetry | Input | Output | Cache | Reasoning | Request correlation | Limitations |
+|---|---|---|---|---|---|---|---|
+| Claude Code, started from USAGE | Yes | Yes | Yes | Read + write | No (null) | Anthropic `request_id` | Identity attributes on the wire, dropped |
+| Claude Code, started elsewhere | Only with "Measure everywhere" and the window open | Yes | Yes | Read + write | No | `request_id` | Nothing received while the window is closed |
+| Codex interactive, started from USAGE | Yes | Yes (cached subtracted) | Yes | Read + write | Yes | None | Last batch can be lost on slow shutdown |
+| Codex exec, started from USAGE | Yes | Yes | Yes | Read + write | Yes | None | A failing run exits before flushing |
+| Codex in an editor / app-server | No | — | — | — | — | — | DETECTED · USAGE DETAIL UNAVAILABLE |
+| Gemini CLI, started from USAGE | Yes | Yes (cached subtracted) | Yes | Read only | Thoughts + tool tokens | None | Gemini writes 0 for counts its API did not return |
+| Gemini CLI, started elsewhere | No | — | — | — | — | — | DETECTED · USAGE DETAIL UNAVAILABLE |
+
+Content safety per launch: Claude Code all five `OTEL_LOG_*` switches `0`; Codex `otel.log_user_prompt=false` plus a preflight refusing `log_user_prompt = true`; Gemini `GEMINI_TELEMETRY_LOG_PROMPTS=false` (env beats settings in gemini-cli 0.60.0) plus a preflight refusing `logPrompts` / `outfile` in settings.
+
+### 1.3.5 Storage and retention (audit 2026-09-17)
+
+| What | Where | How long today | Why |
+|---|---|---|---|
+| Normalized observations (metadata above) | `local_usage_observations` (Supabase, owner-readable RLS) | No automatic expiry; deleted with the device or account | Per-request analytics and correlation with verified requests |
+| Offline queue | Miner `%APPDATA%\USAGE`, DPAPI-encrypted, bounded | Until uploaded | Delivery when USAGE is unreachable |
+| Raw OTLP payloads | Miner memory only | Discarded after normalization | Never stored |
+| Live events | Supabase Realtime broadcast | Not persisted by USAGE | "TRACKING LIVE" strip |
+
+Production at audit time: 15 rows, 1 user, 2 devices, Claude Code only, oldest 2026-09-09.
+
+Proposed policy (**not applied**; needs owner approval because it deletes data): keep granular observations 90 days, keep per-user per-day per-tool per-model aggregates (token categories and request counts only) for 24 months, then delete. That needs a migration (aggregate table + scheduled job) and a user-visible note in the privacy text.
+
 ---
 
 ## 2. Provider matrix

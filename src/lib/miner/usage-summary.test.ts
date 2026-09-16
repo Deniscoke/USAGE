@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allTokens, freshTokens, summarizeUsage } from "./usage-summary";
+import { EMPTY_BREAKDOWN, addBreakdown, allTokens, freshTokens, summarizeUsage, trackedByTool, type UsageBreakdown } from "./usage-summary";
 import type { LocalUsageObservationRow, UsageEventRow } from "@/lib/supabase/database.types";
 
 /**
@@ -116,5 +116,46 @@ describe("economics are untouched by the breakdown", () => {
     });
     expect(s.eligibleComputeMicros).toBe(1_234);
     expect(s.verified.inputTokens).toBe(2);
+  });
+});
+
+describe("trackedByTool (the miner window's per-tool figures)", () => {
+  const sum = (byTool: Record<string, UsageBreakdown>) => Object.values(byTool).reduce(addBreakdown, EMPTY_BREAKDOWN);
+
+  it("groups today's tracked usage by tool and adds up to summarizeUsage's tracked", () => {
+    const input = {
+      day,
+      observations: [
+        obs(),
+        obs({ id: "o2", tool_id: "codex", provider: "openai", model: "gpt-6-astra", input_tokens: 22_058, output_tokens: 5, cache_read_tokens: 12_544, cache_write_tokens: 0, local_event_id: "e2" }),
+        obs({ id: "o3", tool_id: "gemini-cli", provider: "google", input_tokens: 10, output_tokens: 1, cache_read_tokens: null, cache_write_tokens: null, local_event_id: "e3" }),
+        obs({ id: "o4", occurred_at: "2026-09-09T23:59:59Z", local_event_id: "e4" }),
+      ],
+      events: [event({ id: "e9", raw_metadata: { client_type: "codex" } }), event({ id: "e10", raw_metadata: {} })],
+    };
+    const byTool = trackedByTool(input);
+    expect(Object.keys(byTool).sort()).toEqual(["claude-code", "codex", "gemini-cli", "usage-gateway"]);
+    expect(byTool["claude-code"]).toEqual({ inputTokens: 2, outputTokens: 18, cacheReadTokens: 28_726, cacheWriteTokens: 33_033, reasoningTokens: 0, requestCount: 1 });
+    expect(byTool.codex.requestCount).toBe(2);
+    expect(byTool.codex.inputTokens).toBe(22_060);
+    expect(byTool["gemini-cli"]).toEqual({ inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, requestCount: 1 });
+    expect(sum(byTool)).toEqual(summarizeUsage(input).tracked);
+  });
+
+  it("counts a matched observation once, under its event's tool", () => {
+    const input = { day, observations: [obs({ correlation_status: "matched", correlated_event_id: "e1" })], events: [event()] };
+    const byTool = trackedByTool(input);
+    expect(byTool).toEqual({ "claude-code": { inputTokens: 2, outputTokens: 18, cacheReadTokens: 28_726, cacheWriteTokens: 33_033, reasoningTokens: 7, requestCount: 1 } });
+    expect(sum(byTool)).toEqual(summarizeUsage(input).tracked);
+  });
+
+  it("has no key for an absent tool, and nothing but the breakdown fields", () => {
+    expect(trackedByTool({ day, observations: [], events: [] })).toEqual({});
+    const byTool = trackedByTool({ day, observations: [obs()], events: [event({ eligible_compute_micros: 9_999, reward_status: "eligible", raw_metadata: { client_type: "claude-code" } })] });
+    expect(Object.keys(byTool)).toEqual(["claude-code"]);
+    for (const breakdown of Object.values(byTool)) {
+      expect(Object.keys(breakdown).sort()).toEqual(Object.keys(EMPTY_BREAKDOWN).sort());
+    }
+    expect(JSON.stringify(byTool)).not.toMatch(/eligib|reward|compute|points|cost|verified|status/i);
   });
 });

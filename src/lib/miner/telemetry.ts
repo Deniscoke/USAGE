@@ -71,6 +71,13 @@ const FORBIDDEN_KEYS = [
   // M17A: a device cannot promote its own lane. Local telemetry is TRACKED.
   "verified", "verification", "verification_level", "verificationLevel", "claimable",
   "economic_authority", "economicAuthority", "trusted",
+  // M17B: every remaining spelling of status, cost authority, compute and
+  // points. Unknown keys were already refused; naming them makes the refusal
+  // say what was attempted.
+  "verificationStatus", "cost_basis", "costBasis", "actual_cost_basis", "actualCostBasis",
+  "eligible_compute", "eligibleCompute", "eligibleComputeMicros", "eligible_compute_pico", "eligibleComputePico",
+  "protocolComputeMicros", "protocol_compute_pico", "protocolComputePico", "economic_compute", "economicCompute",
+  "reward_points", "rewardPoints", "usagePoints", "miningScore", "reward_hold", "rewardHold",
 ];
 
 function optionalInt(value: unknown): number | null | undefined {

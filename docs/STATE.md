@@ -98,6 +98,15 @@ milestone follow below.
   AMBIGUOUS; they sit in settled epoch-2026-09-07 (100,000 dev-v1 points) and
   history is not rewritten. No credential found in DB text columns or 30 days
   of Vercel production logs. Owner: publish miner 0.4.7 (GitHub release + npm).
+- **M17B local subscription analytics (2026-09-17).** Local AI usage for Claude
+  Code, Codex and Gemini CLI: dashboard split into "Verified compute" and "Local
+  AI usage", new /analytics (today / 7d / 30d by tool, model, category, day),
+  live `tracking.local.observed` events ("TRACKING LIVE"), miner usage `byTool`.
+  Miner 0.4.8: Codex and Gemini content-safe launches with preflights, Gemini
+  cached-token double count fixed, home rows "what is happening right now",
+  final-upload privacy tests, docs/COVERAGE.md. Tracked != verified; reward 0;
+  no economic change. Retention proposal (90 d granular, 24 mo daily aggregates)
+  in docs/SUBSCRIPTION_METERING.md §1.3.5 awaits approval.
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;

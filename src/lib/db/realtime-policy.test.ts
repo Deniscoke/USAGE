@@ -47,6 +47,21 @@ describe("private mining channel policy", () => {
     expect(Number(all[0].n)).toBe(3);
   });
 
+  it("M17B: the local tracking event rides the same topic under the same rule, with no new policy", async () => {
+    // The policy authorises by topic and extension, never by event name, so a
+    // new event name needs no migration and gains no wider audience.
+    await db.asServiceRole(
+      `insert into realtime.messages (topic, extension, payload) values ($1, 'broadcast', '{"name":"tracking.local.observed"}'), ($2, 'broadcast', '{"name":"tracking.local.observed"}')`,
+      [`mining:${alice}`, `mining:${bob}`],
+    );
+    const q = `select count(*)::text as n from (select set_config('realtime.topic', $1, true)) s, realtime.messages m where m.topic = $1 and m.payload->>'name' = 'tracking.local.observed'`;
+    expect(Number((await db.asUser<{ n: string }>(alice, q, [`mining:${alice}`]))[0].n)).toBe(1);
+    expect(Number((await db.asUser<{ n: string }>(alice, q, [`mining:${bob}`]))[0].n)).toBe(0);
+    expect(Number((await db.asAnon<{ n: string }>(q, [`mining:${alice}`]))[0].n)).toBe(0);
+    const policies = await db.sql<{ n: string }>(`select count(*)::text as n from pg_policies where schemaname = 'realtime' and tablename = 'messages'`);
+    expect(Number(policies[0].n)).toBe(1);
+  });
+
   it("browsers cannot publish: no insert policy exists for authenticated", async () => {
     await expect(db.asUser(alice, `insert into realtime.messages (topic, extension, payload) values ($1, 'broadcast', '{}')`, [`mining:${alice}`])).rejects.toThrow(/permission denied|row-level security/);
   });

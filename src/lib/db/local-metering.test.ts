@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, type TestDb } from "@/test/pg";
+import { LOCAL_OBSERVATION_COLUMNS } from "@/lib/miner/local-ai-usage";
 
 /**
  * Migration 0017 against a real Postgres: the tables exist, the walls hold.
@@ -254,5 +255,65 @@ describe("wallet boundary", () => {
         where c.relname = 'wallet_connections' and d.classid = 'pg_rewrite'::regclass`,
     );
     expect(deps[0].n).toBe("0");
+  });
+});
+
+describe("M17B: local subscription usage creates nothing economic", () => {
+  async function rowCounts(): Promise<Record<string, number>> {
+    const tables = await db.sql<{ schema: string; name: string }>(
+      `select table_schema as schema, table_name as name from information_schema.tables
+        where table_type = 'BASE TABLE' and table_schema in ('public', 'realtime') order by 1, 2`,
+    );
+    const counts: Record<string, number> = {};
+    for (const t of tables) {
+      const [row] = await db.asServiceRole<{ n: string }>(`select count(*)::text as n from "${t.schema}"."${t.name}"`);
+      counts[`${t.schema}.${t.name}`] = Number(row.n);
+    }
+    return counts;
+  }
+
+  it("inserting local observations -- huge, cost-estimated, every tool -- adds rows to that table and no other", async () => {
+    const [codexMapping] = await db.asServiceRole<{ id: string }>(
+      `insert into miner_tool_mappings (device_id, user_id, tool_id, metering_method, verification_capability)
+       values ($1, $2, 'codex', 'native_otel', 'device_attested') returning id`,
+      [device, alice],
+    );
+    const ledgerBefore = await db.asServiceRole<{ total: string }>(`select coalesce(sum(amount),0)::text as total from usage_point_ledger where user_id = $1`, [alice]);
+    const before = await rowCounts();
+
+    const insert = `
+      insert into local_usage_observations
+        (user_id, device_id, mapping_id, schema_version, adapter, tool_id, source_type, provider, model, upstream_request_id,
+         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, estimated_cost_micros,
+         occurred_at, local_session_id, local_event_id)
+      values ($1,$2,$3,'local-usage-observation-v1',$4,$5,'native_otel',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'sess-m17b',$16)`;
+    await db.asServiceRole(insert, [alice, device, mapping, "claude-otel-adapter-v1", "claude-code", "anthropic", "claude-opus-5", "req_m17b_unmatched", 90_000_000, 90_000_000, 90_000_000, 90_000_000, null, 99_000_000, "2026-09-17T10:00:00Z", "m17b-1"]);
+    await db.asServiceRole(insert, [alice, device, mapping, "claude-otel-adapter-v1", "claude-code", "anthropic", "claude-sonnet-5", null, 1_500, 240, null, null, null, null, "2026-09-17T10:01:00Z", "m17b-2"]);
+    await db.asServiceRole(insert, [alice, device, codexMapping.id, "codex-otel-adapter-v1", "codex", "openai", "gpt-5-codex", null, 4_000, 800, 12_000, null, 300, 45_000, "2026-09-17T10:02:00Z", "m17b-3"]);
+
+    const after = await rowCounts();
+    const changed = Object.keys(after).filter((table) => after[table] !== before[table]);
+    expect(changed).toEqual(["public.local_usage_observations"]);
+    expect(after["public.local_usage_observations"] - before["public.local_usage_observations"]).toBe(3);
+
+    // Named explicitly as well, so a rename cannot make the check above vacuous.
+    for (const table of ["public.usage_events", "public.usage_point_ledger", "public.usage_daily_aggregates", "public.score_records"]) {
+      if (table in before) expect(after[table], table).toBe(before[table]);
+    }
+    expect(Object.keys(before)).toEqual(expect.arrayContaining(["public.usage_events", "public.usage_point_ledger"]));
+    const ledgerAfter = await db.asServiceRole<{ total: string }>(`select coalesce(sum(amount),0)::text as total from usage_point_ledger where user_id = $1`, [alice]);
+    expect(ledgerAfter[0].total).toBe(ledgerBefore[0].total);
+    // No trigger on the table could have done it quietly.
+    const triggers = await db.sql<{ n: string }>(
+      `select count(*)::text as n from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname = 'local_usage_observations' and not t.tgisinternal`,
+    );
+    expect(triggers[0].n).toBe("0");
+  });
+
+  it("the owner reads exactly the loader's columns under RLS; another user reads nothing", async () => {
+    const columns = LOCAL_OBSERVATION_COLUMNS;
+    const own = await db.asUser<{ tool_id: string }>(alice, `select ${columns} from local_usage_observations where local_session_id = 'sess-m17b'`);
+    expect(own.map((r) => r.tool_id).sort()).toEqual(["claude-code", "claude-code", "codex"]);
+    expect((await db.asUser(bob, `select ${columns} from local_usage_observations`)).length).toBe(0);
   });
 });
