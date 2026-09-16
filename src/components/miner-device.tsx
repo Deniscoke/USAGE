@@ -3,6 +3,7 @@ import { RevokeDeviceButton } from "@/components/pair-device";
 import type { DeviceToolView, DeviceView } from "@/lib/miner/device-view";
 import { formatTokens, formatUsd } from "@/lib/domain/money";
 import type { UsageBreakdown } from "@/lib/miner/usage-summary";
+import { LOCAL_USAGE_LANE } from "@/lib/miner/local-usage-lane";
 
 /**
  * Device cards and the per-tool table.
@@ -62,7 +63,7 @@ export function TodayFigures({ view, compact = false }: { view: DeviceView; comp
     <div className="space-y-3">
       <div>
         <p className="mb-1 text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-          AI usage tracked · {t.tracked.requestCount} request{t.tracked.requestCount === 1 ? "" : "s"} · reported by your device
+          {LOCAL_USAGE_LANE.title} · {t.tracked.requestCount} request{t.tracked.requestCount === 1 ? "" : "s"} · tracked on this PC · not reward eligible
         </p>
         <UsageBreakdownRows breakdown={t.tracked} compact={compact} />
       </div>

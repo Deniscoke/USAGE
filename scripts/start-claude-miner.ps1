@@ -9,26 +9,18 @@
 
   Claude Code -> USAGE Gateway -> Vercel AI Gateway -> Anthropic
 
-  Two authentication modes, matching Vercel's two documented shapes:
+  One authentication mode: the USAGE miner token in Authorization
+  (ANTHROPIC_AUTH_TOKEN), with Claude Code started on an isolated, empty
+  profile (CLAUDE_CONFIG_DIR) so a saved claude.ai login can never become the
+  active credential. The AI Gateway key stays on the USAGE server.
 
-    subscription  (default) Claude Code keeps its own Claude account credential
-                  in Authorization. USAGE forwards it opaquely upstream and
-                  authenticates itself with its own gateway key, server-side.
-                  This is what gives access to modern Claude models without
-                  spending AI Gateway credits on tokens.
-
-    token         Claude Code authenticates with the USAGE miner token in
-                  Authorization. Model access is then whatever the AI Gateway
-                  account allows.
-
-  In both modes the miner token identifies you to USAGE, and the AI Gateway key
-  stays on the USAGE server and is never handed to this process.
+  There is no subscription mode (M17A). A claude.ai login must never be relayed
+  through USAGE; the gateway refuses such a request with
+  consumer_subscription_credential_not_routable. To measure subscription usage,
+  use USAGE Miner's "Track only".
 
 .PARAMETER GatewayUrl
   Base URL of the USAGE Gateway Anthropic surface.
-
-.PARAMETER Auth
-  'subscription' (default) or 'token'.
 
 .PARAMETER Model
   Optional model id to pin (keeps test spend predictable).
@@ -40,8 +32,6 @@
 [CmdletBinding()]
 param(
     [string]$GatewayUrl = "http://localhost:3000/api/gateway/anthropic",
-    [ValidateSet("subscription", "token")]
-    [string]$Auth = "subscription",
     [string]$Model = $env:USAGE_MINER_MODEL,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ClaudeArgs
@@ -64,7 +54,7 @@ if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
 
 Write-Host "USAGE miner mode" -ForegroundColor Cyan
 Write-Host "  gateway : $GatewayUrl"
-Write-Host "  auth    : $Auth"
+Write-Host "  auth    : USAGE miner token (isolated Claude profile)"
 Write-Host "  token   : present (not shown)"
 if ($Model) { Write-Host "  model   : $Model" }
 Write-Host "  scope   : this session only; global Claude config untouched"
@@ -78,17 +68,11 @@ $env:ANTHROPIC_API_KEY = ""
 # whatever credential Claude Code puts in Authorization.
 $env:ANTHROPIC_CUSTOM_HEADERS = "x-usage-miner-token: $token"
 
-if ($Auth -eq "subscription") {
-    # Deliberately NOT set: ANTHROPIC_AUTH_TOKEN would overwrite Authorization
-    # with the miner token and the Claude subscription would never be used.
-    Remove-Item Env:\ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue
-    Write-Host "Claude Code will use its own signed-in Claude account." -ForegroundColor DarkGray
-    Write-Host "If it is not signed in it will prompt; choose the subscription option." -ForegroundColor DarkGray
-    Write-Host ""
-}
-else {
-    $env:ANTHROPIC_AUTH_TOKEN = $token
-}
+# Isolated profile: no saved claude.ai login can outrank the miner token.
+$profileDir = Join-Path $env:TEMP "usage-claude-gateway-profile"
+New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+$env:CLAUDE_CONFIG_DIR = $profileDir
+$env:ANTHROPIC_AUTH_TOKEN = $token
 
 if ($Model) { $env:ANTHROPIC_MODEL = $Model }
 
@@ -98,6 +82,7 @@ try {
 finally {
     Remove-Item Env:\ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:\ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue
+    Remove-Item Env:\CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:\ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:\ANTHROPIC_MODEL -ErrorAction SilentlyContinue
     Remove-Item Env:\ANTHROPIC_CUSTOM_HEADERS -ErrorAction SilentlyContinue

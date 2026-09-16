@@ -68,6 +68,9 @@ const FORBIDDEN_KEYS = [
   "reward_eligible", "rewardEligible", "economic_verified", "economicVerified", "economic_event_key",
   "economicEventKey", "is_free_tier", "is_byok", "paid", "protocol_compute", "protocolCompute",
   "mining_score", "usage_points",
+  // M17A: a device cannot promote its own lane. Local telemetry is TRACKED.
+  "verified", "verification", "verification_level", "verificationLevel", "claimable",
+  "economic_authority", "economicAuthority", "trusted",
 ];
 
 function optionalInt(value: unknown): number | null | undefined {

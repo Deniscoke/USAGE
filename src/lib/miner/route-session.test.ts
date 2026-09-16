@@ -9,7 +9,7 @@ import {
 import { authenticateMiner, hasScope, type MinerCredentialStore } from "./credentials";
 import { readPresentedToken } from "./token";
 import { routeBindingViolation } from "@/lib/gateway/handler";
-import { readSubscriptionAuthorization } from "@/lib/gateway/anthropic";
+import { checkCredentialRelay } from "@/lib/gateway/credential-relay";
 import type { MinerCredentialRow } from "@/lib/supabase/database.types";
 
 /**
@@ -113,9 +113,9 @@ describe("authenticating with a route session", () => {
     const minted = mint();
     const headers = new Headers({ authorization: `Bearer ${minted.token}` });
     expect(readPresentedToken(headers)).toBe(minted.token);
-    // The USAGE-funded Anthropic gateway forwards a subscription's own
-    // Authorization upstream; a route session must never be forwarded.
-    expect(readSubscriptionAuthorization(headers)).toBeNull();
+    // A route session is USAGE's own credential, so the subscription boundary
+    // lets it through; a claude.ai login in the same place would be refused.
+    expect(checkCredentialRelay(headers)).toEqual({ ok: true });
   });
 
   it("resolves to the parent device credential, narrowed to routing only", async () => {

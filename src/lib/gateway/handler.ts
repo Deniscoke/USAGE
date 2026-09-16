@@ -11,6 +11,7 @@ import {
 } from "@/lib/gateway/observability";
 import { authenticateMiner, createSupabaseMinerStore, hasScope, type MinerAuthResult } from "@/lib/miner/credentials";
 import { readPresentedToken } from "@/lib/miner/token";
+import { REFUSAL_HEADER, checkCredentialRelay, credentialRelayMessage } from "@/lib/gateway/credential-relay";
 import type { MinerIdentity } from "@/lib/miner/credentials";
 import type { WireSurface } from "@/lib/providers/surfaces";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -191,6 +192,15 @@ async function recordObservation(
 export function createGatewayRoute(options: GatewayRouteOptions) {
   const { clientType, error } = options;
 
+  /** A 403 in the surface's own error shape, with the reason machine-readable. */
+  function refuseRelay(reason: Parameters<typeof credentialRelayMessage>[0]): Response {
+    const refused = error(403, "permission_error", credentialRelayMessage(reason));
+    const headers = new Headers(refused.headers);
+    headers.set(REFUSAL_HEADER, reason);
+    headers.set("cache-control", "no-store");
+    return new Response(refused.body, { status: refused.status, headers });
+  }
+
   /** The gateway and credential for this request, or a Response refusing it. */
   async function resolveGateway(
     userId: string,
@@ -216,6 +226,22 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
     const params = await context.params;
     const path = (params.path ?? []) as string[];
     const upstreamPath = path.join("/");
+
+    // The subscription boundary, first of all: a request carrying a consumer
+    // subscription login or any other client-held provider credential is
+    // refused before it is authenticated, resolved or forwarded, whatever the
+    // client version. Only the reason is logged, never the value.
+    const relay = checkCredentialRelay(request.headers);
+    if (!relay.ok) {
+      logGatewayRequest({
+        requestId,
+        path: upstreamPath,
+        status: 403,
+        latencyMs: Date.now() - startedAt,
+        outcome: relay.reason,
+      });
+      return refuseRelay(relay.reason);
+    }
 
     const auth = options.authenticate
       ? await options.authenticate(request)
@@ -518,6 +544,8 @@ export function createGatewayRoute(options: GatewayRouteOptions) {
   ) {
     const params = await context.params;
     const path = (params.path ?? []) as string[];
+    const relay = checkCredentialRelay(request.headers);
+    if (!relay.ok) return refuseRelay(relay.reason);
     const auth = options.authenticate
       ? await options.authenticate(request)
       : await authenticateMiner(readPresentedToken(request.headers), await resolveMinerStore());

@@ -3,7 +3,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildUpstreamHeaders,
-  readSubscriptionAuthorization,
   isStreamingRequest,
   sanitizeResponseHeaders,
   withAttribution,
@@ -57,56 +56,35 @@ describe("upstream credential handling", () => {
   });
 });
 
-describe("Claude subscription passthrough", () => {
+describe("no subscription mode upstream (M17A)", () => {
   const SUBSCRIPTION = "Bearer sk-ant-oat-claude-subscription-credential";
 
-  it("forwards the subscription credential and authenticates USAGE separately", () => {
+  it("never forwards a subscription credential, even if one reached the builder", () => {
     const incoming = new Headers({
       authorization: SUBSCRIPTION,
       "x-usage-miner-token": "usgm_miner_token",
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
     });
 
     const headers = buildUpstreamHeaders(incoming, UPSTREAM_KEY);
 
-    // Three identities, three places, never merged: Anthropic authenticates the
-    // user, the gateway key authenticates USAGE, and the miner token (consumed
-    // here) never leaves this server.
-    expect(headers.get("authorization")).toBe(SUBSCRIPTION);
-    expect(headers.get("x-ai-gateway-api-key")).toBe(`Bearer ${UPSTREAM_KEY}`);
-    expect(headers.get("x-usage-miner-token")).toBeNull();
-    expect(headers.get("anthropic-version")).toBe("2023-06-01");
-  });
-
-  it("never substitutes the gateway key for the subscription credential", () => {
-    const headers = buildUpstreamHeaders(new Headers({ authorization: SUBSCRIPTION }), UPSTREAM_KEY);
-    expect(headers.get("authorization")).not.toContain(UPSTREAM_KEY);
-  });
-
-  it("treats a miner token in Authorization as ours, not as a subscription", () => {
-    const headers = buildUpstreamHeaders(
-      new Headers({ authorization: "Bearer usgm_miner_token" }),
-      UPSTREAM_KEY,
-    );
-    // API-key mode: no subscription is present, so the gateway key is the only
-    // identity and the miner token is not forwarded anywhere.
+    // USAGE's key is the only identity that leaves the server.
     expect(headers.get("authorization")).toBe(`Bearer ${UPSTREAM_KEY}`);
     expect(headers.get("x-ai-gateway-api-key")).toBeNull();
-    expect(JSON.stringify([...headers])).not.toContain("usgm_");
+    expect(headers.get("x-usage-miner-token")).toBeNull();
+    // The OAuth capability describes the stripped credential, so it goes too;
+    // every other beta value is kept verbatim.
+    expect(headers.get("anthropic-beta")).toBe("fine-grained-tool-streaming-2025-05-14");
+    expect(JSON.stringify([...headers])).not.toContain("sk-ant-oat");
   });
 
-  it("recognises a subscription credential only when one was presented", () => {
-    expect(readSubscriptionAuthorization(new Headers())).toBeNull();
-    expect(readSubscriptionAuthorization(new Headers({ authorization: "  " }))).toBeNull();
-    expect(
-      readSubscriptionAuthorization(new Headers({ authorization: "Bearer usgm_x" })),
-    ).toBeNull();
-    expect(readSubscriptionAuthorization(new Headers({ authorization: SUBSCRIPTION }))).toBe(
-      SUBSCRIPTION,
-    );
+  it("drops anthropic-beta entirely when only the OAuth capability was present", () => {
+    const headers = buildUpstreamHeaders(new Headers({ "anthropic-beta": "oauth-2025-04-20" }), UPSTREAM_KEY);
+    expect(headers.get("anthropic-beta")).toBeNull();
   });
 
-  it("keeps the subscription credential out of the log line", () => {
+  it("keeps a subscription-looking value out of the log line", () => {
     const written: string[] = [];
     const spy = vi
       .spyOn(process.stdout, "write")
@@ -119,9 +97,9 @@ describe("Claude subscription passthrough", () => {
       requestId: "req-1",
       userId: "user-1",
       path: "v1/messages",
-      status: 200,
+      status: 403,
       latencyMs: 12,
-      outcome: "usage_recorded",
+      outcome: "consumer_subscription_credential_not_routable",
       // A field that must never reach stdout, however it got here.
       authorization: SUBSCRIPTION,
     } as unknown as Parameters<typeof logGatewayRequest>[0]);
@@ -130,7 +108,7 @@ describe("Claude subscription passthrough", () => {
 
     expect(written.join("")).not.toContain("sk-ant-oat");
     expect(written.join("")).not.toContain("authorization");
-    expect(written.join("")).toContain("usage_recorded");
+    expect(written.join("")).toContain("consumer_subscription_credential_not_routable");
   });
 });
 
@@ -495,83 +473,49 @@ describe("gateway route", () => {
     return { response, upstreamRequest, upstreamUrl };
   }
 
-  it("carries a Claude subscription to the Claude Code endpoint and nowhere else", async () => {
+  it("refuses a legacy header-only Claude request carrying a subscription login, before spending", async () => {
     const SUBSCRIPTION = "Bearer sk-ant-oat-live-subscription";
-    const { response, upstreamRequest, upstreamUrl } = await callRoute(
+    const { response, upstreamRequest } = await callRoute(
       { model: "anthropic/claude-sonnet-5", max_tokens: 16, messages: [], stream: false },
       {
         subscription: SUBSCRIPTION,
         minerHeader: "usgm_test_token",
-        upstream: () =>
-          new Response(
-            JSON.stringify({
-              id: "msg_sub_1",
-              model: "anthropic/claude-sonnet-5",
-              stop_reason: "end_turn",
-              usage: { input_tokens: 30, output_tokens: 9 },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
+        upstream: () => new Response("{}", { status: 200 }),
       },
     );
 
-    expect(response.status).toBe(200);
-    // Only Vercel's Claude Code compatibility surface ever sees the credential.
-    expect(upstreamUrl).toBe("https://ai-gateway.vercel.sh/claude-code/v1/messages");
-
-    const forwarded = upstreamRequest as unknown as Request;
-    expect(forwarded.headers.get("authorization")).toBe(SUBSCRIPTION);
-    expect(forwarded.headers.get("x-ai-gateway-api-key")).toBe(`Bearer ${UPSTREAM_KEY}`);
-    // The miner credential authenticated the caller to USAGE and stops here.
-    expect(forwarded.headers.get("x-usage-miner-token")).toBeNull();
-
-    // And nothing of the subscription reaches the client.
+    // The shape a 0.4.4-0.4.6 miner's USAGE fallback produced: a valid device
+    // token in its own header, the claude.ai login in Authorization.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("x-usage-refusal")).toBe("consumer_subscription_credential_not_routable");
+    expect(upstreamRequest).toBeNull();
     const returned = await response.text();
+    expect(returned).toContain("consumer_subscription_credential_not_routable");
     expect(returned).not.toContain("sk-ant-oat");
     expect(returned).not.toContain(UPSTREAM_KEY);
   });
 
-  it("never writes the subscription credential to the observation log", async () => {
-    const SUBSCRIPTION = "Bearer sk-ant-oat-must-not-persist";
+  it("writes no observation for a refused subscription request", async () => {
     await callRoute(
       { model: "anthropic/claude-sonnet-5", max_tokens: 16, messages: [], stream: false },
       {
-        subscription: SUBSCRIPTION,
+        subscription: "Bearer sk-ant-oat-must-not-persist",
         minerHeader: "usgm_test_token",
-        upstream: () =>
-          new Response(
-            JSON.stringify({
-              id: "msg_sub_2",
-              model: "anthropic/claude-sonnet-5",
-              stop_reason: "end_turn",
-              usage: { input_tokens: 30, output_tokens: 9 },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
+        upstream: () => new Response("{}", { status: 200 }),
       },
     );
-
-    // The observation is written after the response, so wait for it to land.
-    let written = "";
-    for (let attempt = 0; attempt < 50 && !written.includes("msg_sub_2"); attempt += 1) {
-      written = await readFile(logFile, "utf8").catch(() => "");
-      if (!written.includes("msg_sub_2")) await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    expect(written).toContain("msg_sub_2");
-    expect(written).not.toContain("sk-ant-oat");
-    expect(written).not.toContain("authorization");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect(readFile(logFile, "utf8")).rejects.toThrow();
   });
 
-  it("rejects a subscription request with no miner credential before spending", async () => {
+  it("refuses a subscription request with no miner credential before authenticating", async () => {
     const { response, upstreamRequest } = await callRoute(
       { model: "anthropic/claude-sonnet-5", messages: [] },
       { subscription: "Bearer sk-ant-oat-no-miner", upstream: () => new Response("{}") },
     );
 
-    // A valid Claude subscription is not a USAGE identity. No upstream call, so
-    // no compute is spent on an unidentified caller.
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("x-usage-refusal")).toBe("consumer_subscription_credential_not_routable");
     expect(upstreamRequest).toBeNull();
   });
 

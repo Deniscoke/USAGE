@@ -10,7 +10,6 @@
  * except for one addition: server-side attribution.
  */
 
-import { looksLikeMinerToken } from "@/lib/miner/token";
 
 /** Vercel's Claude Code compatibility surface. The Anthropic SDK appends /v1/messages. */
 export const DEFAULT_UPSTREAM_BASE_URL = "https://ai-gateway.vercel.sh/claude-code";
@@ -54,36 +53,15 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 ]);
 
 /**
- * The Claude subscription credential Claude Code puts in `Authorization`.
- *
- * Returns null when there is none, and when the value is a USAGE miner token —
- * that one is ours, authenticates the caller to us, and never leaves the server.
- *
- * The value is treated as opaque: it is read to decide *where* it goes, never
- * parsed, stored, hashed, logged or copied anywhere else. USAGE is a courier
- * for it, not a holder of it.
- */
-export function readSubscriptionAuthorization(incoming: Headers): string | null {
-  const value = incoming.get("authorization");
-  if (!value?.trim()) return null;
-  const bare = value.trim().replace(/^Bearer\s+/i, "");
-  return looksLikeMinerToken(bare) ? null : value;
-}
-
-/**
  * Headers for the upstream call.
  *
- * Two documented Vercel auth shapes, and three identities that stay separate:
- *
- *   API key mode      Authorization: Bearer <AI_GATEWAY_API_KEY>
- *   subscription mode Authorization: <Claude's own, forwarded opaquely>
- *                     x-ai-gateway-api-key: Bearer <AI_GATEWAY_API_KEY>
- *
- * Subscription mode is what lets a Claude Code signed in to a Claude
- * subscription mine: Anthropic authenticates the *user*, the gateway key
- * authenticates *USAGE*, and the miner token (already consumed and stripped)
- * authenticated the caller to us. Merging any two of them would let one party's
- * credential decide another party's bill.
+ * USAGE's gateway key is the only identity that ever leaves this server. There
+ * is no subscription mode: a client credential of any kind -- including a
+ * claude.ai login Claude Code kept in `Authorization` -- is refused at the
+ * handler before this runs (see credential-relay.ts), and is stripped here as
+ * well, so no path can carry it upstream even if that check were bypassed.
+ * The OAuth capability in `anthropic-beta` describes such a credential, so it
+ * is dropped too; every other beta value is forwarded verbatim.
  */
 export function buildUpstreamHeaders(incoming: Headers, apiKey: string): Headers {
   const headers = new Headers();
@@ -91,17 +69,14 @@ export function buildUpstreamHeaders(incoming: Headers, apiKey: string): Headers
     if (!STRIPPED_REQUEST_HEADERS.has(name.toLowerCase())) headers.set(name, value);
   }
   headers.set("content-type", "application/json");
-
-  const subscription = readSubscriptionAuthorization(incoming);
-  if (subscription) {
-    headers.set("authorization", subscription);
-    headers.set("x-ai-gateway-api-key", `Bearer ${apiKey}`);
-    return headers;
-  }
-
-  // No subscription credential: the gateway key is the only identity, and it is
-  // ours alone.
   headers.set("authorization", `Bearer ${apiKey}`);
+
+  const beta = headers.get("anthropic-beta");
+  if (beta) {
+    const kept = beta.split(",").map((value) => value.trim()).filter((value) => value && !/^oauth-/i.test(value));
+    if (kept.length > 0) headers.set("anthropic-beta", kept.join(","));
+    else headers.delete("anthropic-beta");
+  }
   return headers;
 }
 

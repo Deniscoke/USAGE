@@ -82,10 +82,10 @@ export async function GET(request: NextRequest) {
    * Which route suits which tool.
    *
    * A tool speaks one wire format, so it can only use a surface that matches.
-   * Claude Code additionally falls back to USAGE's own Anthropic surface when
-   * no connected provider can carry it -- that traffic is proven but
-   * USAGE-funded, so it is held rather than earning, and the miner is told
-   * that up front rather than discovering it later.
+   * There is no USAGE-gateway fallback for any tool (M17A). The old Claude
+   * Code fallback let a subscription login ride through USAGE to a
+   * third-party upstream. Without a connected route a tool runs directly on
+   * its own sign-in and is tracked locally ("Track only"), which never earns.
    */
   const anthropicRoutes = routes.filter((route) => route.protocol === "anthropic_compatible");
   const openAiRoutes = routes.filter((route) => route.protocol === "openai_compatible");
@@ -128,12 +128,7 @@ export async function GET(request: NextRequest) {
         "claude-code": {
           protocol: "anthropic_compatible",
           routes: anthropicRoutes,
-          fallback: {
-            label: "USAGE gateway",
-            url: `${origin}/api/gateway/anthropic`,
-            miningEligibility: "held",
-            note: "USAGE's own gateway credit pays for this, so it is proven but does not earn.",
-          },
+          fallback: null,
         },
         codex: {
           protocol: "openai_compatible",

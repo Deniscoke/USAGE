@@ -85,9 +85,19 @@ milestone follow below.
 
 - **Subscription metering (docs/SUBSCRIPTION_METERING.md, 2026-09-16).** Research
   across ~40 subscription products: no provider both allows and supports USAGE
-  observing subscription traffic server-side today. The existing Claude
-  header-only fallback forwards a claude.ai OAuth token through the gateway,
-  which Anthropic's terms bar; Phase 0a (stop it, audit logs) awaits the go-ahead.
+  observing subscription traffic server-side today.
+- **M17A subscription boundary (2026-09-17, done).** The Claude header-only
+  fallback (claude.ai login -> USAGE -> Vercel AI Gateway) is removed from miner
+  0.4.7 and from /api/miner/config. Every gateway route refuses any non-USAGE
+  credential before authentication (`consumer_subscription_credential_not_routable`,
+  `client_provider_credential_not_routable`; src/lib/gateway/credential-relay.ts),
+  so legacy miners are safe without updating. Subscription usage is the local
+  lane only (TRACKED, reward 0; src/lib/miner/local-usage-lane.ts). Audit: 3
+  events on 2026-09-07 via the Vercel default gateway (client claude-code,
+  models nemotron / ling / claude-3-haiku, auth mode not recorded) are
+  AMBIGUOUS; they sit in settled epoch-2026-09-07 (100,000 dev-v1 points) and
+  history is not rewritten. No credential found in DB text columns or 30 days
+  of Vercel production logs. Owner: publish miner 0.4.7 (GitHub release + npm).
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;
