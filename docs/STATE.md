@@ -83,6 +83,12 @@ milestone follow below.
 
 ### Waiting on the owner
 
+- **Subscription metering (docs/SUBSCRIPTION_METERING.md, 2026-09-16).** Research
+  across ~40 subscription products: no provider both allows and supports USAGE
+  observing subscription traffic server-side today. The existing Claude
+  header-only fallback forwards a claude.ai OAuth token through the gateway,
+  which Anthropic's terms bar; Phase 0a (stop it, audit logs) awaits the go-ahead.
+
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;
   per-session route liveness; autostart/tray mode; migration 0023.
