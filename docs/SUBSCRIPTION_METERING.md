@@ -1,6 +1,6 @@
 # Subscription Metering
 
-Status: design proposal (revised after critique and final check), 2026-09-16. Nothing here is implemented or agreed.
+Status: design proposal (revised after critique and final check), 2026-09-16; revised for M17A, 2026-09-17. Apart from the M17A changes recorded in §1.2, nothing here is implemented or agreed.
 
 - **Scope.** Flat-rate AI subscriptions, as opposed to pay-per-token API keys.
   - **Round 1** (§2.1-2.6): Anthropic Claude, OpenAI ChatGPT/Codex, Google (Gemini, Code Assist, Antigravity, Jules), GitHub Copilot, Cursor, Windsurf/Devin, JetBrains AI, Amazon Q/Kiro, Mistral and Perplexity.
@@ -8,14 +8,14 @@ Status: design proposal (revised after critique and final check), 2026-09-16. No
   - Everything else is listed as not researched (§2.9). This document asserts nothing about those products' terms or capabilities.
 - **Evidence base.** Per-provider research, each part re-checked by an independent skeptic. Where the two disagreed, the skeptic's correction is used unless its evidence was weaker. "Unverified", "docs conflict" and "low confidence" labels are kept on purpose.
 - **Revision.** This version applies all 30 findings of an honesty and completeness critique of the first draft, and the round 2 research of 2026-09-16.
-- **Decisions.** Owner decisions are in §6.2. One item is **not** a decision: the existing Claude subscription passthrough must stop (§5.7, Phase 0a).
+- **Decisions.** Owner decisions are in §6.2. One item was **not** a decision: the Claude subscription passthrough had to stop (§5.7, Phase 0a). M17A removed it (§1.2).
 
 ---
 
 ## 1. Summary
 
 **No round-1 provider allows USAGE to legitimately see subscription traffic on its own servers.**
-- **Anthropic** explicitly prohibits third parties from collecting, storing or intermediating Claude.ai credentials, and from routing requests through Free/Pro/Max credentials on behalf of users.
+- **Anthropic.** Legal and compliance says third-party developers may not collect, store or intermediate Claude.ai credentials, nor route requests through Free/Pro/Max credentials on behalf of their users. The Claude Code gateway docs separately describe a transparent gateway "your organization already runs" that keeps the subscription login active. Whether a third party may run that for unrelated users is ambiguous (case A, §1.1). A relay of the login to a different upstream, as USAGE's old fallback did, is outside the documented pattern (case B, §1.1).
 - **Google.** Google's Gemini CLI docs page says that reaching the services behind Gemini CLI, Code Assist included, through third-party software violates the terms. The Google Cloud ToS contract itself has no routing clause. The Antigravity Additional Terms, which are contractual, call using third-party software to access the Service a breach.
 - **Perplexity** explicitly bans software that *intercepts* the Services (§5.2(i)). It has no clause about relaying credentials, and there is no data source to relay anyway.
 - **Windsurf/Devin** individual terms *likely* prohibit it (§13.4 bans non-provided tools). No clause names routing.
@@ -43,9 +43,9 @@ Status: design proposal (revised after critique and final check), 2026-09-16. No
 
 **So T1k is also empty today.** It becomes a candidate per provider only after written permission and owner decision D13 (Phase 1c).
 
-**USAGE already runs a Claude subscription passthrough, and it must stop.**
-- **How it happens.** When the miner falls back to its header-only plan, Claude Code sends the user's claude.ai OAuth token in `Authorization`, and USAGE's gateway forwards it to Vercel AI Gateway. That is the credential intermediation Anthropic's terms prohibit.
-- **Why nothing needs to wait.** Stopping it is a code change and a deploy, with no migration. Phase 0a does it, and also audits existing log sinks for tokens that were already captured.
+**USAGE ran a Claude subscription passthrough; M17A removed it (§1.2).**
+- **How it happened.** When the miner fell back to its header-only plan, Claude Code sent the user's claude.ai OAuth token in `Authorization`, and USAGE's gateway forwarded it to Vercel AI Gateway. No Anthropic document describes that relay to a different upstream. It is outside the documented gateway pattern and conflicts with the credential-intermediation text (case B, §1.1).
+- **Why nothing needed to wait.** Stopping it was a code change and a deploy, with no migration. Phase 0a covered it, including the log-sink audit (0 matches, §1.2).
 - **The only open owner question** is what replaces the fallback (D1).
 
 **Provider-attested usage (T2) exists, but mostly for organizations.**
@@ -90,7 +90,7 @@ Antigravity desktop on consumer plans is **T0 pending legal review**. Its hooks 
 **Discontinued or unavailable** (§2.7.4): Qwen OAuth, Ollama Turbo, Microsoft Copilot Pro, Warp Pro/Turbo/Lightspeed, Tabnine individual plans, Roo Code, the Baidu Coding Plan (being phased out) and Cerebras Code (sold out).
 
 **Recommended path:**
-1. **Phase 0a (now; the stop itself needs no decision).**
+1. **Phase 0a (done in M17A, §1.2; the stop itself needed no decision).**
    - Stop forwarding any caller `Authorization` upstream.
    - Audit log sinks for captured tokens.
    - Sanitize upstream error bodies.
@@ -103,11 +103,193 @@ Antigravity desktop on consumer plans is **T0 pending legal review**. Its hooks 
 5. **Phase 1c (conditional).** A display-only T1k pilot for the first provider that grants written permission (Ollama is the first request). Traffic is ROUTED with cost `pending_cost`.
 6. **Later.** Economic weight comes only after owner decisions, written confirmation from each provider, and person-level Sybil and automation controls.
 
+## 1.1 Policy reconciliation (M17A, 2026-09-17)
+
+The official Anthropic sources below were re-read on 2026-09-17. Quotes are verbatim. This section draws no legal conclusion beyond what the sources state, and it takes precedence over any shorter wording elsewhere in this document.
+
+### 1.1.1 Official sources
+
+**Claude Code, "Other LLM gateways"** (https://code.claude.com/docs/en/llm-gateway)
+- Page summary: "Route Claude Code through an LLM gateway your organization already runs."
+- "Anthropic doesn't endorse, maintain, or audit third-party gateway products, and doesn't support routing Claude Code to non-Claude models through any gateway."
+- *What a gateway provides:* "the provider key stays server-side; developers hold gateway credentials instead"
+- *Subscriptions and gateways:*
+  - "While a gateway credential variable or `apiKeyHelper` is active, a developer's claude.ai subscription isn't used"
+  - "Setting only that variable, without a gateway credential, doesn't replace the subscription."
+  - "Requests still route through the gateway, but a saved claude.ai login remains the active credential"
+  - "Gateways that pass this traffic on to Anthropic must forward the OAuth capability in `anthropic-beta`"
+
+**Claude Code, "Run Claude Code through a gateway"** (https://code.claude.com/docs/en/gateways)
+- "A gateway is a proxy your organization runs between Claude Code and a model provider."
+
+**Claude Code, "Gateway compatibility guide"** (https://code.claude.com/docs/en/llm-gateway-protocol)
+- "It is written for operators configuring a gateway product to work with Claude Code."
+- *anthropic-beta:* "Forward the header verbatim; don't allowlist individual values"
+- Paraphrase, not a quote: the page documents `Authorization` / `x-api-key` only as the developer's gateway credential. It never describes passing a subscription OAuth `Authorization` through.
+
+**Claude Code, "Legal and compliance"** (https://code.claude.com/docs/en/legal-and-compliance)
+- *Authentication and credential use:*
+  - "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications"
+  - nor "route requests through Free, Pro, or Max plan credentials on behalf of their users."
+  - "developers may not collect, store, or intermediate Claude.ai credentials or session tokens"
+  - Carve-out: end users may sign in "to the unmodified Claude Code binary with their own Claude subscription".
+- *Can customers offer Claude Code in their products?:* "Customers may not pay for, resell, or intermediate Claude usage on their end users' behalf."
+
+**Anthropic Consumer Terms** (https://www.anthropic.com/legal/consumer-terms, effective 2025-10-08). Only the EEA/Switzerland version could be retrieved; other regional versions were not checked.
+- "You may not share your Account login information, Anthropic API key, or Account credentials with anyone else"
+- Automated access is banned "through automated or non-human means, whether through a bot, script, or otherwise", except "via an Anthropic API Key or where we otherwise explicitly permit it".
+
+**Claude Code, "Monitoring"** (https://code.claude.com/docs/en/monitoring-usage)
+- Content flags, all off by default: `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES` (falls back to `OTEL_LOG_USER_PROMPTS` when unset), `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_RAW_API_BODIES`.
+- Even with every flag off, `claude_code.api_request` carries `user.email` ("Always included when available") and verbatim user-defined `skill.name`. USAGE's miner drops both.
+
+### 1.1.2 Reconciliation
+
+**(A) DOCUMENTED TRANSPARENT CLAUDE GATEWAY**
+- **Shape.** Only `ANTHROPIC_BASE_URL` is set. The claude.ai subscription login stays the active credential. The gateway forwards the traffic to Anthropic with the OAuth capability in `anthropic-beta` preserved.
+- **Where documented.** For gateways "your organization already runs" / "runs".
+- **Open question.** Whether a third-party service operating such a gateway for unrelated users counts as intermediating Claude.ai credentials under Legal and compliance is **AMBIGUOUS**. Only Anthropic can confirm.
+- **USAGE does not operate this mode.**
+
+**(B) UNSUPPORTED CREDENTIAL RELAY TO A DIFFERENT UPSTREAM**
+- **Shape.** What USAGE's old fallback did: Claude Code consumer login → USAGE → Vercel AI Gateway (https://ai-gateway.vercel.sh/claude-code), with the caller's `Authorization` forwarded and USAGE's AI Gateway key in `x-ai-gateway-api-key`.
+- **Status.** No official Anthropic document describes this. It falls outside the documented pattern and conflicts with the credential-intermediation text.
+- **Removed in M17A** (§1.2).
+
+**Reading the rest of this document.** Where a row or section says Anthropic "prohibits" Claude subscription routing, it means case (B): outside the documented pattern and in conflict with Legal and compliance. Case (A) is documented for an organization's own gateway and ambiguous for a third party. Neither case is permission for USAGE.
+
+## 1.2 M17A implementation status
+
+- **Consumer fallback removed** from USAGE-Miner 0.4.7 and from `/api/miner/config`.
+- **Server guard.** Every gateway route refuses any non-USAGE credential before authentication, with reason `consumer_subscription_credential_not_routable` or `client_provider_credential_not_routable`.
+- **No subscription upstream mode.** `buildUpstreamHeaders` has no subscription mode.
+- **Local usage lane.** Source `local_telemetry`, verification `local_only`, economic_authority `none`, reward 0, claimable false, label TRACKED.
+- **Subscription-local reward is locked at 0** until both of these hold:
+  1. Either authoritative provider-side usage evidence exists, or an explicit provider-supported integration gives trustworthy billing and usage identity.
+  2. The owner has approved the economics.
+- **§5.7 / Phase 0a: done.** Log-sink audit: Vercel production logs for the last 30 days searched for `sk-ant-oat`, `sk-ant-api`, `authorization` and `Bearer`: 0 matches. DB text columns: 0 matches.
+
 ---
 
 ## 2. Provider matrix
 
+## 2.0 Normalized provider matrix (M17A)
+
+One row per product/plan and client from §2.1-§2.7, plus the one route that earns today. Values are derived from the detailed rows below; where they disagree, the detailed row and its evidence win and this table is corrected.
+
+| Product | TRACKABLE LOCALLY | SERVER-VERIFIABLE | ROUTABLE WITH COMMERCIAL/API CREDENTIAL | CONSUMER SESSION PROXY SUPPORTED | REWARD ELIGIBLE TODAY | WRITTEN PROVIDER CONFIRMATION NEEDED |
+|---|---|---|---|---|---|---|
+| Claude Pro/Max, Claude Code CLI | YES | NO | YES | AMBIGUOUS | NO | YES |
+| Claude Pro/Max, Claude Code VS Code extension | YES | NO | YES | AMBIGUOUS | NO | YES |
+| Claude Pro/Max, Desktop Code tab | YES | NO | YES | NO | NO | YES |
+| Claude Pro/Max, Desktop Chat / Cowork | NO | NO | NO | NO | NO | NO |
+| Claude Pro/Max, claude.ai web and Claude Code on the web | NO | NO | NO | NO | NO | NO |
+| Claude Team, CLI / Desktop / web | YES | NO | YES | AMBIGUOUS | NO | YES |
+| Claude Enterprise, all surfaces (Enterprise Analytics API) † | YES | NO | YES | AMBIGUOUS | NO | YES |
+| ChatGPT Free/Go/Plus/Pro, Codex CLI | YES | NO | YES | AMBIGUOUS | NO | YES |
+| ChatGPT plans, Codex IDE extension / desktop Codex mode | YES | NO | YES | AMBIGUOUS | NO | YES |
+| ChatGPT plans, Codex cloud tasks | NO | NO | NO | NO | NO | NO |
+| ChatGPT Business, Codex | YES | NO | YES | AMBIGUOUS | NO | YES |
+| ChatGPT Enterprise/Edu/Healthcare, Codex + chat (Admin API) † | YES | NO | YES | AMBIGUOUS | NO | YES |
+| ChatGPT web / desktop chat | NO | NO | NO | NO | NO | NO |
+| Gemini Code Assist Standard/Enterprise, Gemini CLI † | YES | NO | YES | NO | NO | NO |
+| Google Developer Program Premium, Gemini CLI / IDE † | YES | NO | YES | NO | NO | NO |
+| Gemini Code Assist Standard/Enterprise, IDE extensions † | NO | NO | NO | NO | NO | NO |
+| Gemini Code Assist, Gemini CLI inside Zed / JetBrains / Xcode (ACP) | YES | NO | YES | NO | NO | NO |
+| Google consumer individuals / AI Pro / Ultra, Gemini CLI or Code Assist IDE (discontinued) | NO | NO | NO | NO | NO | NO |
+| Gemini Code Assist on GitHub | NO | NO | NO | NO | NO | NO |
+| Google AI Pro/Ultra, Jules | NO | NO | NO | NO | NO | NO |
+| Google AI Pro/Ultra, Antigravity CLI | YES | NO | NO | NO | NO | YES |
+| Google AI Pro/Ultra, Antigravity desktop / IDE | YES | NO | NO | NO | NO | YES |
+| Gemini Enterprise licence, Antigravity desktop / CLI † | YES | NO | NO | NO | NO | NO |
+| Gemini app (consumer AI Plus/Pro/Ultra) | NO | NO | NO | NO | NO | YES |
+| Workspace Gemini app / Gemini in Workspace † | NO | NO | NO | NO | NO | YES |
+| Copilot Pro/Pro+/Max, Copilot CLI † | YES | NO | YES | NO | NO | YES |
+| Copilot Pro/Pro+/Max, VS Code † | YES | NO | YES | NO | NO | YES |
+| Copilot Pro/Pro+/Max, JetBrains † | NO | NO | YES | NO | NO | YES |
+| Copilot, GitHub Copilot app † | NO | NO | YES | NO | NO | YES |
+| Copilot, Visual Studio / Eclipse / Xcode † | NO | NO | NO | NO | NO | YES |
+| Copilot Chat on github.com, GitHub Mobile, Windows Terminal, GitHub Desktop † | NO | NO | NO | NO | NO | YES |
+| Copilot Spaces, Spark, Code Quality, code review, sandbox SKUs † | NO | NO | NO | NO | NO | YES |
+| Third-party coding agents on GitHub † | NO | NO | NO | NO | NO | YES |
+| Copilot Free / Student / complimentary Pro | YES | NO | NO | NO | NO | YES |
+| Copilot Business/Enterprise, CLI / IDEs † | YES | NO | YES | NO | NO | YES |
+| Copilot cloud agent, individual † | NO | NO | NO | NO | NO | YES |
+| Copilot cloud agent, Business/Enterprise † | NO | NO | NO | NO | NO | YES |
+| Cursor Pro/Pro+/Ultra, editor | YES | NO | NO | NO | NO | YES |
+| Cursor Pro/Pro+/Ultra, Cursor CLI | NO | NO | NO | NO | NO | YES |
+| Cursor individual, SDK / Cloud Agents API † | YES | NO | NO | NO | NO | YES |
+| Cursor Teams † | YES | NO | NO | NO | NO | YES |
+| Cursor Enterprise † | NO | NO | NO | NO | NO | YES |
+| Windsurf / Devin self-serve Pro & Max | YES | NO | NO | NO | NO | YES |
+| Windsurf Teams | YES | NO | NO | NO | NO | YES |
+| Windsurf / Devin Enterprise † | YES | NO | NO | NO | NO | YES |
+| JetBrains AI Pro/Ultimate personal | NO | NO | YES | NO | NO | YES |
+| JetBrains AI Free | NO | NO | YES | NO | NO | YES |
+| JetBrains AI for organizations † | NO | NO | YES | NO | NO | YES |
+| Amazon Q Developer Pro, IDE plugins | NO | NO | NO | NO | NO | YES |
+| Amazon Q Developer in the AWS Management Console | NO | NO | NO | NO | NO | YES |
+| Kiro Pro/Pro+/Pro Max/Power individual | NO | NO | NO | NO | NO | YES |
+| Kiro Enterprise † | NO | NO | NO | NO | NO | YES |
+| Mistral Vibe Pro/Free/Student (Vibe CLI, Vibe Code) | YES | NO | YES | AMBIGUOUS | NO | YES |
+| Mistral le Chat web/apps | NO | NO | NO | NO | NO | YES |
+| Mistral Team / Enterprise † | YES | NO | YES | AMBIGUOUS | NO | YES |
+| Perplexity Pro/Max | NO | NO | NO | NO | NO | NO |
+| Perplexity Enterprise Pro/Max † | NO | NO | NO | NO | NO | YES |
+| Z.ai GLM Coding Plan, Individual | YES | NO | NO | NO | NO | NO |
+| Z.ai GLM Coding Plan, Team | YES | NO | NO | NO | NO | NO |
+| Z.ai ZCode desktop app | NO | NO | NO | NO | NO | NO |
+| Moonshot Kimi Code, API key in third-party tools | YES | NO | NO | AMBIGUOUS | NO | YES |
+| Kimi Code official clients (OAuth login) | NO | NO | NO | NO | NO | YES |
+| MiniMax Token Plan | YES | NO | NO | AMBIGUOUS | NO | YES |
+| Alibaba Model Studio Coding Plan | YES | NO | NO | NO | NO | NO |
+| Alibaba Model Studio Token Plan (Personal, Team) | YES | NO | NO | NO | NO | NO |
+| Volcengine Ark Coding Plan | YES | NO | NO | NO | NO | NO |
+| Tencent Cloud Coding Plan | YES | NO | NO | NO | NO | NO |
+| Baidu Qianfan Token Plan Personal | YES | NO | NO | NO | NO | NO |
+| StepFun Step Plan | YES | NO | NO | NO | NO | NO |
+| OpenCode Go | YES | NO | NO | AMBIGUOUS | NO | YES |
+| ClinePass | NO | NO | NO | AMBIGUOUS | NO | YES |
+| Cerebras Code (sold out) | YES | NO | NO | AMBIGUOUS | NO | YES |
+| Ollama Cloud Pro / Max / Team (credit plans) | YES | NO | NO | AMBIGUOUS | NO | YES |
+| Ollama legacy Pro / Max / Team | YES | NO | NO | AMBIGUOUS | NO | YES |
+| Ollama app/CLI signed in (local daemon) | NO | NO | NO | NO | NO | YES |
+| Cline credits / Cline API | NO | NO | NO | AMBIGUOUS | NO | YES |
+| Kilo Pass + Kilo Gateway | NO | NO | NO | AMBIGUOUS | NO | YES |
+| xAI SuperGrok / SuperGrok Heavy / X Premium+ | NO | NO | NO | NO | NO | NO |
+| Grok Build CLI on SuperGrok / X Premium+ | YES | NO | NO | NO | NO | NO |
+| SuperGrok in xAI partner apps | NO | NO | NO | NO | NO | YES |
+| Microsoft 365 Personal / Family / Premium Copilot | NO | NO | NO | NO | NO | NO |
+| Microsoft 365 Copilot (enterprise) † | NO | NO | NO | NO | NO | NO |
+| Zed Pro / Business / Student (Zed-hosted models) | NO | NO | YES | NO | NO | NO |
+| Warp Build / Max / Business | NO | NO | YES | NO | NO | YES |
+| Warp Enterprise † | NO | NO | YES | NO | NO | YES |
+| Augment Code Standard / Business | NO | NO | NO | NO | NO | YES |
+| Augment Code Enterprise † | NO | NO | NO | NO | NO | YES |
+| Tabnine Enterprise † | NO | NO | NO | NO | NO | YES |
+| Amp (Hobby / Megawatt / Gigawatt) † | NO | NO | NO | NO | NO | YES |
+| Factory Droid Pro / Plus / Max | NO | NO | YES | NO | NO | YES |
+| Replit Core / Pro (Agent) | NO | NO | NO | NO | NO | YES |
+| Qwen OAuth (discontinued) | NO | NO | NO | NO | NO | NO |
+| Ollama Turbo (discontinued) | NO | NO | NO | NO | NO | NO |
+| Microsoft Copilot Pro (discontinued) | NO | NO | NO | NO | NO | NO |
+| Warp Pro / Turbo / Lightspeed (converted to Build) | NO | NO | NO | NO | NO | NO |
+| Tabnine Basic / Dev / Pro (discontinued) | NO | NO | NO | NO | NO | NO |
+| Roo Code extension, Cloud and Router (archived) | NO | NO | NO | NO | NO | NO |
+| Baidu Qianfan Coding Plan (replaced) | NO | NO | NO | NO | NO | NO |
+| Alibaba Coding Plan Lite (closed) | NO | NO | NO | NO | NO | NO |
+| User's own API key (e.g. OpenRouter) via USAGE connection, paid priced models | NO | YES | YES | NO | YES | NO |
+
 Legend
+- **Two rules apply to every cell.** "Not explicitly prohibited" is not permission. Technical possibility is not product permission.
+- **TRACKABLE LOCALLY.** YES: a documented local source (OTel, hooks, status line, or Claude Code pointed at the plan) carries usage metadata a local observer could read. It says nothing about release: the legal gate in the detailed row still applies, and local data is TRACKED only, with zero economic weight (§1.2, rule 6). NO: no such source, the schema is undocumented, or the only source holds content.
+- **SERVER-VERIFIABLE.** YES only where USAGE's server can legitimately observe provider responses or read authoritative provider usage **today**. † marks rows with a documented provider usage API or org export (a T2/T2o candidate in the detailed row). Those rows stay NO until they are built under their phase gates.
+- **ROUTABLE WITH COMMERCIAL/API CREDENTIAL.** YES: the client has a documented, provider-supported way to send traffic through a gateway on a pay-per-token API or commercial credential instead of the subscription (the §2.1 gateway credential, §2.8 BYOK paths). That traffic is not subscription usage. NO for plan keys whose terms prohibit or do not clearly permit third-party custody, for undocumented or unverified paths, and for rows mixing clients where one lacks the path. Claude rows remain subject to the open launcher question in §8.1.2.
+- **CONSUMER SESSION PROXY SUPPORTED.** Whether the provider supports relaying the subscription's own credential (login session, OAuth token or plan key) through a third-party server. No row is YES. AMBIGUOUS: the documented pattern or the terms leave it open (for Claude, case A in §1.1). NO: prohibited, or technically closed.
+- **REWARD ELIGIBLE TODAY.** NO for every subscription product. Only a user's own pay-per-token key routed server-side earns, and only for paid, priced models under the existing ROUTED rules (`confirmed` status, fixed epoch pool).
+- **WRITTEN PROVIDER CONFIRMATION NEEDED.** YES where the detailed row is unclear or ambiguous, or its next step waits on a provider's written position (§6.2 D10). NO where the terms prohibit it with no request planned, where the product is discontinued, or where no provider answer would change the row.
+
+**Legend for the detailed matrices (§2.1-§2.8)**
 - **Tier**:
   - **T1**: server-observed passthrough (the caller's credential is forwarded)
   - **T1k**: server-observed via a plan key connected through USAGE's encrypted provider-connection path (round 2, §3)
@@ -129,13 +311,13 @@ Legend
 
 | Product | Auth | Base-URL override w/ subscription auth | Provider-side usage data | Local telemetry | ToS on third-party routing | Verification ceiling | Recommended tier |
 |---|---|---|---|---|---|---|---|
-| Claude Pro/Max, Claude Code CLI | claude.ai OAuth (`/login`), stored in `%USERPROFILE%\.claude\.credentials.json`; `setup-token` gives a 1-year token | Technically yes. `ANTHROPIC_BASE_URL` alone keeps the login and sends the OAuth bearer plus `anthropic-beta` OAuth value to that host. Documented only for gateways "your organization already runs". Settings-file `env` can set it even when the child env doesn't | None for individuals. UI only: Settings > Usage, `/usage`, status-line `rate_limits.five_hour/seven_day` | OTel `claude_code.api_request`: model, 4 token counts, `request_id`, `cost_usd` (list-price estimate; dropped by USAGE). No plan attribute. `claude auth status` JSON shows `subscriptionType` (field names undocumented ⚠) | **prohibited**: third parties "may not collect, store, or intermediate Claude.ai credentials", nor route via Free/Pro/Max credentials | device_reported | **T3** (legal gate pending, §8.1.2) |
-| Claude Pro/Max, Claude Code VS Code extension | Same saved login as the CLI | Same mechanics as the CLI. The IDE spawns `claude` itself, so a miner child env never reaches it | UI only | Same OTel. Delivery only through persistent settings `env` (consent required). JetBrains integration not researched ⚠ | **prohibited** (same clause) | device_reported | **T3** (persistent settings, legal gate pending) ◐ |
-| Claude Pro/Max, Desktop Code tab | Desktop account sign-in | No. Desktop takes gateway routing only from 3P inference config, which replaces the subscription | UI only | Same OTel, `service.name=claude-code-desktop`. Env from the local environment editor or `~/.claude/settings.json` `env` (documented; live probe advised ⚠). Desktop pins its own OTLP endpoint if it supplies one | **prohibited** (same clause) | device_reported | **T3** (persistent settings write, consent required; legal gate pending) ◐ |
+| Claude Pro/Max, Claude Code CLI | claude.ai OAuth (`/login`), stored in `%USERPROFILE%\.claude\.credentials.json`; `setup-token` gives a 1-year token | Technically yes. `ANTHROPIC_BASE_URL` alone keeps the login and sends the OAuth bearer plus `anthropic-beta` OAuth value to that host. Documented only for gateways "your organization already runs". Settings-file `env` can set it even when the child env doesn't | None for individuals. UI only: Settings > Usage, `/usage`, status-line `rate_limits.five_hour/seven_day` | OTel `claude_code.api_request`: model, 4 token counts, `request_id`, `cost_usd` (list-price estimate; dropped by USAGE). No plan attribute. `claude auth status` JSON shows `subscriptionType` (field names undocumented ⚠) | Relay to a different upstream (case B, §1.1): **outside the documented pattern**, and conflicts with "may not collect, store, or intermediate Claude.ai credentials" and the Free/Pro/Max routing clause. Transparent Claude gateway (case A): documented for an organization's own gateway; **ambiguous** for a third party serving unrelated users, and only Anthropic can confirm | device_reported | **T3** (legal gate pending, §8.1.2) |
+| Claude Pro/Max, Claude Code VS Code extension | Same saved login as the CLI | Same mechanics as the CLI. The IDE spawns `claude` itself, so a miner child env never reaches it | UI only | Same OTel. Delivery only through persistent settings `env` (consent required). JetBrains integration not researched ⚠ | Same as the CLI: case B outside the documented pattern; case A **ambiguous** for a third party (§1.1) | device_reported | **T3** (persistent settings, legal gate pending) ◐ |
+| Claude Pro/Max, Desktop Code tab | Desktop account sign-in | No. Desktop takes gateway routing only from 3P inference config, which replaces the subscription | UI only | Same OTel, `service.name=claude-code-desktop`. Env from the local environment editor or `~/.claude/settings.json` `env` (documented; live probe advised ⚠). Desktop pins its own OTLP endpoint if it supplies one | No subscription gateway path exists (3P inference config replaces the subscription), so case A does not arise; any relay of the login is case B, in conflict with the credential-intermediation text (§1.1) | device_reported | **T3** (persistent settings write, consent required; legal gate pending) ◐ |
 | Claude Pro/Max, Desktop Chat / Cowork | Desktop sign-in | No | UI only ("usage ring" not found in docs ⚠) | None user-configurable (Cowork OTel is Team/Enterprise admin-only and includes prompts by default; never read) | **prohibited** | none | **T0** |
 | Claude Pro/Max, claude.ai web and Claude Code on the web | Browser session; cloud sessions always use subscription | No. Interception would expose the session token | UI only | None reachable (the collector would have to be reachable from Anthropic's cloud, not loopback) | **prohibited** (Consumer Terms automated-access clause plus credential ban) | none | **T0** (optional T3s plan declaration) |
-| Claude Team (Standard/Premium), CLI / Desktop / web | claude.ai OAuth with team seat; SSO options | Same as Pro/Max for CLI; documented only for customer-run gateways | Owner-only UI and spend CSV (usage-credit spend only; seat allowance not metered in dollars). No API ("not available on Teams plan") | Same CLI OTel. Managed settings can lock the OTLP destination, and the miner then receives nothing | **prohibited** (credential-intermediation ban; Commercial Terms resale restriction) | device_reported | **T3** (owner-uploaded CSV at most display-only "org-reported") ◐ |
-| Claude Enterprise, all surfaces via Enterprise Analytics API | Primary Owner creates a `read:analytics` key (`x-api-key`) | Same as Team; not for USAGE | `/v1/organizations/analytics/user_usage_report`, `/user_cost_report` (buckets 1d/1h/1m, per seat user, fractional-cent decimal strings), `/users` activity. Usage-based plans: tokens and cost. Seat-based: usage credits only. Revisable for 30 days. Data from 2026-01-01. Per-user endpoints accept a `user_ids[]` filter (up to 100) and return email and name, including removed users | Same CLI OTel | Routing **prohibited**. Sharing the analytics key or data with a third party: **unclear** (docs and Commercial Terms silent; confidentiality clause applies) | provider_attested (aggregate, per seat user; attribution done by USAGE) | **T2** org connector, written Anthropic confirmation first. Key reads every employee's usage (§5.2) ◐ |
+| Claude Team (Standard/Premium), CLI / Desktop / web | claude.ai OAuth with team seat; SSO options | Same as Pro/Max for CLI; documented only for customer-run gateways | Owner-only UI and spend CSV (usage-credit spend only; seat allowance not metered in dollars). No API ("not available on Teams plan") | Same CLI OTel. Managed settings can lock the OTLP destination, and the miner then receives nothing | Case B outside the documented pattern and in conflict with the credential-intermediation text; case A documented for the customer's own gateway, **ambiguous** for a third party (§1.1); Commercial Terms resale restriction | device_reported | **T3** (owner-uploaded CSV at most display-only "org-reported") ◐ |
+| Claude Enterprise, all surfaces via Enterprise Analytics API | Primary Owner creates a `read:analytics` key (`x-api-key`) | Same as Team; not for USAGE | `/v1/organizations/analytics/user_usage_report`, `/user_cost_report` (buckets 1d/1h/1m, per seat user, fractional-cent decimal strings), `/users` activity. Usage-based plans: tokens and cost. Seat-based: usage credits only. Revisable for 30 days. Data from 2026-01-01. Per-user endpoints accept a `user_ids[]` filter (up to 100) and return email and name, including removed users | Same CLI OTel | Routing as the Team row (case B outside the documented pattern; case A **ambiguous** for a third party, §1.1). Sharing the analytics key or data with a third party: **unclear** (docs and Commercial Terms silent; confidentiality clause applies) | provider_attested (aggregate, per seat user; attribution done by USAGE) | **T2** org connector, written Anthropic confirmation first. Key reads every employee's usage (§5.2) ◐ |
 
 ### 2.2 OpenAI
 
@@ -398,11 +580,12 @@ Each tier defines what a record *proves*. Only trusted server-side ingestion ass
 - **Legal and security:** maximal. USAGE handles live subscription credentials on every request.
 
 **Status: no round-1 provider authorizes this.**
-- **Explicitly prohibited:** Anthropic (terms) and Google Antigravity (Additional Terms). For Code Assist, the explicit statement is on Google's Gemini CLI docs page. The Cloud ToS contract has no routing clause.
+- **Anthropic.** A relay of the caller's claude.ai credential to a different upstream is outside the documented gateway pattern and conflicts with the Legal and compliance credential-intermediation text (case B, §1.1). A transparent Claude gateway is documented only for one the organization runs; a third party running one for unrelated users is ambiguous, and only Anthropic can confirm (case A). Neither is authorization.
+- **Explicitly prohibited:** Google Antigravity (Additional Terms). For Code Assist, the explicit statement is on Google's Gemini CLI docs page. The Cloud ToS contract has no routing clause.
 - **Unclear on paper:** OpenAI, GitHub and Cursor. In practice the conflict is with their credential-sharing clauses. Copilot also has a user-quoted support notice citing "proxy usage" (unverified ⚠), and Cursor metering would require protocol decoding.
 - **Round 2 (§2.7).** No app-login subscription is a T1 candidate. Relaying one would put a session or OAuth credential in USAGE's hands, which xAI and Microsoft prohibit explicitly and Zed and Tabnine prohibit in effect. Augment's terms are unclear, but holding its session JSON conflicts with its §1.1 (one individual per credential). The key-based plans are assessed under T1k below. They are not T1, because the client does not send the plan credential.
 
-T1 stays a dormant spec until written authorization exists. The existing Claude passthrough (§5.7) is not a T1 implementation. It is a violation that Phase 0a removes.
+T1 stays a dormant spec until written authorization exists. The former Claude passthrough (§5.7) was not a T1 implementation. It was case B (§1.1), outside the documented pattern, and M17A removed it (§1.2).
 
 ### T1k: Server-observed via a connected plan key (round 2)
 **Definition.** The user connects a plan key (an API key sold with a flat-rate or credit plan) through USAGE's **existing encrypted provider-connection path**, the same way an OpenRouter key is connected today. Then:
@@ -832,8 +1015,10 @@ Subscriptions make marginal usage free until the cap, so any reward creates an i
 10. **Employer-paid seats** earn only if D6 allows it, and only with explicit org consent.
 11. **A calibration epoch first**: settle at zero reward, like epoch-2026-09-10, and inspect the distributions.
 
-### 5.7 The existing Claude subscription passthrough (a terms conflict; it stops in Phase 0a)
-Facts from the codebase map:
+### 5.7 The former Claude subscription passthrough (a terms conflict; removed in M17A)
+**Status: done (M17A, 2026-09-17).** The fallback is gone from USAGE-Miner 0.4.7 and `/api/miner/config`, every gateway route refuses non-USAGE credentials before authentication, and the log-sink audit found 0 matches (§1.2). The text below is the pre-M17A analysis, kept as the record of why it was removed.
+
+Facts from the codebase map (before M17A):
 - When the miner uses the USAGE fallback, it launches Claude Code with the header-only plan (`USAGE-Miner/src/tools/claude-code.ts:229-236`), setting only `ANTHROPIC_CUSTOM_HEADERS`.
 - Claude Code keeps its claude.ai OAuth token in `Authorization`.
 - `buildUpstreamHeaders` (`src/lib/gateway/anthropic.ts:66-106`) forwards it to Vercel AI Gateway (`src/lib/compute/vercel-gateway.ts:74`).
@@ -841,9 +1026,9 @@ Facts from the codebase map:
 - The miner tells the user "USAGE still swaps in your provider's credential" (`USAGE-Miner/src/cli.ts:459`), which is wrong for this route.
 - `handler.ts:371-383` passes upstream error bodies back verbatim.
 
-Why it must stop:
+Why it had to stop:
 - Anthropic's Legal and compliance page says third-party developers may not route requests through Free/Pro/Max credentials on behalf of users, and "may not collect, store, or intermediate Claude.ai credentials or session tokens". The skeptic confirmed this reading.
-- USAGE's server receives and relays that token on every such request. That is intermediation, even though nothing is stored.
+- USAGE's server received that token on every such request and relayed it to a different upstream (Vercel AI Gateway). No official Anthropic document describes that shape. It falls outside the documented gateway pattern and conflicts with the credential-intermediation text, even though nothing was stored (case B, §1.1).
 - The only basis recorded in the repo is Vercel's own documentation of a Claude Code subscription mode (`anthropic.ts:76-86`). It is unverified here ⚠, and a gateway vendor's documentation cannot grant Anthropic's permission to USAGE.
 - The hard constraints forbid helping users violate a provider's terms.
 
@@ -887,7 +1072,7 @@ The only owner decision left is **what replaces the fallback** (D1).
 
 ### 6.2 Owner decisions required (options, not decisions)
 
-**D1: What replaces the Claude subscription fallback** (the passthrough itself stops in Phase 0a regardless)
+**D1: What replaces the Claude subscription fallback** (the passthrough itself was removed in M17A regardless, §1.2)
 - (a) No fallback. The miner tells a Claude subscriber that subscription usage can only be observed (T3, once its legal gate clears) and that ROUTED Claude usage needs a paid route (their own key or a connected paid provider). Pro: no terms exposure. Con: some users lose a working path.
 - (b) **BLOCKED.** A USAGE-funded shared-key Claude route, held and capped. Anthropic's "Can customers offer Claude Code in their products?" section bars paying for, reselling or intermediating Claude usage for end users (§8.1.2). This option is not available unless Anthropic confirms in writing that it is permitted.
 - (c) Only `subscription-observe` (T3) for Claude subscribers. Pro: the user keeps their own login and plan. Con: display-only; blocked on the Claude Code launcher legal question.
@@ -962,7 +1147,8 @@ Round 2 targets, in recommended order. Each request asks one narrow question: ma
 
 Every phase finishes with `npm run typecheck && npm run lint && npm test && npm run build` in both repos. Production migrations need prior agreement (rule 13). **Every adapter or connector phase updates the capability table in `docs/ARCHITECTURE.md` (hard rule 2), and its go/no-go includes that table matching what shipped.**
 
-### Phase 0a: Stop the Claude subscription passthrough (no new features; no decision needed to start)
+### Phase 0a: Stop the Claude subscription passthrough (done in M17A, 2026-09-17)
+- **Status: done** (§1.2). Log-sink audit: Vercel production logs for the last 30 days searched for `sk-ant-oat`, `sk-ant-api`, `authorization` and `Bearer`: 0 matches. DB text columns: 0 matches.
 - **Gate:** none for the stop. D1 decides only what the miner offers instead.
 - **Tasks:**
   1. Server refuses a caller `Authorization` on every route that would forward it upstream (§5.7).
@@ -1236,7 +1422,7 @@ Amazon Q Developer: skip (IDE plugins sunsetting; console Q gives event counts o
 ## 8. Risks & open questions
 
 ### 8.1 Legal and terms
-1. **Existing Claude passthrough.** It conflicts with Anthropic's credential-intermediation ban (§5.7) and is removed in Phase 0a. Residual risk: tokens captured in logs by past traffic (audit in Phase 0a). Vercel's subscription-mode documentation is unverified here and cannot grant Anthropic's permission.
+1. **Former Claude passthrough.** It was case B (§1.1): a relay to a different upstream, outside Anthropic's documented gateway pattern and in conflict with the credential-intermediation text (§5.7). Removed in M17A. The residual risk of tokens captured in logs by past traffic was checked: 0 matches (§1.2). Separately, whether a third party may operate a documented transparent Claude gateway (case A) is ambiguous and only Anthropic can confirm; USAGE does not operate one. Vercel's subscription-mode documentation is unverified here and cannot grant Anthropic's permission.
 2. **Miner launching Claude Code at all.** Anthropic's "Can customers offer Claude Code in their products?" section requires Commercial Terms, an unmodified binary, and no removing, disabling or restricting of built-in auth methods. It also bars paying for, reselling or intermediating Claude usage for end users. Open: does a third-party launcher count as offering Claude Code in a product? Does the isolated profile that deletes `.credentials.json` (`claude-profile.ts:147,158`) count as restricting sign-in? Needs legal review. A USAGE-funded shared-key Claude route (D1b) falls under the bar on paying for Claude usage and is blocked unless Anthropic confirms in writing that it is permitted. Until answered, the Claude Code adapter is `pending-review`.
 3. **Anthropic support article (2026-05-19):** Anthropic "may, at its discretion, allow" certain third-party tools for paid subscribers with usage credits on, billed to usage credits. Discretionary; whether any tool is allowed today is unknown; ask Anthropic (D10).
 4. **OpenAI:** "unclear" for hosted relays is not permission. OpenAI endorses using a ChatGPT plan in local third-party harnesses; its documents say nothing about hosted relays. ToU credential clause; Services Agreement §3.1, §3.3(g); "Modify, copy, lease, sell or distribute any of our Services". On Admin keys, both sides apply: the Help Center says the keys exist "to connect tools and services", while §3.3(g) bars transferring API keys with third parties.
