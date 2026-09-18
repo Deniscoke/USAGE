@@ -107,6 +107,17 @@ milestone follow below.
   final-upload privacy tests, docs/COVERAGE.md. Tracked != verified; reward 0;
   no economic change. Retention proposal (90 d granular, 24 mo daily aggregates)
   in docs/SUBSCRIPTION_METERING.md §1.3.5 awaits approval.
+- **M17B.1 real-device validation (2026-09-18).** Miner 0.4.8 published (GitHub
+  release + npm). On the owner's PC: Claude Max via "Measure everywhere"
+  (desktop app Code tab honours settings.json telemetry) and Codex 0.155.0 via
+  Track only reached production as clean local rows (allowlisted fields only,
+  device_attested, reward 0); dashboard/analytics show them under Local AI usage;
+  ledger, balances, allocations, epochs and eligible events byte-identical
+  before/after. Found and fixed: `usage run <tool> …args` used `shell: true`,
+  splitting prompts with spaces (`codex exec "Reply only: X"` failed) — miner
+  0.4.9 (5df00f2) spawns without a shell via spawn-tool.ts; unreleased.
+  Open: "Measure everywhere" stayed ON after the owner switched it off; the
+  Codex desktop app is not measurable (documented).
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;
