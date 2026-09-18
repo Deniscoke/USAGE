@@ -135,8 +135,15 @@ milestone follow below.
   tokens in Vault, server-only fetch of
   `/users/{login}/settings/billing/ai_credit/usage` (API 2026-03-10), immutable
   snapshots + revisioned normalized rows, numeric principal binding. Migration
-  0029 applied. Needs the owner to register the GitHub App and set
-  GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET (docs/GITHUB_APP_SETUP.md).
+  0029 applied. GitHub App registered, credentials in Vercel production.
+  Real owner test (2026-09-18): OAuth connected with `plan:read`; the endpoint
+  answered 200 with `usageItems: []` for 2026-09, so 0 normalized rows. GitHub's
+  own UI confirms the account is **personal Copilot Free**, 0% of included
+  credits used, no organization memberships, and Billing → AI usage says "No
+  usage" for Sep 2026 -- an exact match. `no_data_or_managed` here means
+  "personal, zero usage", not org-managed; the API alone cannot tell those
+  apart. Economics unchanged. No organization connector (M17C.1) is needed for
+  this account.
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;
