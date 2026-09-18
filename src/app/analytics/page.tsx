@@ -30,6 +30,8 @@ import {
 } from "@/lib/miner/local-ai-usage";
 import { LOCAL_TOOLS } from "@/lib/miner/tools";
 import { formatNumber } from "@/lib/domain/money";
+import { ProviderBillingDays, ProviderBillingMonth, PROVIDER_BILLING_TONE, RewardNotEnabledChip } from "@/components/provider-billing";
+import { loadProviderBilling, PROVIDER_BILLING_COPY, summarizeBillingDays, summarizeBillingMonth } from "@/lib/provider-billing/view";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +45,11 @@ export const dynamic = "force-dynamic";
  *   VERIFIED COMPUTE records USAGE wrote itself (routed or provider-verified),
  *                    the only lane with economic weight.
  *
- * Both are read as the signed-in user, so RLS decides what comes back. A
+ * A third, PROVIDER-CONFIRMED USAGE (M17C), sits below them: aggregates a
+ * provider's own billing reports (GitHub Copilot), reward 0, never summed
+ * with either lane and never correlated with a request.
+ *
+ * All are read as the signed-in user, so RLS decides what comes back. A
  * request both lanes saw is counted once, in the verified lane.
  */
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -74,6 +80,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     );
   }
   const [local, verified] = loaded;
+  // Third lane, loaded on its own: a failure here must not hide the other two.
+  const billing = await loadProviderBilling(supabase, user.id, now).catch(() => null);
   const report = summarizeLocalAiUsage({ observations: local.observations, range, now, truncated: local.truncated });
   const verifiedTotals = summarizeVerifiedLane({ events: verified.events, range, now, truncated: verified.truncated });
   const toolNames = Object.fromEntries(Object.values(LOCAL_TOOLS).map((t) => [t.id, t.displayName]));
@@ -194,6 +202,32 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           </section>
         </>
       )}
+
+      <section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5" style={{ borderTop: `2px solid ${PROVIDER_BILLING_TONE}` }}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">{PROVIDER_BILLING_COPY.title}</h2>
+          <RewardNotEnabledChip />
+        </div>
+        <p className="mt-1 text-[11px] text-[var(--faint)]">
+          Provider billing evidence · this month (UTC){billing ? ` · ${billing.month}` : ""} · never added to the lanes above
+        </p>
+        {billing ? (
+          <>
+            <div className="mt-4">
+              <ProviderBillingMonth summaries={summarizeBillingMonth(billing.rows, billing.month)} accounts={billing.accounts} month={billing.month} />
+            </div>
+            {billing.accounts.length > 0 && (
+              <div className="mt-4">
+                <Panel title="Provider billing by day" hint="Days GitHub reported; unreported days are absent, not zero" action={<RewardNotEnabledChip />}>
+                  <ProviderBillingDays days={summarizeBillingDays(billing.rows, billing.month)} />
+                </Panel>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="mt-4 text-xs text-[var(--muted)]">Provider-confirmed usage could not be loaded just now. Reload to try again.</p>
+        )}
+      </section>
 
       <div className="mt-6">
         <PrivacyNote />

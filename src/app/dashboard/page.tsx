@@ -24,6 +24,8 @@ import { MinerStatus } from "@/components/miner-status";
 import { loadDistribution } from "@/lib/miner/distribution-source";
 import { minerPresence } from "@/lib/miner/presence";
 import { MINIMUM_MINER_VERSION } from "@/lib/miner/release";
+import { ProviderBillingMonth, PROVIDER_BILLING_TONE, RewardNotEnabledChip } from "@/components/provider-billing";
+import { loadProviderBilling, PROVIDER_BILLING_COPY, summarizeBillingMonth } from "@/lib/provider-billing/view";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +60,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (!user) redirect("/login?next=/dashboard");
 
   const now = new Date();
-  const [snapshot, devices, distribution, localToday] = await Promise.all([
+  const [snapshot, devices, distribution, localToday, billing] = await Promise.all([
     loadDashboardSnapshot(supabase, user.id, dashboardSinceDay(now)),
     loadDeviceViews(supabase, user.id),
     // Cached upstream; a slow or rate-limited GitHub degrades to the pinned
@@ -68,6 +70,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // rendered in its own area, and nothing economic below receives it. A
     // failed read hides that area's figures rather than the dashboard.
     loadLocalAiUsage(supabase, user.id, utcDay(now), now).catch(() => null),
+    // The provider-billing lane (M17C), read as the user. Its own area below;
+    // never added to verified compute or local usage.
+    loadProviderBilling(supabase, user.id, now).catch(() => null),
   ]);
   const data = buildDashboardView({ ...snapshot, now });
   const localReport = localToday
@@ -342,6 +347,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       </section>
 
+      <LaneHeading
+        id="provider-confirmed-usage"
+        title={PROVIDER_BILLING_COPY.title}
+        sub="Aggregates a provider's own billing reports about your account, this month (UTC)."
+        tone={PROVIDER_BILLING_TONE}
+        chip={<RewardNotEnabledChip />}
+      />
+      <section aria-labelledby="provider-confirmed-usage" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        {billing ? (
+          <ProviderBillingMonth summaries={summarizeBillingMonth(billing.rows, billing.month)} accounts={billing.accounts} month={billing.month} />
+        ) : (
+          <p className="text-xs text-[var(--muted)]">Provider-confirmed usage could not be loaded just now. Reload to try again.</p>
+        )}
+      </section>
+
       <section className="mt-4">
         <Panel title="USAGE Miner" hint="Computers metering the AI apps you chose">
           <MinerStatus presence={presence} distribution={distribution} />
@@ -414,8 +434,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 }
 
 /**
- * The dashboard has two areas that must never read as one: verified compute
- * (economic) and local AI usage (analytics). Each opens with this heading, in
+ * The dashboard has three areas that must never read as one: verified compute
+ * (economic), local AI usage (analytics) and provider-confirmed usage
+ * (provider billing evidence, reward 0). Each opens with this heading, in
  * its lane's colour.
  */
 function LaneHeading({ id, title, sub, tone, chip }: { id: string; title: string; sub: string; tone: string; chip?: ReactNode }) {

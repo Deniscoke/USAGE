@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/settle-epoch",
       "schedule": "20 0 * * *"
+    },
+    {
+      "path": "/api/cron/provider-billing-sync",
+      "schedule": "40 1 * * *"
     }
   ]
 }

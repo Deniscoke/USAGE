@@ -243,6 +243,15 @@ Production at audit time: 15 rows, 1 user, 2 devices, Claude Code only, oldest 2
 
 Proposed policy (**not applied**; needs owner approval because it deletes data): keep granular observations 90 days, keep per-user per-day per-tool per-model aggregates (token categories and request counts only) for 24 months, then delete. That needs a migration (aggregate table + scheduled job) and a user-visible note in the privacy text.
 
+## 1.4 Provider billing evidence (M17C, 2026-09-18)
+
+A third lane, separate from local telemetry (§1.3) and routed verified compute: aggregates a provider's own billing system reports, read by USAGE's server with a user-authorized, read-only credential. Provider-authoritative, never per-request, **reward 0** until separately approved. Full design, sources and open questions: [PROVIDER_AUTHORITATIVE_USAGE.md](./PROVIDER_AUTHORITATIVE_USAGE.md); GitHub App registration: [GITHUB_APP_SETUP.md](./GITHUB_APP_SETUP.md).
+
+| Product | Status | Scope | Reward |
+|---|---|---|---|
+| GitHub Copilot, self-purchased plan (personal AI-credit billing) | IMPLEMENTED (M17C), not live until the GitHub App is registered and `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET` are set; migration 0029 not yet applied to production | Per-day and per-month aggregates by product/SKU/model/unit; code completions and next-edit suggestions are not billed as AI credits and do not appear | NOT ENABLED |
+| GitHub Copilot, organization- or enterprise-billed seat | NOT AVAILABLE through the personal endpoint (shown as "no personal billing usage found"); needs an organization connector | — | NOT ENABLED |
+
 ---
 
 ## 2. Provider matrix

@@ -118,6 +118,25 @@ milestone follow below.
   0.4.9 (5df00f2) spawns without a shell via spawn-tool.ts; unreleased.
   Open: "Measure everywhere" stayed ON after the owner switched it off; the
   Codex desktop app is not measurable (documented).
+- **M17B.2 (2026-09-18).** Miner 0.4.9 released (GitHub + npm): Measure
+  everywhere toggles are logged, read back, followed by every window (10 s), and
+  the OFF wording is honest; root cause of the stuck toggle was a click that
+  never reached the miner (stale tab of a closed window; 0.4.8 swallowed errors).
+- **Miner protocol version (audit 2026-09-18).** The server advertised
+  `miner-protocol-v1` while miners since commit 1182461 send
+  `miner-protocol-v2` in the heartbeat. Informational only: the server never
+  reads the field and miners never compare it. The current wire (telemetry,
+  device keys, mappings) is v2, so `MINER_PROTOCOL_VERSION` is now v2 and
+  migration 0029 adds the v2 row to `miner_protocol_versions`. No client is
+  rejected by this.
+- **M17C GitHub Copilot provider billing (2026-09-18).** Third evidence lane:
+  provider-authoritative aggregate billing, reward 0 (docs/PROVIDER_AUTHORITATIVE_USAGE.md).
+  GitHub App user authorization (Plan: read, no repository/org permissions),
+  tokens in Vault, server-only fetch of
+  `/users/{login}/settings/billing/ai_credit/usage` (API 2026-03-10), immutable
+  snapshots + revisioned normalized rows, numeric principal binding. Migration
+  0029 applied. Needs the owner to register the GitHub App and set
+  GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET (docs/GITHUB_APP_SETUP.md).
 
 - Tag and publish miner **v0.4.6** (all miner fixes above are unreleased).
 - Approve or decline: restrictive aal2 RLS policies; device-row reuse on re-pair;

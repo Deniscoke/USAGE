@@ -37,7 +37,15 @@ export interface MinerReleaseManifest {
 
 export const MINER_RELEASE = GENERATED_MINER_RELEASE;
 export const MINER_VERSION = MINER_RELEASE.version;
-export const MINER_PROTOCOL_VERSION = "miner-protocol-v1";
+/**
+ * The wire protocol the current miner speaks. v1 was pairing, config, routing
+ * and heartbeat; v2 (miner commit 1182461, 0.4.x) added local telemetry
+ * uploads, device signing keys and per-tool mappings -- the endpoints this
+ * server serves today. Miners send "miner-protocol-v2" in their heartbeat and
+ * never compare it with this value, so advertising v2 rejects no client.
+ * Informational only; nothing enforces it (M17C audit, 2026-09-18).
+ */
+export const MINER_PROTOCOL_VERSION = "miner-protocol-v2";
 /** Older builds still work; below this the server may refuse in future. */
 /**
  * Below this the server may refuse. Raised to 0.3.0 deliberately: 0.2.x wrote

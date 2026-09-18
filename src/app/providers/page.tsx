@@ -18,6 +18,9 @@ import { loadDeviceViews } from "@/lib/miner/device-view";
 import { loadDistribution } from "@/lib/miner/distribution-source";
 import { minerPresence, type MinerPresence } from "@/lib/miner/presence";
 import { MINIMUM_MINER_VERSION } from "@/lib/miner/release";
+import { GithubCopilotCard, githubFlash } from "@/components/provider-billing";
+import { loadProviderBilling, type BillingAccountView } from "@/lib/provider-billing/view";
+import { githubAppConfig } from "@/lib/provider-billing/github";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +61,16 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export default async function ProvidersPage() {
+export default async function ProvidersPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { github } = await searchParams;
+  const flash = githubFlash(typeof github === "string" ? github : undefined);
+  // A boolean only; the credentials never leave the server.
+  const githubConfigured = githubAppConfig() !== null;
+  let githubAccount: BillingAccountView | null = null;
   const gateways = listComputeGateways();
   // The public origin a miner should point at. Relative would be ambiguous in
   // a config file the user pastes somewhere else.
@@ -80,11 +92,15 @@ export default async function ProvidersPage() {
       const { createAdminSupabase } = await import("@/lib/supabase/admin");
       const store = createConnectionStore(createAdminSupabase());
       // Devices are read as the user, so RLS decides what comes back.
-      const [summaries, devices, distribution] = await Promise.all([
+      const [summaries, devices, distribution, billing] = await Promise.all([
         store.list(user.id),
         loadDeviceViews(supabase, user.id),
         loadDistribution(),
+        // Read as the signed-in user: RLS decides. A failed read shows the
+        // connect state rather than taking the page down.
+        loadProviderBilling(supabase, user.id, new Date()).catch(() => null),
       ]);
+      githubAccount = billing?.accounts.find((a) => a.provider === "github") ?? null;
       presence = minerPresence({
         devices,
         latestVersion: distribution.version,
@@ -194,6 +210,19 @@ export default async function ProvidersPage() {
               <InstallMinerNextStep presence={presence} />
             </div>
           )}
+        </section>
+      )}
+
+      {email && (
+        <section className="mt-8">
+          <h2 className="mb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted)]">
+            Provider billing evidence
+          </h2>
+          <p className="mb-3 max-w-2xl text-[11px] leading-relaxed text-[var(--faint)]">
+            What a provider&apos;s own billing reports about your account: authoritative aggregates, read-only, and
+            separate from mining. It does not currently earn Usage Points.
+          </p>
+          <GithubCopilotCard account={githubAccount} configured={githubConfigured} flash={flash} />
         </section>
       )}
 

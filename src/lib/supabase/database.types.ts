@@ -437,6 +437,93 @@ export type MinerProtocolVersionRow = {
   created_at: string;
 }
 
+/** Migration 0029: the provider billing evidence lane (reward 0). */
+export type ProviderBillingScopeRow =
+  | "personal"
+  | "no_data_or_managed"
+  | "permission_insufficient"
+  | "unavailable"
+  | "unknown";
+export type ProviderBillingStatusRow = "connected" | "degraded" | "needs_reauth" | "revoked";
+
+export type ProviderBillingAccountRow = {
+  id: string;
+  user_id: string;
+  provider: "github";
+  provider_principal_id: string;
+  provider_login: string | null;
+  billing_scope: ProviderBillingScopeRow;
+  status: ProviderBillingStatusRow;
+  permission_state: string;
+  token_secret_id: string | null;
+  secret_backend: "vault" | "aes" | null;
+  access_token_expires_at: string | null;
+  refresh_token_expires_at: string | null;
+  api_version: string | null;
+  last_sync_at: string | null;
+  last_success_at: string | null;
+  last_error_class: string | null;
+  last_manual_sync_at: string | null;
+  sync_lease_until: string | null;
+  disconnected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProviderBillingSnapshotRow = {
+  id: string;
+  account_id: string;
+  provider: string;
+  principal_id: string;
+  request_key: string;
+  period_year: number;
+  period_month: number | null;
+  period_day: number | null;
+  query_filters: Record<string, string>;
+  api_version: string;
+  http_status: number;
+  fetched_at: string;
+  response_sha256: string;
+  response_text: string;
+}
+
+export type ProviderBillingUsageRow = {
+  id: string;
+  account_id: string;
+  provider: string;
+  principal_id: string;
+  billing_scope: "personal";
+  period_kind: "day" | "month";
+  period_start: string;
+  product: string;
+  sku: string;
+  model: string;
+  unit_type: string;
+  price_per_unit_text: string;
+  price_per_unit_micros: number;
+  gross_quantity_text: string;
+  gross_quantity_micro_units: number;
+  discount_quantity_text: string;
+  discount_quantity_micro_units: number;
+  net_quantity_text: string;
+  net_quantity_micro_units: number;
+  gross_amount_text: string;
+  gross_amount_micros: number;
+  discount_amount_text: string;
+  discount_amount_micros: number;
+  net_amount_text: string;
+  net_amount_micros: number;
+  authoritative: true;
+  economic_authority: "provider_billing";
+  reward_eligible: false;
+  first_snapshot_id: string;
+  current_snapshot_id: string;
+  revision: number;
+  withdrawn_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ProviderOAuthRequestRow = {
   state: string;
   user_id: string;
@@ -913,6 +1000,46 @@ export type Database = {
         Row: PointBalanceSnapshotRow;
         Insert: PointBalanceSnapshotRow;
         Update: Partial<PointBalanceSnapshotRow>;
+        Relationships: [];
+      };
+      provider_billing_accounts: {
+        Row: ProviderBillingAccountRow;
+        Insert: Partial<ProviderBillingAccountRow> & { user_id: string; provider: "github"; provider_principal_id: string };
+        Update: Partial<ProviderBillingAccountRow>;
+        Relationships: [];
+      };
+      provider_billing_snapshots: {
+        Row: ProviderBillingSnapshotRow;
+        Insert: Partial<ProviderBillingSnapshotRow> & {
+          account_id: string;
+          provider: string;
+          principal_id: string;
+          request_key: string;
+          period_year: number;
+          api_version: string;
+          http_status: number;
+          response_sha256: string;
+          response_text: string;
+        };
+        // Append-only (trigger). Present for type completeness only.
+        Update: Partial<ProviderBillingSnapshotRow>;
+        Relationships: [];
+      };
+      provider_billing_usage: {
+        Row: ProviderBillingUsageRow;
+        Insert: Partial<ProviderBillingUsageRow> &
+          Omit<
+            ProviderBillingUsageRow,
+            | "id"
+            | "authoritative"
+            | "economic_authority"
+            | "reward_eligible"
+            | "revision"
+            | "withdrawn_at"
+            | "created_at"
+            | "updated_at"
+          >;
+        Update: Partial<ProviderBillingUsageRow>;
         Relationships: [];
       };
     };
